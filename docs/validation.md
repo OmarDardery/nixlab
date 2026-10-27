@@ -19,7 +19,7 @@ formatting, VM start or production network change was performed.
 | Applications VM `system.build.toplevel` build | Passed; produces a complete NixOS generation, does not prove guest boot |
 | Native backup and monitoring unit derivation builds | Passed |
 | Full host build dependency plan (`nix build --dry-run`) | Passed; includes Nix-built guest disk/image dependencies |
-| Python safety tests | 13 passed |
+| Python safety + setup tests | 39 passed |
 | Python compilation + YAML parsing | Passed |
 | `docker compose ... config --quiet` | Passed using the pinned Nixpkgs Compose executable |
 | Physical `/dev/kvm` acceleration, host firewall behavior, guest boot, UI login, sops decryption, real Cloudflare connectivity and restore | Not tested here |
@@ -36,6 +36,35 @@ is empty and actual boot/root filesystem configuration is absent. Passing `valid
 is not permission to install them. The test SSH key and test disk label are not production credentials.
 The default VM image bootstrap does not continuously apply guest OS changes to existing disks.
 
+## Installer and portal verification
+
+The follow-up installer/portal implementation additionally passed:
+
+- Setup-enabled NixOS evaluation with mounted ext4/XFS pools, Wi-Fi/iwd, Bluetooth,
+  Nginx TLS proxy, unprivileged web service and root broker.
+- Inherited-installation evaluation preserving `system.stateVersion = "25.11"`, root
+  filesystem/boot configuration and NetworkManager ownership while applying managed policies.
+- Complete **bootstrap OS** and **setup-enabled applications VM OS** generation builds.
+- Packaged admin/installer builds and UI/broker/Nginx unit derivation builds.
+- Real HTTPS handler tests for authentication, secure cookies, CA bootstrap, CSRF rejection,
+  hostname/rebinding rejection and invalid-setting refusal; schema, snapshot, secret-isolation,
+  recovery cleanup and timeout tests. The full suite currently contains 39 tests.
+- JavaScript syntax, installer Bash syntax/ShellCheck, and browser QA of the dashboard,
+  storage selection/role enforcement and radio/preferences pages against simulated hardware.
+
+The execution sandbox rejects filesystem UNIX-socket connections. The HTTPS integration tests
+therefore use an explicit **test-only loopback transport adapter** for the same broker handlers.
+Production has no TCP broker mode. Actual UNIX socket access separation, systemd activation,
+root privilege boundary, runtime mounts/radios, first boot, certificate enrollment, guest closure
+transfer and the network-loss rollback guard still need integration testing on NixOS hardware.
+The browser preview performed no host management actions and used reserved/fictitious inventory.
+The installer was not executed against a real host in this workspace.
+
+The preserved-base bootstrap means ordinary installation no longer requires supplying hardware
+values in chat or writing Nix manually: the target collects actual inventory and the wizard requires
+an initial configuration. Advanced/manual mode still uses the deliberately incomplete defaults.
+The supported automatic import is a conventional fresh x86_64 install, not arbitrary external flakes.
+
 ## Repeatable source checks
 
 ```console
@@ -47,7 +76,13 @@ nix eval .#nixosConfigurations.validation-apps.config.system.build.toplevel.drvP
 nix eval .#nixosConfigurations.validation-services.config.system.build.toplevel.drvPath
 nix eval .#nixosConfigurations.validation-demo.config.system.build.toplevel.drvPath
 nix eval .#nixosConfigurations.validation-zfs.config.system.build.toplevel.drvPath
-nix build .#packages.x86_64-linux.homelab --no-link
+nix build .#packages.x86_64-linux.homelab .#packages.x86_64-linux.admin .#packages.x86_64-linux.installer --no-link
+nix eval .#nixosConfigurations.validation-setup.config.system.build.toplevel.drvPath
+nix eval .#nixosConfigurations.validation-inherited.config.system.build.toplevel.drvPath
+nix build .#nixosConfigurations.validation-bootstrap.config.system.build.toplevel --no-link
+nix build .#nixosConfigurations.validation-setup-apps.config.system.build.toplevel --no-link
+node --check admin/static/app.js
+bash -n install.sh
 nix build .#nixosConfigurations.validation-apps.config.system.build.toplevel --no-link
 nix build .#nixosConfigurations.validation-host.config.system.build.toplevel --no-link --dry-run
 docker compose -f examples/demo/compose.yaml config --quiet

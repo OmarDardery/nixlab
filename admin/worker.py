@@ -1,0 +1,203 @@
+"""Independent systemd transaction worker and persistent rollback guard."""
+import json
+import os
+from pathlib import Path
+import shutil
+import signal
+import subprocess
+import time
+import runtime as rt
+
+
+def run(args, log, timeout=7200, check=True):
+    log.write('\n$ ' + ' '.join(args) + '\n'); log.flush()
+    process = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    try:
+        code = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGTERM)
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL); process.wait()
+        raise
+    if check and code:
+        raise subprocess.CalledProcessError(code, args)
+    return subprocess.CompletedProcess(args, code)
+
+
+def update(directory, **fields):
+    data = rt.read_json(directory / 'job.json')
+    data.update(fields)
+    rt.write_json(directory / 'job.json', data)
+    return data
+
+
+def build(directory):
+    source = directory / 'source'
+    job = rt.read_json(directory / 'job.json')
+    with (directory / 'build.log').open('a', buffering=1) as log:
+        if job['updateInputs']:
+            run(['nix', '--extra-experimental-features', 'nix-command flakes', 'flake', 'update', 'nixpkgs', '--flake', 'path:' + str(source)], log)
+        run(['nix', '--extra-experimental-features', 'nix-command flakes', 'build', 'path:' + str(source) + '#nixosConfigurations.hypervisor.config.system.build.toplevel',
+             '--out-link', str(directory / 'system')], log)
+        run(['nixos-rebuild', 'dry-activate', '--flake', 'path:' + str(source) + '#hypervisor'], log)
+    update(directory, status='ready', builtAt=time.time(), candidateDigest=rt.digest_source(source))
+    rt.audit('build-ready', job=directory.name)
+
+
+def save_recovery(directory):
+    recovery = directory / 'recovery'
+    recovery.mkdir(mode=0o700, exist_ok=True)
+    files = [(rt.ROOT / 'local/settings.json', 'settings.json'), (rt.ROOT / 'flake.lock', 'flake.lock')]
+    files += [(path, 'secret-' + key) for key, path in rt.SECRET_PATHS.items()]
+    files += [(rt.STATE / name, name) for name in ('tls.crt', 'tls.key')]
+    manifest = []
+    for path, name in files:
+        manifest.append({'path': str(path), 'name': name, 'existed': path.exists(), 'mode': path.stat().st_mode & 0o777 if path.exists() else 0o600})
+        if path.exists():
+            rt.atomic(recovery / name, path.read_bytes())
+    nm = Path('/run/NetworkManager/system-connections')
+    for path in nm.glob('nixlab-*.nmconnection') if nm.exists() else []:
+        rt.atomic(recovery / path.name, path.read_bytes())
+    try:
+        active = subprocess.run(['nmcli', '--get-values', 'GENERAL.CON-UUID', 'device', 'show'], capture_output=True, text=True, timeout=10)
+        uuids = [s.strip() for s in active.stdout.splitlines() if s.strip() and s.strip() != '--'] if active.returncode == 0 else []
+    except (OSError, subprocess.TimeoutExpired):
+        uuids = []
+    try:
+        radios = json.loads(subprocess.run(['rfkill', '--json'], capture_output=True, text=True, check=True).stdout).get('rfkilldevices', [])
+    except (OSError, ValueError, subprocess.CalledProcessError):
+        radios = []
+    rt.write_json(recovery / 'manifest.json', {'files': manifest, 'nmConnections': uuids, 'radios': radios})
+
+
+def restore_files(directory):
+    recovery = directory / 'recovery'
+    manifest = rt.read_json(recovery / 'manifest.json')
+    if not manifest:
+        raise ValueError('Recovery manifest is missing')
+    for item in manifest['files']:
+        target = Path(item['path'])
+        if item['existed']:
+            rt.atomic(target, (recovery / item['name']).read_bytes(), mode=item['mode'])
+        else:
+            target.unlink(missing_ok=True)
+    nm = Path('/run/NetworkManager/system-connections')
+    for path in nm.glob('nixlab-*.nmconnection') if nm.exists() else []:
+        path.unlink()
+    for path in recovery.glob('nixlab-*.nmconnection'):
+        rt.atomic(nm / path.name, path.read_bytes())
+    return manifest
+
+
+def rollback(directory, reason='requested'):
+    job = update(directory, status='rolling-back', rollbackReason=reason)
+    previous = job.get('previousSystem')
+    if not previous or not Path(previous, 'bin/switch-to-configuration').is_file():
+        raise ValueError('Previous OS generation is unavailable; use the bootloader recovery menu')
+    with (directory / 'build.log').open('a', buffering=1) as log:
+        manifest = restore_files(directory)
+        run(['nix-env', '--profile', '/nix/var/nix/profiles/system', '--set', previous], log, timeout=120)
+        run([previous + '/bin/switch-to-configuration', 'switch'], log, timeout=900)
+        if shutil.which('rfkill'):
+            for radio in manifest.get('radios', []):
+                if str(radio.get('id', '')).isdigit():
+                    run(['rfkill', 'block' if radio.get('soft') in ('blocked', True) else 'unblock', str(radio['id'])], log, timeout=10, check=False)
+        if shutil.which('nmcli'):
+            run(['nmcli', 'connection', 'reload'], log, timeout=30, check=False)
+            for uuid in manifest.get('nmConnections', []):
+                # Values come from nmcli before activation, never from a browser command string.
+                run(['nmcli', '--wait', '30', 'connection', 'up', 'uuid', uuid], log, timeout=40, check=False)
+        run(['systemctl', 'try-restart', 'nixlab-admin-backend.service', 'nixlab-ui.service', 'nginx.service'], log, timeout=45, check=False)
+    update(directory, status='rolled-back', rolledBackAt=time.time())
+    pending = rt.read_json(rt.STATE / 'pending.json')
+    if pending and pending['id'] == directory.name:
+        rt.durable_unlink(rt.STATE / 'pending.json')
+    (directory / 'secrets.json').unlink(missing_ok=True)
+    rt.durable_unlink(directory / 'system')
+    rt.durable_unlink(directory / 'previous-system')
+    rt.audit('rolled-back', job=directory.name, reason=reason)
+
+
+def apply(directory):
+    job = rt.read_json(directory / 'job.json')
+    if job['baseDigest'] != rt.digest_source(rt.ROOT) or job['candidateDigest'] != rt.digest_source(directory / 'source'):
+        raise ValueError('Source changed since review')
+    old_settings = rt.read_json(rt.ROOT / 'local/settings.json')
+    previous = str(Path('/run/current-system').resolve())
+    save_recovery(directory)
+    subprocess.run(['nix-store', '--add-root', str(directory / 'previous-system'), '--indirect', '--realise', previous], check=True, stdout=subprocess.DEVNULL)
+    job = update(directory, previousSystem=previous)
+    deadline = time.time() + 960 # activation itself has a 900-second deadline
+    rt.write_json(rt.STATE / 'pending.json', {'id': directory.name, 'previousSystem': previous, 'deadline': deadline})
+    try:
+        # Live secrets are separate from the immutable, reviewed Nix snapshot.
+        for key, data in rt.read_json(directory / 'secrets.json', {}).items():
+            rt.atomic(rt.SECRET_PATHS[key], data)
+        rt.write_json(rt.ROOT / 'local/settings.json', job['settings'])
+        if job['updateInputs']:
+            rt.atomic(rt.ROOT / 'flake.lock', (directory / 'source/flake.lock').read_bytes(), mode=0o644)
+        before, after = old_settings['management'], job['settings']['management']
+        if before['address'] != after['address'] or old_settings['hostName'] != job['settings']['hostName']:
+            rt.issue_tls(after['address'], job['settings']['hostName'])
+        with (directory / 'build.log').open('a', buffering=1) as log:
+            run(['nixos-rebuild', 'switch', '--flake', 'path:' + str(directory / 'source') + '#hypervisor'], log, timeout=900)
+            run(['systemctl', 'is-active', 'incus.service', 'nixlab-instances.service'], log, timeout=30)
+            if job['settings']['apps']['enable']:
+                run(['systemctl', 'is-active', 'nixlab-apps-onboarding.service', 'nginx.service'], log, timeout=30)
+            if before['address'] != after['address'] or old_settings['hostName'] != job['settings']['hostName']:
+                run(['systemctl', 'try-restart', 'incus.service'], log, timeout=120)
+            # Load rotated TLS material/new port. This may require signing in again.
+            run(['systemctl', 'try-restart', 'nixlab-admin-backend.service', 'nixlab-ui.service'], log, timeout=45)
+            if job['settings']['apps']['enable']:
+                run(['systemctl', 'try-restart', 'nginx.service'], log, timeout=45)
+        deadline = time.time() + job['settings']['setup']['confirmationSeconds']
+        rt.write_json(rt.STATE / 'pending.json', {'id': directory.name, 'previousSystem': previous, 'deadline': deadline})
+        update(directory, status='awaiting-confirmation', deadline=deadline)
+        rt.audit('awaiting-confirmation', job=directory.name)
+    except Exception:
+        rollback(directory, 'activation failed')
+        raise
+
+
+def job(phase, job_id):
+    if len(job_id) != 32 or any(c not in '0123456789abcdef' for c in job_id):
+        raise ValueError('Invalid transaction ID')
+    directory = rt.STATE / 'jobs' / job_id
+    if not directory.is_dir():
+        raise ValueError('Unknown transaction')
+    try:
+        if phase == 'build':
+            build(directory)
+        elif phase == 'apply':
+            # Guard and confirmation serialize against activation. The guard also
+            # checks the deadline on a reboot or after a killed apply process.
+            with rt.locked():
+                apply(directory)
+        elif phase == 'rollback':
+            with rt.locked():
+                rollback(directory)
+        else:
+            raise ValueError('Unsupported transaction action')
+    except Exception as exc:
+        current = rt.read_json(directory / 'job.json')
+        if current.get('status') != 'rolled-back':
+            update(directory, status='failed', error=str(exc))
+        with (directory / 'build.log').open('a') as log:
+            log.write('\nFAILED: ' + str(exc) + '\n')
+        rt.audit('transaction-failed', job=job_id, phase=phase)
+        raise
+
+
+def guard():
+    pending = rt.read_json(rt.STATE / 'pending.json')
+    if not pending or time.time() < pending['deadline']:
+        return
+    with rt.locked():
+        pending = rt.read_json(rt.STATE / 'pending.json')
+        if pending and rt.read_json(rt.STATE / 'jobs' / pending['id'] / 'job.json', {}).get('status') == 'confirmed':
+            rt.durable_unlink(rt.STATE / 'pending.json')
+            return
+        if pending and time.time() >= pending['deadline']:
+            rollback(rt.STATE / 'jobs' / pending['id'], 'confirmation timed out')

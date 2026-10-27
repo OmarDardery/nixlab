@@ -1,6 +1,13 @@
 # Architecture decisions and research
 
-Research date: 2026-10-27. Nixpkgs is pinned to
+Research date: 2026-10-27.
+
+The [installer/portal architecture](setup.md) adds a preserved-installation bootstrap, typed JSON
+Nix input, separate unprivileged HTTPS process/local root broker, reviewed rebuild transactions,
+UUID-backed mounts, modular radios and a persistent rollback guard. In installer mode the
+existing apps VM is also deployed through Incus, and a TLS-verified Portainer proxy provides
+a LAN portal without guest SSH setup. Manual mode retains the original direct/SSH workflow.
+ The lock file pins Nixpkgs to
 `718f670e845328e9c2cecdd832835712b2cbd065` on `nixos-26.05`.
 26.05 is the current stable release; 26.11 is not selected as a stable release in October.
 

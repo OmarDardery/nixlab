@@ -1,8 +1,8 @@
-{ pkgs, site, ... }:
+{ lib, pkgs, site, ... }:
 {
   boot.kernelModules = [ (if site.cpuVendor == "amd" then "kvm-amd" else "kvm-intel") ];
-  virtualisation.libvirtd.enable = false;
-  virtualisation.docker.enable = false;
+  virtualisation.libvirtd.enable = lib.mkForce false;
+  virtualisation.docker.enable = lib.mkForce false;
   systemd.services.nixlab-kvm-check = {
     description = "Require usable hardware virtualization before provisioning VMs";
     wantedBy = [ "multi-user.target" ];

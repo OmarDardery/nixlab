@@ -3,7 +3,7 @@
   imports = [ ../modules/guest-secrets.nix (modulesPath + "/virtualisation/incus-virtual-machine.nix") ../modules/docker-host.nix ];
   networking.hostName = "apps";
   networking.useDHCP = true;
-  time.timeZone = "Africa/Cairo";
+  time.timeZone = site.maintenance.timeZone;
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   users.users.root = {
     initialHashedPassword = lib.mkForce null;

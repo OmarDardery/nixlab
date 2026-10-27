@@ -37,6 +37,9 @@ def reconcile(spec):
     # List is checked first: an API/permission error is never mistaken for absence.
     existing = json.loads(run("list", "--project", project, "--format=json"))
     found = next((i for i in existing if i["name"] == name), None)
+    if found is None and spec.get("manageExistingOnly"):
+        print(f"absent {project}/{name}; no VM created")
+        return
     if found is None:
         args = ["init", spec["image"], name, "--project", project,
                 "--config", OWNER + "=true"]
@@ -49,6 +52,9 @@ def reconcile(spec):
         # Apply disks/NIC reservations before the first boot, including after a failed prior run.
         run(*args)
     current = json.loads(run("query", "/1.0/instances/" + quote(name, safe="") + "?project=" + quote(project, safe="")))
+    if spec.get("manageExistingOnly") and current.get("config", {}).get(OWNER) != "true":
+        print(f"unowned {project}/{name}; left untouched")
+        return
     update = plan(current, spec)
     if update is not None:
         run("config", "edit", name, "--project", project, data=json.dumps(update))
@@ -57,7 +63,9 @@ def reconcile(spec):
         print(f"unchanged {project}/{name}")
     state = json.loads(run("list", "--project", project, "--format=json"))
     status = next(i["status"] for i in state if i["name"] == name)
-    if spec.get("start", True) and status == "Stopped":
+    if spec.get("stop", False) and status == "Running":
+        run("stop", name, "--project", project, "--timeout", "120")
+    elif spec.get("start", True) and status == "Stopped":
         run("start", name, "--project", project)
 
 if __name__ == "__main__":

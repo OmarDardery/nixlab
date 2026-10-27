@@ -61,6 +61,12 @@ class ReconcileTests(unittest.TestCase):
                 reconcile.reconcile(self.spec)
         self.assertEqual(run.call_count, 1)
 
+    def test_disabled_apps_is_not_created_when_absent(self):
+        spec = {'name': 'apps', 'project': 'lab', 'type': 'virtual-machine', 'manageExistingOnly': True, 'start': False, 'stop': True}
+        with patch.object(reconcile, 'run', return_value='[]') as run:
+            reconcile.reconcile(spec)
+            self.assertEqual(run.call_count, 1)
+
     def test_type_change_requires_explicit_migration(self):
         self.spec['type'] = 'virtual-machine'
         with self.assertRaises(ValueError):

@@ -13,7 +13,7 @@ in {
     passwordFile = site.backup.passwordFile;
     environmentFile = site.backup.environmentFile;
     initialize = site.backup.initialize;
-    paths = [ "/var/lib/nixlab/exports" ];
+    paths = [ site.backup.stagingDirectory ];
     backupPrepareCommand = "${backup}/bin/nixlab-export";
     backupCleanupCommand = "${backup}/bin/nixlab-export --recover";
     timerConfig = { OnCalendar = "*-*-* 03:00:00"; Persistent = true; RandomizedDelaySec = "10min"; };
@@ -23,6 +23,7 @@ in {
     restic-backups-nixlab = {
       after = [ "incus-preseed.service" "nixlab-instances.service" ];
       requires = [ "incus.service" ];
+      environment.NIXLAB_EXPORT_DIRECTORY = site.backup.stagingDirectory;
       environment.NIXLAB_DEMO_BACKUP = if site.apps.enableDemo then "1" else "0";
       onFailure = [ "nixlab-backup-failed.service" ];
       serviceConfig = {

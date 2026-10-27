@@ -3,10 +3,16 @@
 A declarative NixOS bare-metal host using Incus for system containers and KVM VMs,
 with Docker Compose isolated inside a NixOS applications VM.
 
-**Deployment status:** implementation for review and hardware commissioning. The repository
-intentionally refuses production activation until `site.nix` contains verified inventory
-and `hardware-configuration.nix` describes the physical machine. Never install the
-`validation-*` targets. See [validation results](docs/validation.md) for what was actually tested.
+**Recommended installation:** run the [bootstrap installer](install.sh) on a fresh conventional
+NixOS host, open its printed HTTPS address, and finish the [web setup wizard](docs/setup.md).
+The installer preserves the actual hardware, bootloader, users and state version. The portal
+configures networking, existing data disks, Wi-Fi/Bluetooth, applications and runtime secrets;
+it builds/reviews a candidate before switching, with a persistent rollback/confirmation guard.
+
+Implementation remains in hardware commissioning: source checks/builds and HTTPS tests pass,
+but no physical machine was converted in this workspace. Read [validation results](docs/validation.md)
+and the supported starting configurations in the [setup guide](docs/setup.md). Manual Git/Nix
+configuration remains available and intentionally refuses activation with an incomplete inventory.
 
 ## Selected stack
 
@@ -40,6 +46,11 @@ site.nix                     # explicit inventory and feature flags
 flake.nix / flake.lock        # pinned host, VM, image, helper and validation outputs
 modules/                     # Incus, firewall, storage, secrets, backups, monitoring
 modules/docker-host.nix       # imported in apps VM only
+install.sh                   # Nix-backed bootstrap launcher
+installer/                   # preserved-installation bootstrap and packaged installer
+admin/                       # HTTPS UI, local root broker, transaction/recovery engine
+local/settings.json          # generated on the host; ignored by Git
+installed-system/            # preserved local Nix modules; ignored by Git
 scripts/                     # packaged CLI, project actions, reconciliation, backup
 examples/demo/               # functioning web app + PostgreSQL + Redis Compose stack
 guests/apps.nix              # reproducibly built Incus NixOS VM image
@@ -48,6 +59,9 @@ docs/                        # research, commissioning, operation and recovery
 ```
 
 ## Start here
+
+For the installer and browser-first workflow, start with [web setup](docs/setup.md).
+The following guides also cover the advanced/manual deployment path.
 
 1. Read [architecture decisions](docs/architecture.md).
 2. Collect the inventory and follow [deployment](docs/deployment.md).

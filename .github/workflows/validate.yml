@@ -14,17 +14,27 @@ jobs:
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
       - name: Python safety tests
         run: python3 -m unittest discover -s tests -v
+      - name: Validate UI JavaScript and installer shell
+        run: |
+          node --check admin/static/app.js
+          bash -n install.sh
       - name: Parse all Nix files
         run: find . -name '*.nix' -exec nix-instantiate --parse '{}' ';' >/dev/null
       - name: Evaluate configuration variants
         run: |
-          for target in validation-host validation-apps validation-services validation-demo validation-zfs; do
+          for target in validation-host validation-apps validation-services validation-demo validation-zfs validation-inherited validation-bootstrap validation-setup validation-setup-apps; do
             nix eval ".#nixosConfigurations.$target.config.system.build.toplevel.drvPath"
           done
       - name: Build helper and apps system
         run: |
           nix build .#packages.x86_64-linux.homelab --no-link
           nix build .#nixosConfigurations.validation-apps.config.system.build.toplevel --no-link
+      - name: Build setup tools and bootstrap OS
+        run: |
+          nix build .#packages.x86_64-linux.admin .#packages.x86_64-linux.installer --no-link
+          nix build .#nixosConfigurations.validation-bootstrap.config.system.build.toplevel --no-link
+          nix build '.#nixosConfigurations.validation-setup.config.systemd.units."nixlab-ui.service".unit' '.#nixosConfigurations.validation-setup.config.systemd.units."nginx.service".unit' --no-link
+          test "$(nix eval --raw .#nixosConfigurations.validation-inherited.config.system.stateVersion)" = "25.11"
       - name: Build backup and monitoring units
         run: |
           nix build '.#nixosConfigurations.validation-services.config.systemd.units."restic-backups-nixlab.service".unit' '.#nixosConfigurations.validation-services.config.systemd.units."nixlab-metrics.service".unit' --no-link

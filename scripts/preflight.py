@@ -58,7 +58,8 @@ def validate(site):
         if not re.fullmatch(r'[a-zA-Z][a-zA-Z0-9_.:-]*(/[a-zA-Z0-9_.:-]+)+', storage['source']):
             raise ValueError('ZFS source must name an existing child dataset, never a disk or pool root')
     elif storage['driver'] == 'dir':
-        if not storage['source'].startswith('/var/lib/incus/storage-pools/'):
+        primary_sources = [m['path'] + '/incus' for m in site.get('mounts', []) if m.get('role') == 'guests']
+        if not storage['source'].startswith('/var/lib/incus/storage-pools/') and storage['source'] not in primary_sources:
             raise ValueError('Directory storage must live in the dedicated Incus storage-pools tree')
     else:
         raise ValueError('Unsupported storage driver')

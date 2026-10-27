@@ -11,7 +11,7 @@ import sys
 import tempfile
 from urllib.parse import quote
 
-ROOT = Path('/var/lib/nixlab/exports')
+ROOT = Path(os.environ.get('NIXLAB_EXPORT_DIRECTORY', '/var/lib/nixlab/exports'))
 PENDING = Path('/var/lib/nixlab/restart-pending.json')
 
 def incus(*args):
@@ -30,6 +30,11 @@ def save_pending(pending):
     with temporary.open('rb') as f:
         os.fsync(f.fileno())
     os.replace(temporary, PENDING)
+    directory = os.open(PENDING.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 def recover():
     pending = json.loads(PENDING.read_text()) if PENDING.exists() else []

@@ -1,5 +1,10 @@
 # Deployment and commissioning
 
+For a fresh conventional NixOS installation, the recommended path is now the
+[bootstrap installer and web wizard](setup.md). It collects hardware/network values locally
+and provides subsequent settings/rebuilds through the portal. The steps below remain the
+manual/advanced source workflow.
+
 ## Collect real inventory first
 
 Do not copy the evaluation fixture into production. From the physical machine or its

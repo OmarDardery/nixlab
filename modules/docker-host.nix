@@ -39,13 +39,18 @@ in {
     backend = "docker";
     containers.portainer = {
       image = site.apps.portainerImage;
-      ports = [ "127.0.0.1:9443:9443" ];
+      ports = [ "${if site.setup.enable then "0.0.0.0" else "127.0.0.1"}:9443:9443" ];
       volumes = [ "/var/run/docker.sock:/var/run/docker.sock" "/srv/portainer:/data"
-        "/var/lib/nixlab-secrets/portainer-admin-password:/run/secrets/admin-password:ro" ];
-      cmd = [ "--admin-password-file" "/run/secrets/admin-password" "--host" "unix:///var/run/docker.sock" ];
+        "/var/lib/nixlab-secrets/portainer-admin-password:/run/secrets/admin-password:ro" ]
+        ++ lib.optionals site.setup.enable [
+          "/var/lib/nixlab-secrets/tls.crt:/run/secrets/tls.crt:ro"
+          "/var/lib/nixlab-secrets/tls.key:/run/secrets/tls.key:ro"
+        ];
+      cmd = [ "--admin-password-file" "/run/secrets/admin-password" "--host" "unix:///var/run/docker.sock" ] ++ lib.optionals site.setup.enable [ "--sslcert" "/run/secrets/tls.crt" "--sslkey" "/run/secrets/tls.key" ];
     };
   };
-  systemd.services.docker-portainer.unitConfig.ConditionPathExists = "/var/lib/nixlab-secrets/portainer-admin-password";
+  systemd.services.docker-portainer.unitConfig.ConditionPathExists = [ "/var/lib/nixlab-secrets/portainer-admin-password" ]
+    ++ lib.optionals site.setup.enable [ "/var/lib/nixlab-secrets/tls.crt" "/var/lib/nixlab-secrets/tls.key" ];
   systemd.services.nixlab-demo = lib.mkIf site.apps.enableDemo {
     description = "Deploy version-controlled demo Compose project";
     wantedBy = [ "multi-user.target" ];
@@ -53,6 +58,7 @@ in {
     restartTriggers = [ ../examples/demo/compose.yaml demoImage ];
     path = [ pkgs.docker projectTool pkgs.coreutils ];
     serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+    unitConfig.ConditionPathExists = "/var/lib/nixlab-secrets/demo-db-password";
     script = ''
       test -s /var/lib/nixlab-secrets/demo-db-password
       # A managed immutable Compose file; edit Git/Nix, not this UI copy.

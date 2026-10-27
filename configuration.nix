@@ -1,7 +1,7 @@
 { lib, pkgs, site ? import ./site.nix, ... }:
 {
   imports = [
-    ./hardware-configuration.nix
+    ./modules/installed-base.nix
     ./modules/virtualization.nix
     ./modules/incus.nix
     ./modules/networking.nix
@@ -11,6 +11,12 @@
     ./modules/cloudflared.nix
     ./modules/backups.nix
     ./modules/monitoring.nix
+    ./modules/mounts.nix
+    ./modules/radios/wifi.nix
+    ./modules/radios/bluetooth.nix
+    ./modules/quality-of-life.nix
+    ./modules/admin-ui.nix
+    ./modules/apps-onboarding.nix
   ];
   assertions = [
     { assertion = site.ready; message = "Complete site.nix from real hardware/network inventory and set ready=true."; }
@@ -21,8 +27,8 @@
     { assertion = site.guests.cidr != "" && site.guests.gatewayCIDR != "" && site.guests.appsAddress != "" && site.guests.dhcpRange != "";
       message = "Choose a non-overlapping guest subnet, bridge address, DHCP range and reserved apps IP."; }
   ];
-  networking.hostName = site.hostName;
-  time.timeZone = "Africa/Cairo";
+  networking.hostName = lib.mkForce site.hostName;
+  time.timeZone = lib.mkForce site.maintenance.timeZone;
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   nix.gc = { automatic = true; dates = "weekly"; options = "--delete-older-than 30d"; };
   environment.systemPackages = [
@@ -30,7 +36,7 @@
   ];
   environment.etc."nixlab/client.json".text = builtins.toJSON {
     remote = "local"; project = "lab"; appsInstance = "apps";
-    exportDirectory = "/var/lib/nixlab/exports";
+    exportDirectory = site.backup.stagingDirectory;
   };
-  system.stateVersion = "26.05";
+  system.stateVersion = lib.mkDefault "26.05";
 }

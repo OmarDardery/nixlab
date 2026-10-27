@@ -3,9 +3,9 @@
   security.apparmor.enable = true;
   services.openssh = {
     enable = true;
-    openFirewall = false;
-    settings = { PasswordAuthentication = false; KbdInteractiveAuthentication = false;
-      PermitRootLogin = "no"; X11Forwarding = false; };
+    openFirewall = lib.mkForce false;
+    settings = { PasswordAuthentication = lib.mkForce false; KbdInteractiveAuthentication = lib.mkForce false;
+      PermitRootLogin = lib.mkForce "no"; X11Forwarding = false; };
   };
   users.users.operator = {
     isNormalUser = true;
