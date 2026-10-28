@@ -1,0 +1,1 @@
+{"id":"applications","title":"Docker applications VM","description":"Enable the isolated Docker/Portainer VM. Select resources and supply its initialization password on Applications before building.","settings":{"apps":{"enable":true}}}
