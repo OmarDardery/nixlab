@@ -58,6 +58,12 @@ def plan(current, spec):
     old = json.loads(current.get('config', {}).get(LAST_APPLIED, '{}'))
     if old and old.get('version') != 1:
         raise ValueError('Unsupported last-applied ownership version')
+    if spec.get('manageExistingOnly') and old:
+        # A shutdown sentinel changes only its explicit fields, not the guest's definition.
+        desired = copy.deepcopy(old)
+        desired['config'].update(spec.get('config', {}))
+        desired['devices'].update(spec.get('devices', {}))
+        if 'profiles' in spec: desired['profiles'] = spec['profiles']
     writable = {k: copy.deepcopy(current[k]) for k in
                 ('architecture', 'config', 'devices', 'ephemeral', 'profiles', 'description') if k in current}
     result = copy.deepcopy(writable)
@@ -78,7 +84,7 @@ def plan(current, spec):
     if 'profiles' in old and current.get('profiles', []) != old['profiles'] and current.get('profiles', []) != desired['profiles']:
         raise ValueError('Runtime drift at profiles')
     result['profiles'] = desired['profiles']
-    result['config'][LAST_APPLIED] = encode_state(spec)
+    result['config'][LAST_APPLIED] = json.dumps(desired, sort_keys=True, separators=(',', ':'))
     return result if result != writable else None
 
 

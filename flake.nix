@@ -88,7 +88,8 @@
       apps.x86_64-linux.install = { type = "app"; program = "${self.packages.x86_64-linux.installer}/bin/nixlab-install"; };
       nixlabMigrationChecks = import ./tests/settings-checks.nix { lib = nixpkgs.lib; };
       nixlabDefaults = import ./site-defaults.nix;
-      nixlabSettings = site;
+      nixlabDesiredSettings = site;
+      nixlabSettings = self.nixosConfigurations.hypervisor.config.nixlab.settings;
       nixlabOverview = {
         stateVersion = bootstrap.config.system.stateVersion;
         boot = { systemdBoot = bootstrap.config.boot.loader.systemd-boot.enable; grub = bootstrap.config.boot.loader.grub.enable; };

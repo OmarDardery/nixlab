@@ -175,12 +175,17 @@ backup. The setup UI does not claim otherwise.
 
 ## Ongoing use and security boundary
 
-The UI edits `local/settings.json`; `site.nix` merges it with `site-defaults.nix`. Nix itself parses
-and evaluates the configuration, including the preserved installation. Arbitrary Nix programs
-are not safely reversible with regex parsing, so the web editor deliberately exposes a typed
-settings model and an evaluated read-only overview instead of editing arbitrary source text.
-Advanced modules, instance definitions, sops policy and secret file paths remain repository-owned.
-No raw shell command, arbitrary Nix source, arbitrary file path or user-supplied flake URL endpoint exists.
+The ordinary forms edit `machine/settings.json` (or legacy `local/settings.json`).
+The inventory is checked as typed Nix options under `nixlab.settings`; file modules
+can override individual options. The portal displays effective values and identifies
+file-owned overrides. It does not parse or rewrite arbitrary Nix functions.
+
+The Configuration files page accepts reviewed administrator Nix modules in the
+machine module directory. It requires password reauthentication and explicit
+acknowledgment of root-equivalent configuration authority. This is trusted system
+code, not a sandboxed plugin mechanism. Path/type/size limits and staging protect
+the workflow; they cannot make malicious NixOS modules safe. There is no general
+shell-command endpoint or arbitrary destination path. See [file modules](file-modules.md).
 
 The HTTPS process runs as an unprivileged `nixlab-ui` user. Its root broker accepts only defined
 operations over a mode-0660 local UNIX socket. The portal has TLS, a salted PBKDF2 password hash,
@@ -190,8 +195,8 @@ administrator interface, not a multi-tenant permission system. Keep it off publi
 
 Build/apply run in independent systemd units, so restarting the web process does not abandon the
 activation or its recovery guard. Logs are visible in the UI and journal; important operations are
-recorded in root-only `/var/lib/nixlab-admin/audit.jsonl`. Credential values are absent from the Nix
-snapshot and job metadata. Discarded/superseded candidates release their build GC roots and staged
+recorded in root-only `/var/lib/nixlab-admin/audit.jsonl`. Runtime credential inputs are excluded from the Nix snapshot and job metadata.
+Administrator-uploaded source is shown in review and must not contain credentials. Discarded/superseded candidates release their build GC roots and staged
 credentials. One-step confirmed recovery remains pinned; obsolete recovery secret copies and older
 transaction roots are released after the next successful confirmation. The original installation
 generation remains pinned separately for console recovery. The broker/UI are restarted after a switch to load updated runtimes.
@@ -251,7 +256,7 @@ resource requirements; ordinary containers avoid the overhead of an additional g
 All of these choices flow through typed desired settings into native NixOS modules. Existing
 installations retain their explicit applications setting; a source update does not silently
 turn off an opted-in VM. The UI exports desired settings JSON without secret values for review
-and backup. After activation the authoritative settings are in `local/settings.json`; back that
+and backup. After activation the authoritative inputs are the machine settings JSON and modules; back these
 up together with the source revision, `flake.lock`, preserved installation modules and separate
 secrets. Imported settings must be reviewed for the target machine rather than blindly restored.
 

@@ -46,3 +46,8 @@ vm.runInContext("state.status.job={moduleChanges:[{path:'<script>',before:null,a
 const moduleReview = vm.runInContext('moduleReview()',context);
 assert.ok(moduleReview.includes('&lt;script&gt;'));
 assert.ok(!moduleReview.includes('<img src=x'));
+
+vm.runInContext("state.status.setupComplete=true; state.status.effectiveSettings=JSON.parse(JSON.stringify(state.status.settings)); state.status.effectiveSettings.management.address='198.51.100.30';",context);
+const effectiveTools=vm.runInContext('homepageTools()',context);
+assert.ok(effectiveTools.includes('https://198.51.100.30:8443'));
+assert.ok(!effectiveTools.includes('https://192.0.2.10:8443'));

@@ -68,7 +68,7 @@ def backend():
                 elif self.path == '/inventory':
                     result = manager.host_inventory()
                 elif self.path == '/access':
-                    settings = manager.settings()
+                    settings = manager.effective_settings()
                     hosts = [settings['management']['address'], settings['hostName'], 'localhost', '127.0.0.1']
                     from model import command
                     try:
@@ -336,7 +336,7 @@ def config_cli(argv):
 
 
 def renew():
-    settings = rt.read_json(rt.machine_path(rt.ROOT, 'settings'))
+    settings = rt.read_json(Path('/etc/nixlab/effective-settings.json'), rt.read_json(rt.machine_path(rt.ROOT, 'settings')))
     import subprocess
     checks = [subprocess.run(['openssl', 'x509', '-checkend', '2592000', '-noout', '-in', str(rt.STATE / name)], capture_output=True).returncode
               for name in ('tls.crt', 'apps-tls.crt')]

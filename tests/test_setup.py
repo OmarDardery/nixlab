@@ -46,6 +46,25 @@ HOST = {'architecture':'x86_64','cpuVendor':'intel','kvm':True,
         'disks':[{'uuid':'aaaa-bbbb','fstype':'ext4','mountpoints':[],'path':'/dev/test','type':'part','size':1000000}]}
 
 class ModuleUploadTests(unittest.TestCase):
+    def test_build_validates_file_disks_before_marking_ready(self):
+        import worker
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)/'repo';root.mkdir();directory=Path(folder)/'job';directory.mkdir()
+            subprocess.run(['git','init','-q',str(root)],check=True)
+            rt.write_json(root/'local/settings.json',settings())
+            rt.snapshot(directory/'source',root)
+            rt.write_json(directory/'job.json',{'updateInputs':False})
+            disk={'name':'archive','uuid':'aaaa-bbbb','path':'/srv/nixlab/archive','fsType':'ext4','role':'pool','required':True,'readOnly':False}
+            projection={'settings':settings(),'disks':{'archive':disk}}
+            host=copy.deepcopy(HOST)
+            host['disks'].append({'uuid':'different-uuid','mountpoints':['/srv/nixlab/archive']})
+            result=subprocess.CompletedProcess([],0,stdout=json.dumps(projection))
+            with patch('worker.run'),patch('worker.subprocess.run',return_value=result),patch('model.inventory',return_value=host):
+                with self.assertRaisesRegex(ValueError,'different filesystem'):
+                    worker.build(directory)
+            self.assertNotEqual(rt.read_json(directory/'job.json').get('status'),'ready')
+            self.assertFalse((root/'site-modules').exists())
+
     def test_root_cli_uses_same_review_transaction(self):
         from main import config_cli
         with tempfile.TemporaryDirectory() as folder:

@@ -42,7 +42,25 @@ def build(directory):
         run(['nix', '--extra-experimental-features', 'nix-command flakes', 'build', 'path:' + str(source) + '#nixosConfigurations.hypervisor.config.system.build.toplevel',
              '--out-link', str(directory / 'system')], log)
         run(['nixos-rebuild', 'dry-activate', '--flake', 'path:' + str(source) + '#hypervisor'], log)
-    update(directory, status='ready', builtAt=time.time(), candidateDigest=rt.digest_source(source))
+    result = subprocess.run(['nix', '--extra-experimental-features', 'nix-command flakes', 'eval', '--json',
+        'path:' + str(source) + '#nixosConfigurations.hypervisor.config', '--apply',
+        'c: { settings = c.nixlab.settings; disks = c.nixlab.storage.disks; }'],
+        check=True, capture_output=True, text=True, timeout=120)
+    projection = json.loads(result.stdout)
+    effective, disks = projection['settings'], projection['disks']
+    from model import inventory, validate_settings
+    validation = json.loads(json.dumps(effective))
+    validation['mounts'] += list(disks.values())
+    validate_settings(validation, validation, inventory())
+    previous_disks = rt.read_json(Path('/etc/nixlab/effective-disks.json'), {})
+    for name, previous in previous_disks.items():
+        if name not in disks or any(disks[name][key] != previous[key] for key in ('uuid', 'path', 'fsType', 'role')):
+            raise ValueError('Migrate active disk before removing/remapping: ' + name)
+    active_settings = rt.read_json(Path('/etc/nixlab/effective-settings.json'), {})
+    if Path('/var/lib/incus/database').exists() and active_settings:
+        if effective['storage'] != active_settings['storage'] or effective['guests'] != active_settings['guests']:
+            raise ValueError('Initialized Incus storage/network requires an explicit migration')
+    update(directory, status='ready', builtAt=time.time(), effectiveSettings=effective, candidateDigest=rt.digest_source(source))
     rt.audit('build-ready', job=directory.name)
 
 
@@ -141,7 +159,8 @@ def apply(directory):
     job = rt.read_json(directory / 'job.json')
     if job['baseDigest'] != rt.digest_source(rt.ROOT) or job['candidateDigest'] != rt.digest_source(directory / 'source'):
         raise ValueError('Source changed since review')
-    old_settings = rt.read_json(rt.machine_path(rt.ROOT, 'settings'))
+    old_settings = rt.read_json(Path('/etc/nixlab/effective-settings.json'), rt.read_json(rt.machine_path(rt.ROOT, 'settings')))
+    effective = job.get('effectiveSettings', job['settings'])
     previous = str(Path('/run/current-system').resolve())
     save_recovery(directory)
     subprocess.run(['nix-store', '--add-root', str(directory / 'previous-system'), '--indirect', '--realise', previous], check=True, stdout=subprocess.DEVNULL)
@@ -156,24 +175,24 @@ def apply(directory):
         rt.write_json(rt.machine_path(rt.ROOT, 'settings'), job['settings'])
         if job['updateInputs']:
             rt.atomic(rt.ROOT / 'flake.lock', (directory / 'source/flake.lock').read_bytes(), mode=0o644)
-        before, after = old_settings['management'], job['settings']['management']
-        if before['address'] != after['address'] or old_settings['hostName'] != job['settings']['hostName']:
-            rt.issue_tls(after['address'], job['settings']['hostName'])
+        before, after = old_settings['management'], effective['management']
+        if before['address'] != after['address'] or old_settings['hostName'] != effective['hostName']:
+            rt.issue_tls(after['address'], effective['hostName'])
         with (directory / 'build.log').open('a', buffering=1) as log:
             # Activate the exact reviewed closure; never rebuild from changed inputs here.
             system = str((directory / 'system').resolve())
             run(['nix-env', '--profile', '/nix/var/nix/profiles/system', '--set', system], log, timeout=120)
             run([system + '/bin/switch-to-configuration', 'switch'], log, timeout=900)
             run(['systemctl', 'is-active', 'incus.service', 'nixlab-instances.service'], log, timeout=30)
-            if job['settings']['apps']['enable']:
+            if effective['apps']['enable']:
                 run(['systemctl', 'is-active', 'nixlab-apps-onboarding.service', 'nginx.service'], log, timeout=30)
-            if before['address'] != after['address'] or old_settings['hostName'] != job['settings']['hostName']:
+            if before['address'] != after['address'] or old_settings['hostName'] != effective['hostName']:
                 run(['systemctl', 'try-restart', 'incus.service'], log, timeout=120)
             # Load rotated TLS material/new port. This may require signing in again.
             run(['systemctl', 'try-restart', 'nixlab-admin-backend.service', 'nixlab-ui.service'], log, timeout=45)
-            if job['settings']['apps']['enable']:
+            if effective['apps']['enable']:
                 run(['systemctl', 'try-restart', 'nginx.service'], log, timeout=45)
-        deadline = time.time() + job['settings']['setup']['confirmationSeconds']
+        deadline = time.time() + effective['setup']['confirmationSeconds']
         rt.write_json(rt.STATE / 'pending.json', {'id': directory.name, 'previousSystem': previous, 'deadline': deadline})
         update(directory, status='awaiting-confirmation', deadline=deadline)
         rt.audit('awaiting-confirmation', job=directory.name)

@@ -136,6 +136,15 @@ class FieldOwnershipTests(unittest.TestCase):
         self.assertEqual(changed['config']['user.note'],'keep')
         self.assertIsNone(reconcile.plan(changed | {'type':'container'},self.spec))
 
+    def test_shutdown_sentinel_preserves_owned_devices_and_limits(self):
+        self.spec['devices']={'root':{'type':'disk','pool':'guests','path':'/'}}
+        self.current=reconcile.plan(self.current,self.spec) | {'type':'container'}
+        sentinel={'name':'guest','type':'container','manageExistingOnly':True,'config':{'boot.autostart':'false'}}
+        changed=reconcile.plan(self.current,sentinel)
+        self.assertEqual(changed['devices'],self.current['devices'])
+        self.assertEqual(changed['config']['limits.memory'],'2GiB')
+        self.assertEqual(changed['config']['boot.autostart'],'false')
+
     def test_owned_runtime_drift_is_refused(self):
         self.current['config']['limits.memory']='4GiB'
         with self.assertRaisesRegex(ValueError,'Runtime drift'):

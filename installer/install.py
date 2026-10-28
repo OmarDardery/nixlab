@@ -105,7 +105,6 @@ def main():
         TARGET.chmod(0o700)
         rt.write_json(TARGET / 'machine/format.json', {'version': 1})
         copy_nix_modules(ORIGINAL.resolve(), rt.machine_path(TARGET, 'installed'))
-        shutil.copyfile(ORIGINAL / 'hardware-configuration.nix', TARGET / 'hardware-configuration.nix')
         default = json.loads(run(['nix', '--extra-experimental-features', 'nix-command flakes', 'eval', '--json',
                                  'path:' + str(TARGET) + '#nixlabDefaults'], capture_output=True, text=True).stdout)
         default['setup']['enable'] = True

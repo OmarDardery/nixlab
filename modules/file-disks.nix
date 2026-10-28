@@ -20,6 +20,7 @@ in {
       };
     }));
   };
+  config.environment.etc."nixlab/effective-disks.json".text = builtins.toJSON config.nixlab.storage.disks;
   config.assertions = [
     { assertion = unique "name" && unique "path" && unique "uuid";
       message = "File disks and UI mounts must have distinct names, paths and UUIDs."; }

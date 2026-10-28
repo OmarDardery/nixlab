@@ -164,6 +164,8 @@ def validate_settings(candidate, current, host, require_devices=True):
             existing = [s for s in disk.get('mountpoints', []) if s]
             if any(s != mount['path'] for s in existing):
                 raise ValueError('Device is already mounted elsewhere; root/boot/system disks cannot be repurposed')
+            if any(other.get('uuid') != mount['uuid'] and mount['path'] in (other.get('mountpoints') or []) for other in flatten_disks(host.get('disks', []))):
+                raise ValueError('Mount point is already backed by a different filesystem')
             target = Path(mount['path'])
             if target.is_symlink():
                 raise ValueError('Mount point cannot be a symlink')

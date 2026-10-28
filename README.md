@@ -49,7 +49,9 @@ modules/docker-host.nix       # imported in apps VM only
 install.sh                   # Nix-backed bootstrap launcher
 installer/                   # preserved-installation bootstrap and packaged installer
 admin/                       # HTTPS UI, local root broker, transaction/recovery engine
-local/settings.json          # generated on the host; ignored by Git
+machine/settings.json        # generated on the host; ignored by Git
+machine/modules/             # administrator modules, discovered automatically
+machine/installed-system/    # preserved hardware/boot configuration
 installed-system/            # preserved local Nix modules; ignored by Git
 scripts/                     # packaged CLI, project actions, reconciliation, backup
 examples/demo/               # functioning web app + PostgreSQL + Redis Compose stack
@@ -92,3 +94,16 @@ Settings remain declared through Nix and can be exported from the UI. See the
 
 The homepage provides management/resource links and configured public application endpoints.
 See the [quality-of-life roadmap](docs/roadmap.md) for prioritized proposals and acceptance criteria.
+
+### Configuration migration
+
+New installations keep machine-specific files in `machine/`, separate from the
+tracked platform source. No second GitHub repository is required. Existing
+`local/` and `site-modules/` installations continue to work; after upgrading,
+`sudo nixlab-admin config migrate-layout` selects the new directory atomically.
+Finish/discard any pending transaction first. Legacy files remain available for
+recovery, but are no longer authoritative after migration.
+
+See [file configuration](docs/file-modules.md) for typed settings, named guests,
+disks, reviewed uploads and the migration procedure. Feature composition is
+covered in `platform-modules/`; mutable guest data still needs independent backups.

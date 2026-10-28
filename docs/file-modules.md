@@ -1,12 +1,16 @@
 # File-based administrator configuration
 
-The hypervisor discovers `.nix` NixOS modules recursively under `site-modules/`.
-Names starting with `_` are disabled. Bootstrap intentionally ignores this tree.
-This is the first file-based extension boundary; it is not yet the planned
-flake-parts conversion a complete platform/site repository split. Modules are trusted, privileged
-system configuration. Keep secrets outside the source tree.
+The hypervisor discovers NixOS modules recursively under `machine/modules/`.
+Existing installations using `site-modules/` remain supported until their layout
+is migrated. Names starting with `_` are disabled. Bootstrap intentionally ignores
+user modules. These are trusted, privileged system configuration; keep secrets
+outside the source tree.
 
-For an existing filesystem, add `site-modules/disks/archive.nix`:
+This project stays in one Git repository. The ignored `machine/` directory holds
+settings, installation metadata, preserved hardware/boot modules and user features.
+There is no second repository to create or maintain.
+
+For an existing filesystem, add `machine/modules/disks/archive.nix`:
 
 ```nix
 { ... }: {
@@ -23,8 +27,9 @@ The default mount point is `/srv/nixlab/archive`; a pool declaration registers
 for a plain mount. This never formats a device. Select the actual filesystem UUID
 using `lsblk -f`, check that it is not a system disk or already mounted elsewhere,
 and verify the mount point is empty before first activation. Build-time type
-checks cannot establish those runtime facts. File declarations currently require
-administrator review of them; they do not run the browser's hardware discovery.
+checks cannot establish those runtime facts. The guarded portal/CLI build validates typed disk declarations against hardware
+discovery before activation. Direct rebuilds require administrator review of these
+runtime facts.
 
 Names, paths and UUIDs cannot overlap the existing UI-owned mounts. These new
 disks are source-owned and not editable through the current storage form. Primary
@@ -87,7 +92,87 @@ Do not drop them into `platform-modules/` directly: wrap them as a feature's
 bootstrap role deliberately loads only installed-base and administration features.
 Discovery makes features available; optional services retain their enable flags.
 
-This composition change does not yet split installed platform code into a separate
-pinned site repository or replace all legacy inventory fields with named options.
-Those are separate migrations; existing installations retain their current source
-layout and settings ownership during this transition.
+## Migrating an existing installation
+
+Upgrade the platform code and activate the updated admin package first. Finish
+or discard any pending configuration transaction. Then run:
+
+```sh
+sudo nixlab-admin config migrate-layout
+sudo nixlab-admin config status
+```
+
+The command validates source paths, copies only approved configuration files into
+an isolated staging directory, and atomically renames it to `machine/`. It is
+idempotent, refuses an unknown/pre-existing machine format, and keeps the legacy
+files for recovery. A version marker selects one authoritative layout; old local
+files cannot override the canonical files. No OS rebuild, guest mutation or disk
+operation occurs during this directory migration. Back up `machine/` independently.
+
+Fresh installations start with this layout. The import of the original NixOS
+configuration, its relative hardware imports and stateVersion are preserved under
+`machine/installed-system/`. The tracked hardware placeholder is not overwritten.
+
+## Typed settings and ownership
+
+All inventory fields are now Nix module options under `nixlab.settings`. Unknown
+keys and invalid value types are rejected by Nix. The existing JSON schema/UI
+remains a compatibility authoring interface: per-field defaults preserve its
+values unless an administrator module overrides that field explicitly.
+
+```nix
+{ ... }: {
+  nixlab.settings.radios.bluetooth.enable = false;
+  nixlab.settings.monitoring = { history = true; retentionDays = 7; };
+}
+```
+
+The UI displays the effective configuration and identifies differing file-owned
+settings; corresponding scalar form controls are disabled. Structured resource
+forms remain JSON-owned. Secrets are runtime references, never credential contents.
+`nix eval --json .#nixlabSettings` shows evaluated settings;
+`.#nixlabDesiredSettings` shows the JSON/default inventory before file overrides.
+The active projection is materialized in `/etc/nixlab/effective-settings.json`;
+regular status polling does not evaluate Nix.
+
+Declare guests independently using stable names:
+
+```nix
+{ ... }: {
+  nixlab.incus.instances.monitoring = {
+    image = "images:REPLACE-WITH-REVIEWED-FINGERPRINT";
+    type = "container";
+    config = { "limits.cpu" = "2"; "limits.memory" = "1GiB"; };
+  };
+}
+```
+
+Default project/profile are `lab` and `base`. Projects/profiles referenced here
+must already exist through platform policy or native Incus preseed options.
+Duplicate project/name identities are rejected; `lab/apps` is reserved. The old
+`settings.instances` list is accepted for compatibility, not a second authority
+for the same guest. A changed image reference never recreates an existing guest.
+
+## Reconciliation migration
+
+The first reconciliation of an existing Nixlab-managed guest retains the previous
+additive behavior and records only the declared fields in a versioned last-applied
+marker. It does not claim ownership of unrelated runtime config or volatile keys.
+Subsequent runs compare previous declaration, current runtime values and desired
+values. Removed owned config keys converge; unrelated runtime keys survive.
+Conflicting runtime edits fail with a field identifier rather than overwriting
+them. Resolve drift explicitly in the UI/CLI or update the declaration to agree
+with the intended runtime value, then review again.
+
+Device detach or changes to type/pool/source/path require an explicit storage
+migration. A shutdown-only sentinel preserves the guest definition. Removing an
+entire guest declaration retains its disks and instance; it is not deletion
+permission. Manual stopped state survives unrelated rebuilds, while incomplete
+initialization is retried. Configuration writes carry the ETag from the same GET,
+so concurrent changes return an error instead of being lost.
+
+This completes the configuration-model transition while retaining legacy input
+compatibility. It does not implement the separate product-roadmap features such
+as an integrated restore dashboard, generic application catalog, multi-user RBAC,
+clustering/HA or PBS-style backup. Physical commissioning and a restore drill are
+still release gates; configuration tests cannot establish hardware reliability.
