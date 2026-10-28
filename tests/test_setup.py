@@ -45,6 +45,60 @@ HOST = {'architecture':'x86_64','cpuVendor':'intel','kvm':True,
         'routes':[{'dst':'192.0.2.0/24','dev':'eth0'}],
         'disks':[{'uuid':'aaaa-bbbb','fstype':'ext4','mountpoints':[],'path':'/dev/test','type':'part','size':1000000}]}
 
+class ModuleUploadTests(unittest.TestCase):
+    def test_root_cli_uses_same_review_transaction(self):
+        from main import config_cli
+        with tempfile.TemporaryDirectory() as folder:
+            source=Path(folder)/'archive.nix';source.write_text('{}')
+            with patch('main.broker_request',return_value={'id':'example'}) as broker,patch('builtins.print'):
+                config_cli(['review','--module','disks/archive.nix='+str(source)])
+            self.assertEqual(broker.call_args.args,('POST','/review',{'settings':{},'modules':{'disks/archive.nix':'{}'},'updateInputs':False}))
+
+    def test_path_limits_and_content_validation(self):
+        for value in ({'../escape.nix':'{}'}, {'a//b.nix':'{}'}, {'x.txt':'{}'}, {'x.nix':None}, {'x.nix':'\x00'}, {'x.nix':'a'*65537}):
+            with self.subTest(value=str(value)[:50]), self.assertRaises(ValueError):
+                rt.validate_modules(value)
+        self.assertEqual(rt.validate_modules({'disks/archive.nix':'{}'}), {'disks/archive.nix':'{}'})
+
+    def test_review_stages_module_without_touching_live_source(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)/'repo';root.mkdir();state=Path(folder)/'state';state.mkdir()
+            subprocess.run(['git','init','-q',str(root)],check=True)
+            rt.write_json(root/'local/settings.json',settings())
+            manager=Manager(root,state)
+            with patch.object(rt,'STATE',state),patch('controller.inventory',return_value=HOST),patch.object(manager,'spawn'):
+                result=manager.review({}, modules={'disks/archive.nix':'{ ... }: {}'})
+            job=manager.job_path(result['id'])
+            self.assertFalse((root/'site-modules/disks/archive.nix').exists())
+            self.assertEqual((job/'source/site-modules/disks/archive.nix').read_text(),'{ ... }: {}')
+            self.assertEqual(manager.job(result['id'])['moduleChanges'][0]['before'],None)
+            digest=rt.digest_source(job/'source')
+            rt.atomic(job/'source/site-modules/disks/archive.nix','changed')
+            self.assertNotEqual(digest,rt.digest_source(job/'source'))
+
+    def test_apply_publishes_modules_and_activates_exact_closure(self):
+        import worker
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)/'repo';root.mkdir();state=Path(folder)/'state';state.mkdir()
+            subprocess.run(['git','init','-q',str(root)],check=True)
+            cfg=settings();rt.write_json(root/'local/settings.json',cfg)
+            directory=state/'jobs/example';directory.mkdir(parents=True)
+            rt.snapshot(directory/'source',root)
+            rt.atomic(directory/'source/site-modules/archive.nix','{}')
+            closure=Path(folder)/'reviewed-system';closure.mkdir()
+            (directory/'system').symlink_to(closure)
+            rt.write_json(directory/'job.json',{'settings':cfg,'baseDigest':rt.digest_source(root),'candidateDigest':rt.digest_source(directory/'source'),'updateInputs':False})
+            original_run = subprocess.run
+            def fake_run(args, **kwargs):
+                if args[0] == 'git': return original_run(args, **kwargs)
+                return subprocess.CompletedProcess(args,0,stdout='{}')
+            with patch.object(rt,'ROOT',root),patch.object(rt,'STATE',state),patch.object(rt,'SECRET_PATHS',{}),patch('worker.subprocess.run',side_effect=fake_run),patch('worker.run') as run:
+                worker.apply(directory)
+            self.assertTrue((root/'site-modules/archive.nix').exists())
+            commands=[call.args[0] for call in run.call_args_list]
+            self.assertIn([str(closure)+'/bin/switch-to-configuration','switch'],commands)
+            self.assertFalse(any(c[0]=='nixos-rebuild' for c in commands))
+
 class ModelTests(unittest.TestCase):
     def test_lightweight_defaults_and_monitoring_limits(self):
         self.assertFalse(DEFAULTS['apps']['enable'])
@@ -344,6 +398,13 @@ main.backend()
         self.assertEqual(status,200)
         for flag in ('HttpOnly','Secure','SameSite=Strict'):self.assertIn(flag,headers['Set-Cookie'])
         data,_,status=self.request('/api/status');self.assertEqual(status,200);self.assertEqual(data['settings']['hostName'],'fixture')
+    def test_module_upload_requires_reauthentication(self):
+        for extra in ({}, {'adminPassword':'wrong','acknowledgePrivilegedModules':True}):
+            body={'settings':{},'modules':{'archive.nix':'{}'}} | extra
+            data,_,status=self.request('/api/review',body,origin=self.origin)
+            self.assertEqual(status,400)
+            self.assertIn('Reauthenticate',data['error'])
+
     def test_csrf_and_cross_origin_mutation_refused(self):
         _,_,status=self.request('/api/review',{'settings':{}},origin=self.origin,csrf=False);self.assertEqual(status,401)
         _,_,status=self.request('/api/review',{'settings':{}},origin='https://attacker.invalid');self.assertEqual(status,401)

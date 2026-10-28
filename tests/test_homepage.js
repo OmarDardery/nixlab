@@ -41,3 +41,8 @@ vm.runInContext('state.status.settings.tunnel.enable=false', context);
 resources = vm.runInContext('homepageResources()', context);
 assert.ok(!resources.includes('https://photos.example.com'));
 console.log('Homepage checks passed: active URLs, disabled services, helper resources and public endpoints.');
+
+vm.runInContext("state.status.job={moduleChanges:[{path:'<script>',before:null,after:'<img src=x onerror=alert(1)>'}]};",context);
+const moduleReview = vm.runInContext('moduleReview()',context);
+assert.ok(moduleReview.includes('&lt;script&gt;'));
+assert.ok(!moduleReview.includes('<img src=x'));

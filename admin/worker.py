@@ -152,6 +152,7 @@ def apply(directory):
         # Live secrets are separate from the immutable, reviewed Nix snapshot.
         for key, data in rt.read_json(directory / 'secrets.json', {}).items():
             rt.atomic(rt.SECRET_PATHS[key], data)
+        rt.install_modules(directory / 'source', rt.ROOT)
         rt.write_json(rt.ROOT / 'local/settings.json', job['settings'])
         if job['updateInputs']:
             rt.atomic(rt.ROOT / 'flake.lock', (directory / 'source/flake.lock').read_bytes(), mode=0o644)
@@ -159,7 +160,10 @@ def apply(directory):
         if before['address'] != after['address'] or old_settings['hostName'] != job['settings']['hostName']:
             rt.issue_tls(after['address'], job['settings']['hostName'])
         with (directory / 'build.log').open('a', buffering=1) as log:
-            run(['nixos-rebuild', 'switch', '--flake', 'path:' + str(directory / 'source') + '#hypervisor'], log, timeout=900)
+            # Activate the exact reviewed closure; never rebuild from changed inputs here.
+            system = str((directory / 'system').resolve())
+            run(['nix-env', '--profile', '/nix/var/nix/profiles/system', '--set', system], log, timeout=120)
+            run([system + '/bin/switch-to-configuration', 'switch'], log, timeout=900)
             run(['systemctl', 'is-active', 'incus.service', 'nixlab-instances.service'], log, timeout=30)
             if job['settings']['apps']['enable']:
                 run(['systemctl', 'is-active', 'nixlab-apps-onboarding.service', 'nginx.service'], log, timeout=30)

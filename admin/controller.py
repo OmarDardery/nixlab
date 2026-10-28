@@ -80,8 +80,9 @@ class Manager:
                 sys.executable, str(rt.SOURCE / 'main.py'), 'job', phase, job_id]
         subprocess.run(args, check=True, capture_output=True, text=True)
 
-    def review(self, changes, secret_values=None, update_inputs=False):
+    def review(self, changes, secret_values=None, update_inputs=False, modules=None):
         with rt.locked():
+            modules = rt.validate_modules({} if modules is None else modules)
             current = self.settings()
             active = rt.read_json(self.state / 'active.json', {})
             if active.get('id'):
@@ -139,10 +140,13 @@ class Manager:
             job_id = secrets.token_hex(16)
             directory = self.state / 'jobs' / job_id
             rt.snapshot(directory / 'source', self.root)
+            for name, content in modules.items():
+                rt.atomic(directory / 'source/site-modules' / name, content, mode=0o644)
             rt.write_json(directory / 'source/local/settings.json', candidate)
             rt.write_json(directory / 'secrets.json', encoded)
             job = {'id': job_id, 'status': 'building', 'created': time.time(), 'baseDigest': rt.digest_source(self.root),
                    'settings': candidate, 'changes': differences(current, candidate),
+                   'moduleChanges': [{'path': name, 'before': (self.root / 'site-modules' / name).read_text() if (self.root / 'site-modules' / name).exists() else None, 'after': content} for name, content in modules.items()],
                    'secretChanges': sorted(encoded), 'updateInputs': bool(update_inputs)}
             rt.write_json(directory / 'job.json', job)
             rt.write_json(self.state / 'active.json', {'id': job_id})

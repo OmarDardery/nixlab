@@ -3,7 +3,7 @@
 The hypervisor discovers `.nix` NixOS modules recursively under `site-modules/`.
 Names starting with `_` are disabled. Bootstrap intentionally ignores this tree.
 This is the first file-based extension boundary; it is not yet the planned
-flake-parts conversion or a browser-upload API. Modules are trusted, privileged
+flake-parts conversion a complete platform/site repository split. Modules are trusted, privileged
 system configuration. Keep secrets outside the source tree.
 
 For an existing filesystem, add `site-modules/disks/archive.nix`:
@@ -43,3 +43,31 @@ build/review/apply transaction, these files also enter the hashed candidate
 snapshot. Its recovery record saves and restores this module tree alongside
 settings and credentials. A direct rebuild does not enable portal rollback.
 OS/module recovery does not reverse guest storage or database changes.
+
+## Reviewed browser uploads and root CLI
+
+The Configuration files page stages up to 16 Nix modules, each at most 64 KiB,
+with a 128 KiB total limit. Supply a relative destination such as
+`disks/archive.nix`. The review page requires the administrator password and
+acknowledgment that this is privileged system configuration. Review the old and
+new source before activating. This is an administrator interface, not a safe
+execution environment for code received from strangers.
+
+Files enter only the candidate until activation. Activation publishes the module
+tree and switches to the exact reviewed closure. Failure/confirmation timeout
+restores the previous module tree. Removing an active storage declaration remains
+a migration operation; no browser deletion endpoint is provided. Source code can
+contain secrets, so do not put credentials into uploads or the source review.
+
+Root can use the same transaction API locally:
+
+```sh
+sudo nixlab-admin config review --module disks/archive.nix=./archive.nix
+sudo nixlab-admin config status
+sudo nixlab-admin config apply TRANSACTION_ID
+sudo nixlab-admin config confirm TRANSACTION_ID
+```
+
+Use `cancel` for an unapplied candidate, or `rollback` with the transaction ID.
+The CLI does not wait for builds or implicitly confirm connectivity. Use the
+returned status/log to decide when to apply. No extra network service is started.

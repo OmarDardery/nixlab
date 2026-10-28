@@ -6,6 +6,7 @@ import grp
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import shlex
@@ -100,6 +101,32 @@ def audit(action, **fields):
     with (STATE / 'audit.jsonl').open('a') as stream:
         stream.write(json.dumps(record, sort_keys=True) + '\n')
     # Never log request bodies, credentials or generated browser certificates.
+
+
+def validate_modules(changes):
+    if not isinstance(changes, dict) or len(changes) > 16:
+        raise ValueError('Upload at most 16 named Nix module files')
+    total = 0
+    for name, content in changes.items():
+        if not isinstance(name, str) or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_/-]*\.nix', name) or any(part in ('', '.', '..') for part in name.split('/')):
+            raise ValueError('Use a relative .nix module path without traversal')
+        if not isinstance(content, str) or '\x00' in content:
+            raise ValueError('Nix module content must be text')
+        size = len(content.encode())
+        if size > 65536:
+            raise ValueError('A module exceeds the 64 KiB limit')
+        total += size
+    if total > 131072:
+        raise ValueError('Module upload exceeds the 128 KiB limit')
+    return changes
+
+
+def install_modules(source, root):
+    files = module_files(source)
+    module_files(root)  # Validate the live tree before the first write.
+    for path in files:
+        relative = path.relative_to(source)
+        atomic(Path(root) / relative, path.read_bytes(), mode=0o644)
 
 
 def module_files(root):

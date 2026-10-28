@@ -88,7 +88,7 @@ def backend():
             try:
                 body = json_body(self)
                 if self.path == '/review':
-                    result = manager.review(body['settings'], body.get('secrets', {}), body.get('updateInputs', False))
+                    result = manager.review(body['settings'], body.get('secrets', {}), body.get('updateInputs', False), body.get('modules', {}))
                 elif self.path == '/apply':
                     result = manager.apply(body['id'])
                 elif self.path == '/cancel':
@@ -275,6 +275,10 @@ def web():
                     result = broker_request('POST', '/password', {'password': body['password']})
                     auth.sessions.clear()
                     return reply(self, 200, result)
+                if self.path == '/api/review' and body.get('modules'):
+                    if body.get('acknowledgePrivilegedModules') is not True or not rt.password_matches(body.get('adminPassword'), rt.read_json(rt.STATE / 'auth.json')):
+                        raise ValueError('Reauthenticate and acknowledge privileged Nix modules')
+                    body.pop('adminPassword', None)
                 actions = {'/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/browser-certificate'}
                 if self.path not in actions:
                     return reply(self, 404, {'error': 'Unknown action'})
@@ -291,6 +295,36 @@ def web():
     context.load_cert_chain(credentials / 'tls.crt', credentials / 'tls.key')
     server.context = context
     server.serve_forever()
+
+
+def config_cli(argv):
+    """Local root CLI using the same transaction API as the browser."""
+    import argparse
+    parser = argparse.ArgumentParser(prog='nixlab-admin config')
+    commands = parser.add_subparsers(dest='command', required=True)
+    commands.add_parser('status')
+    review = commands.add_parser('review')
+    review.add_argument('--module', action='append', default=[], metavar='NAME=FILE')
+    review.add_argument('--settings', type=Path)
+    review.add_argument('--update-inputs', action='store_true')
+    for action in ('apply', 'confirm', 'cancel', 'rollback'):
+        commands.add_parser(action).add_argument('id')
+    args = parser.parse_args(argv)
+    if args.command == 'status':
+        result = broker_request('GET', '/status')
+    elif args.command == 'review':
+        modules = {}
+        for item in args.module:
+            name, separator, filename = item.partition('=')
+            if not separator or name in modules:
+                parser.error('Use distinct NAME=FILE module arguments')
+            modules[name] = Path(filename).read_text()
+        rt.validate_modules(modules)
+        settings = json.loads(args.settings.read_text()) if args.settings else {}
+        result = broker_request('POST', '/review', {'settings': settings, 'modules': modules, 'updateInputs': args.update_inputs})
+    else:
+        result = broker_request('POST', '/' + args.command, {'id': args.id})
+    print(json.dumps(result, indent=2))
 
 
 def renew():
@@ -323,6 +357,8 @@ if __name__ == '__main__':
     elif action == 'job':
         from worker import job
         job(sys.argv[2], sys.argv[3])
+    elif action == 'config' and os.geteuid() == 0:
+        config_cli(sys.argv[2:])
     elif action == 'renew':
         renew()
     elif action == 'reset-password' and os.geteuid() == 0:
@@ -331,4 +367,4 @@ if __name__ == '__main__':
         rt.write_json(rt.STATE / 'auth.json', rt.password_record(value), mode=0o640, group='nixlab-ui')
         print('Password changed. Restart nixlab-ui to revoke existing sessions.')
     else:
-        sys.exit('Usage: nixlab-admin {backend|web|guard|renew|reset-password}')
+        sys.exit('Usage: nixlab-admin {backend|web|guard|renew|reset-password|config}')
