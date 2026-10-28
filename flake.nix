@@ -22,7 +22,12 @@
       installedNetworking = if builtins.pathExists (import ./lib/machine.nix ./.).installed
         then { networkManager = bootstrap.config.networking.networkmanager.enable; }
         else { networkManager = false; };
-      apps = mkApps site;
+      # Evaluate host policy without guest image artifacts, then build the guest
+      # from the same effective settings. File overrides therefore reach both roles.
+      policy = mkHost site null [ ];
+      apps = mkApps policy.config.nixlab.settings;
+      coupledPolicy = mkHost testSite null [ ./tests/hardware.nix ./tests/module-tree/typed-settings.nix ];
+      coupledApps = mkApps coupledPolicy.config.nixlab.settings;
       testApps = mkApps testSite;
       artifacts = vm: {
         system = vm.config.system.build.toplevel;
@@ -31,7 +36,7 @@
       };
       mkHost = inventory: vm: extra: nixpkgs.lib.nixosSystem {
         system = inventory.system;
-        specialArgs = { inventory = checkSettings inventory; appImage = artifacts vm; inherit installedNetworking; installedBase = null; };
+        specialArgs = { inventory = checkSettings inventory; appImage = if vm == null then null else artifacts vm; inherit installedNetworking; installedBase = null; };
         modules = [ sops-nix.nixosModules.sops ./configuration.nix ] ++ extra;
       };
       pkgs = import nixpkgs { system = "x86_64-linux"; };
@@ -46,6 +51,7 @@
           ([ ./tests/hardware.nix ] ++ (import ./lib/site-modules.nix ./tests/module-tree));
         validation-host = mkHost testSite testApps [ ./tests/hardware.nix ];
         validation-apps = testApps;
+        validation-coupled-apps = coupledApps;
         validation-services = mkHost (testSite // {
           monitoring = testSite.monitoring // { history = true; };
           backup = testSite.backup // { enable = true; repository = "sftp:backup@example.invalid:/nixlab"; };

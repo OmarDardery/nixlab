@@ -23,7 +23,7 @@ jobs:
         run: find . -name '*.nix' -exec nix-instantiate --parse '{}' ';' >/dev/null
       - name: Evaluate configuration variants
         run: |
-          for target in validation-minimal validation-file-disk validation-host validation-apps validation-services validation-demo validation-zfs validation-inherited validation-bootstrap validation-setup validation-setup-apps; do
+          for target in validation-minimal validation-file-disk validation-host validation-coupled-apps validation-apps validation-services validation-demo validation-zfs validation-inherited validation-bootstrap validation-setup validation-setup-apps; do
             nix eval ".#nixosConfigurations.$target.config.system.build.toplevel.drvPath"
           done
       - name: Verify lightweight defaults and declarative settings
@@ -40,6 +40,7 @@ jobs:
           nix eval --json .#nixlabMigrationChecks > /tmp/nixlab-migration.json
           python3 -c 'import json; checks=json.load(open("/tmp/nixlab-migration.json")); assert checks and all(checks.values()), checks'
           test "$(nix eval --raw .#nixosConfigurations.validation-file-disk.config.time.timeZone)" = "UTC"
+          test "$(nix eval --raw .#nixosConfigurations.validation-coupled-apps.config.time.timeZone)" = "UTC"
           test "$(nix eval --raw .#nixosConfigurations.validation-file-disk.config.nixlab.incus.instances.fixture.project)" = "lab"
       - name: Check typed legacy mount projection
         run: |
