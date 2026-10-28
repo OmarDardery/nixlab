@@ -35,6 +35,7 @@
       };
       pkgs = import nixpkgs { system = "x86_64-linux"; };
     in {
+      nixosModules = import ./lib/platform.nix { lib = nixpkgs.lib; };
       nixosConfigurations = {
         hypervisor = mkHost site apps [ ];
         inherit apps bootstrap;

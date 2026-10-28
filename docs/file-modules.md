@@ -71,3 +71,23 @@ sudo nixlab-admin config confirm TRANSACTION_ID
 Use `cancel` for an unapplied candidate, or `rollback` with the transaction ID.
 The CLI does not wait for builds or implicitly confirm connectivity. Use the
 returned status/log to decide when to apply. No extra network service is started.
+
+## Platform feature composition
+
+`platform-modules/features/` is an automatically discovered tree of top-level
+Nix modules. Each feature contributes deferred NixOS modules under
+`nixosModules.hypervisor`, `.bootstrap` or `.applications`. `lib/platform.nix`
+evaluates the feature tree using `lib.evalModules`; no additional flake dependency
+is required. The flake exports these role modules for reuse. This follows the
+dendritic top-level-module pattern without requiring flake-parts.
+
+The existing `modules/` implementations remain lower-level compatibility modules.
+Do not drop them into `platform-modules/` directly: wrap them as a feature's
+`nixosModules.<role>.imports`. Hardware and site data remain separate, and the
+bootstrap role deliberately loads only installed-base and administration features.
+Discovery makes features available; optional services retain their enable flags.
+
+This composition change does not yet split installed platform code into a separate
+pinned site repository or replace all legacy inventory fields with named options.
+Those are separate migrations; existing installations retain their current source
+layout and settings ownership during this transition.

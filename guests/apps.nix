@@ -1,6 +1,6 @@
 { lib, pkgs, modulesPath, site, ... }:
 {
-  imports = [ ../modules/guest-secrets.nix (modulesPath + "/virtualisation/incus-virtual-machine.nix") ../modules/docker-host.nix ];
+  imports = [ (import ../lib/platform.nix { inherit lib; }).applications ];
   networking.hostName = "apps";
   networking.useDHCP = true;
   time.timeZone = site.maintenance.timeZone;
