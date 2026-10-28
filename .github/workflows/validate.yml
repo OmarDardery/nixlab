@@ -13,7 +13,9 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
       - name: Python safety tests
-        run: python3 -m unittest discover -s tests -v
+        run: |
+          python3 -m compileall -q admin iso scripts tests
+          python3 -m unittest discover -s tests -v
       - name: Validate UI JavaScript and installer shell
         run: |
           node --check admin/static/app.js
@@ -93,6 +95,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
       - name: Build installer ISO
         run: nix build .#packages.x86_64-linux.installer-iso -o result-iso -L

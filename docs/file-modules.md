@@ -131,8 +131,8 @@ values unless an administrator module overrides that field explicitly.
 The UI displays the effective configuration and identifies differing file-owned
 settings; corresponding scalar form controls are disabled. Structured resource
 forms remain JSON-owned. Secrets are runtime references, never credential contents.
-`nix eval --json .#nixlabSettings` shows evaluated settings;
-`.#nixlabDesiredSettings` shows the JSON/default inventory before file overrides.
+`nix eval --json path:/etc/nixos#nixlabSettings` shows evaluated settings;
+`path:/etc/nixos#nixlabDesiredSettings` shows the JSON/default inventory before file overrides.
 The active projection is materialized in `/etc/nixlab/effective-settings.json`;
 regular status polling does not evaluate Nix.
 
