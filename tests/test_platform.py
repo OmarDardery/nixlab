@@ -68,6 +68,40 @@ class ReconcileTests(unittest.TestCase):
             reconcile.reconcile(self.spec)
         self.assertFalse(any(c[0] in ('init', 'start', 'config', 'delete') for c in calls))
 
+    def test_existing_stopped_guest_stays_stopped(self):
+        self.current.update(name='guest', status='Stopped')
+        self.current['config']['limits.memory'] = '2GiB'
+        self.spec['project'] = 'lab'
+        def fake(*args, data=None):
+            if args[0] == 'list': return json.dumps([self.current])
+            if args[0] == 'query': return json.dumps(self.current)
+            raise AssertionError('Unexpected mutation: ' + str(args))
+        with patch.object(reconcile, 'run', side_effect=fake):
+            reconcile.reconcile(self.spec)
+
+    def test_interrupted_initialization_is_resumed(self):
+        self.current.update(name='guest', status='Stopped')
+        self.current['config'].update({'limits.memory': '2GiB', reconcile.INITIALIZING: 'true'})
+        self.spec['project'] = 'lab'
+        calls = []
+        def fake(*args, data=None):
+            calls.append(args)
+            if args[0] == 'list': return json.dumps([self.current])
+            if args[0] == 'query': return json.dumps(self.current)
+            return ''
+        with patch.object(reconcile, 'run', side_effect=fake):
+            reconcile.reconcile(self.spec)
+        self.assertTrue(any(c[0] == 'start' for c in calls))
+        self.assertTrue(any(c[:2] == ('config', 'unset') for c in calls))
+
+    def test_initialization_marker_is_reserved(self):
+        self.spec['config'][reconcile.INITIALIZING] = 'true'
+        self.spec['project'] = 'lab'
+        with patch.object(reconcile, 'run') as run:
+            with self.assertRaisesRegex(ValueError, 'reserved'):
+                reconcile.reconcile(self.spec)
+        run.assert_not_called()
+
     def test_list_failure_does_not_create_a_replacement(self):
         self.spec['project'] = 'lab'
         with patch.object(reconcile, 'run', side_effect=RuntimeError('API unavailable')) as run:

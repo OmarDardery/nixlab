@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 OWNER = "user.nixlab.managed"
+INITIALIZING = "user.nixlab.initializing"
 
 def run(*args, data=None):
     result = subprocess.run(["incus", *args], input=data, text=True, capture_output=True)
@@ -19,6 +20,8 @@ def run(*args, data=None):
 def plan(current, spec):
     if current.get("config", {}).get(OWNER) != "true":
         raise ValueError(f"Refusing to modify unowned instance {spec['name']}")
+    if INITIALIZING in spec.get("config", {}):
+        raise ValueError("The Nixlab initialization marker is reserved")
     if current["type"] != spec["type"]:
         raise ValueError("Instance type is immutable; migrate explicitly")
     if OWNER in spec.get("config", {}) and spec["config"][OWNER] != "true":
@@ -32,6 +35,8 @@ def plan(current, spec):
     return result if result != writable else None
 
 def reconcile(spec):
+    if INITIALIZING in spec.get("config", {}):
+        raise ValueError("The Nixlab initialization marker is reserved")
     if OWNER in spec.get("config", {}) and spec["config"][OWNER] != "true":
         raise ValueError("The Nixlab ownership marker cannot be removed by reconciliation")
     for k in ("name", "project"):
@@ -46,7 +51,7 @@ def reconcile(spec):
         return
     if found is None:
         args = ["init", spec["image"], name, "--project", project,
-                "--config", OWNER + "=true"]
+                "--config", OWNER + "=true", "--config", INITIALIZING + "=true"]
         if spec["type"] == "virtual-machine":
             args.append("--vm")
         elif spec["type"] != "container":
@@ -69,8 +74,12 @@ def reconcile(spec):
     status = next(i["status"] for i in state if i["name"] == name)
     if spec.get("stop", False) and status == "Running":
         run("stop", name, "--project", project, "--timeout", "120")
-    elif spec.get("start", True) and status == "Stopped":
+    elif spec.get("start", current.get("config", {}).get(INITIALIZING) == "true") and status == "Stopped":
         run("start", name, "--project", project)
+    # A failed initialization remains marked and is retried on the next run.
+    # Existing stopped guests are not restarted by unrelated reconciliations.
+    if current.get("config", {}).get(INITIALIZING) == "true":
+        run("config", "unset", name, INITIALIZING, "--project", project)
 
 if __name__ == "__main__":
     # Shared with the export job; a rebuild cannot change instance resources mid-export.

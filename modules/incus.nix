@@ -15,6 +15,7 @@ let
   };
   instances = lib.optional site.apps.enable {
     name = "apps"; project = "lab"; type = "virtual-machine";
+    start = true; # Re-enable the managed applications VM when selected.
     image = "local:nixlab-apps"; profiles = [ "base" ];
     config = { "limits.cpu" = site.apps.cpu; "limits.memory" = site.apps.memory;
       "security.secureboot" = "false"; "boot.autostart" = "true"; };
