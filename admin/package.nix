@@ -3,6 +3,7 @@ let
   source = pkgs.runCommand "nixlab-admin-source" { } ''
     mkdir -p $out
     cp -r ${./.}/. $out/
+    chmod -R u+w $out
     cp ${../scripts/preflight.py} $out/preflight.py
     cp ${../scripts/backup.py} $out/backup.py
     cp ${../scripts/reconcile.py} $out/reconcile.py
