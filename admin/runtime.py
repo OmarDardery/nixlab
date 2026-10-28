@@ -102,6 +102,25 @@ def audit(action, **fields):
     # Never log request bodies, credentials or generated browser certificates.
 
 
+def module_files(root):
+    """Approved administrator module files, including untracked additions."""
+    directory = Path(root) / 'site-modules'
+    if directory.is_symlink():
+        raise ValueError('Module directory cannot be a symlink')
+    if not directory.exists():
+        return []
+    result = []
+    for path in sorted(directory.rglob('*')):
+        if path.is_symlink():
+            raise ValueError('Module paths cannot be symlinks')
+        if path.is_dir():
+            continue
+        if not path.is_file() or path.suffix not in {'.nix', '.md'}:
+            raise ValueError('Only Nix modules and documentation belong in site-modules')
+        result.append(path)
+    return result
+
+
 def source_files(root=ROOT):
     if (root / '.nixlab-files.json').exists():
         names = set(read_json(root / '.nixlab-files.json'))
@@ -110,6 +129,7 @@ def source_files(root=ROOT):
         result = subprocess.run(['git', '-C', str(root), 'ls-files', '-z'], capture_output=True, check=True)
         names = set(n.decode() for n in result.stdout.split(b'\0') if n)
     names.add('hardware-configuration.nix')
+    names.update(str(f.relative_to(root)) for f in module_files(root))
     for prefix in ('installed-system', 'local'):
         directory = root / prefix
         if directory.exists():
@@ -120,10 +140,14 @@ def source_files(root=ROOT):
         path = root / name
         if not path.exists():
             continue
+        if any(part.is_symlink() for part in [path, *path.parents] if part != root.parent):
+            raise ValueError('Managed source cannot traverse symlinks: ' + name)
         if path.is_symlink() or not path.is_file():
             raise ValueError('Managed source cannot contain symlinks: ' + name)
         if name.startswith('local/') and name not in {'local/settings.json', 'local/installation.json'}:
             raise ValueError('Unexpected local state file in source tree')
+        if name.startswith('site-modules/') and path.suffix not in {'.nix', '.md'}:
+            raise ValueError('Only Nix modules and documentation belong in site-modules')
         if name.startswith('installed-system/') and path.suffix != '.nix':
             raise ValueError('Only reviewed Nix modules may be imported from the installed system')
         yield name, path

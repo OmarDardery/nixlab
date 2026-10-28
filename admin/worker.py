@@ -49,6 +49,10 @@ def build(directory):
 def save_recovery(directory):
     recovery = directory / 'recovery'
     recovery.mkdir(mode=0o700, exist_ok=True)
+    modules = rt.module_files(rt.ROOT)
+    module_names = [str(path.relative_to(rt.ROOT)) for path in modules]
+    for path, name in zip(modules, module_names):
+        rt.atomic(recovery / 'modules' / name, path.read_bytes(), mode=path.stat().st_mode & 0o777)
     files = [(rt.ROOT / 'local/settings.json', 'settings.json'), (rt.ROOT / 'flake.lock', 'flake.lock')]
     files += [(path, 'secret-' + key) for key, path in rt.SECRET_PATHS.items()]
     files += [(rt.STATE / name, name) for name in ('tls.crt', 'tls.key')]
@@ -69,7 +73,7 @@ def save_recovery(directory):
         radios = json.loads(subprocess.run(['rfkill', '--json'], capture_output=True, text=True, check=True).stdout).get('rfkilldevices', [])
     except (OSError, ValueError, subprocess.CalledProcessError):
         radios = []
-    rt.write_json(recovery / 'manifest.json', {'files': manifest, 'nmConnections': uuids, 'radios': radios})
+    rt.write_json(recovery / 'manifest.json', {'files': manifest, 'nmConnections': uuids, 'radios': radios, 'moduleFiles': module_names})
 
 
 def restore_files(directory):
@@ -77,6 +81,19 @@ def restore_files(directory):
     manifest = rt.read_json(recovery / 'manifest.json')
     if not manifest:
         raise ValueError('Recovery manifest is missing')
+    if 'moduleFiles' in manifest:
+        # Validate the complete live tree before removing or restoring any module.
+        live_modules = rt.module_files(rt.ROOT)
+        previous = set(manifest['moduleFiles'])
+        for name in previous:
+            if not name.startswith('site-modules/') or '..' in Path(name).parts:
+                raise ValueError('Invalid module recovery path')
+        for path in live_modules:
+            if str(path.relative_to(rt.ROOT)) not in previous:
+                rt.durable_unlink(path)
+        for name in previous:
+            source = recovery / 'modules' / name
+            rt.atomic(rt.ROOT / name, source.read_bytes(), mode=source.stat().st_mode & 0o777)
     for item in manifest['files']:
         target = Path(item['path'])
         if item['existed']:

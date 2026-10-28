@@ -11,6 +11,7 @@
     ./modules/cloudflared.nix
     ./modules/backups.nix
     ./modules/monitoring.nix
+    ./modules/file-disks.nix
     ./modules/mount-schema.nix
     ./modules/mounts.nix
     ./modules/radios/wifi.nix
@@ -18,7 +19,7 @@
     ./modules/quality-of-life.nix
     ./modules/admin-ui.nix
     ./modules/apps-onboarding.nix
-  ];
+  ] ++ (import ./lib/site-modules.nix ./site-modules);
   assertions = [
     { assertion = site.ready; message = "Complete site.nix from real hardware/network inventory and set ready=true."; }
     { assertion = site.adminKeys != [ ]; message = "At least one administrator SSH public key is required."; }

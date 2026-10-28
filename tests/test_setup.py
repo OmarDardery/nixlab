@@ -119,6 +119,26 @@ class SecretTests(unittest.TestCase):
         self.assertNotIn('a-long-test-password',json.dumps(record))
 
 class SnapshotTests(unittest.TestCase):
+    def test_untracked_modules_are_hashed_but_credentials_rejected(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            subprocess.run(['git', 'init', '-q', str(root)], check=True)
+            rt.atomic(root/'site-modules/disks/archive.nix', '{}')
+            first = rt.digest_source(root)
+            rt.atomic(root/'site-modules/disks/archive.nix', '{ changed = true; }')
+            self.assertNotEqual(first, rt.digest_source(root))
+            rt.atomic(root/'site-modules/password.txt', 'DO-NOT-COPY')
+            with self.assertRaisesRegex(ValueError, 'Only Nix'):
+                rt.snapshot(root/'candidate', root)
+
+    def test_symlinked_module_tree_is_rejected(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)/'root'; root.mkdir()
+            outside = Path(folder)/'outside'; outside.mkdir()
+            (root/'site-modules').symlink_to(outside, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, 'symlink'):
+                rt.module_files(root)
+
     def test_untracked_credentials_excluded_and_snapshot_integrity_changes(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)/'repo';root.mkdir();subprocess.run(['git','init','-q',str(root)],check=True)
@@ -203,6 +223,23 @@ class CandidateLifecycleTests(unittest.TestCase):
             self.assertTrue(target.exists())
 
 class RecoveryTests(unittest.TestCase):
+    def test_module_recovery_restores_changes_and_removes_new_files(self):
+        import worker
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)/'repo'; root.mkdir()
+            state = Path(folder)/'state'; state.mkdir()
+            job = state/'jobs/example'; job.mkdir(parents=True)
+            rt.atomic(root/'site-modules/disks/archive.nix', 'original')
+            rt.write_json(root/'local/settings.json', {'old': True})
+            with patch.object(rt, 'ROOT', root), patch.object(rt, 'STATE', state), patch.object(rt, 'SECRET_PATHS', {}):
+                worker.save_recovery(job)
+                rt.atomic(root/'site-modules/disks/archive.nix', 'changed')
+                rt.atomic(root/'site-modules/new.nix', 'new')
+                worker.restore_files(job)
+                worker.restore_files(job)  # Recovery is idempotent.
+            self.assertEqual((root/'site-modules/disks/archive.nix').read_text(), 'original')
+            self.assertFalse((root/'site-modules/new.nix').exists())
+
     def test_confirmed_transaction_does_not_rollback_after_interrupted_cleanup(self):
         import worker
         with tempfile.TemporaryDirectory() as folder:

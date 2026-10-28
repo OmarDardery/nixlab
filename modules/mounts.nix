@@ -1,7 +1,8 @@
 { config, lib, pkgs, site, ... }:
 let
   # Keep legacy order while using the typed resource projection.
-  mounts = map (mount: config.nixlab.storage.mounts.${mount.name}) site.mounts;
+  mounts = map (mount: config.nixlab.storage.mounts.${mount.name}) site.mounts
+    ++ builtins.attrValues config.nixlab.storage.disks;
   pools = builtins.filter (m: builtins.elem m.role [ "guests" "pool" ]) mounts;
   guestPaths = map (m: m.path) pools;
   backupPaths = map (m: m.path) (builtins.filter (m: m.role == "backup") mounts);

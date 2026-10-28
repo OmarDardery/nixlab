@@ -23,7 +23,7 @@ jobs:
         run: find . -name '*.nix' -exec nix-instantiate --parse '{}' ';' >/dev/null
       - name: Evaluate configuration variants
         run: |
-          for target in validation-minimal validation-host validation-apps validation-services validation-demo validation-zfs validation-inherited validation-bootstrap validation-setup validation-setup-apps; do
+          for target in validation-minimal validation-file-disk validation-host validation-apps validation-services validation-demo validation-zfs validation-inherited validation-bootstrap validation-setup validation-setup-apps; do
             nix eval ".#nixosConfigurations.$target.config.system.build.toplevel.drvPath"
           done
       - name: Verify lightweight defaults and declarative settings
@@ -39,6 +39,10 @@ jobs:
         run: |
           nix eval --json .#nixosConfigurations.validation-setup.config.nixlab.storage.mounts > /tmp/nixlab-mounts.json
           python3 tests/check_mount_projection.py /tmp/nixlab-mounts.json
+          test "$(nix eval --raw '.#nixosConfigurations.validation-file-disk.config.fileSystems."/srv/nixlab/archive".device')" = "/dev/disk/by-uuid/33333333-3333-3333-3333-333333333333"
+          nix eval --json .#nixosConfigurations.validation-file-disk.config.virtualisation.incus.preseed.storage_pools > /tmp/nixlab-file-pools.json
+          python3 -c 'import json; assert any(p["name"] == "disk-archive" and p["config"]["source"] == "/srv/nixlab/archive/incus" for p in json.load(open("/tmp/nixlab-file-pools.json")))'
+
       - name: Build helper and apps system
         run: |
           nix build .#packages.x86_64-linux.homelab --no-link

@@ -40,6 +40,8 @@
         inherit apps bootstrap;
         # Evaluation fixtures, never an installation target.
         validation-minimal = mkHost (testSite // { apps = testSite.apps // { enable = false; }; }) testApps [ ./tests/hardware.nix ];
+        validation-file-disk = mkHost testSite testApps
+          ([ ./tests/hardware.nix ] ++ (import ./lib/site-modules.nix ./tests/module-tree));
         validation-host = mkHost testSite testApps [ ./tests/hardware.nix ];
         validation-apps = testApps;
         validation-services = mkHost (testSite // {
