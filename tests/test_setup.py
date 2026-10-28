@@ -46,6 +46,17 @@ HOST = {'architecture':'x86_64','cpuVendor':'intel','kvm':True,
         'disks':[{'uuid':'aaaa-bbbb','fstype':'ext4','mountpoints':[],'path':'/dev/test','type':'part','size':1000000}]}
 
 class ModuleUploadTests(unittest.TestCase):
+    def test_effective_transition_protects_initialized_mounts(self):
+        import worker
+        old=settings();new=copy.deepcopy(old)
+        old['mounts']=[{'name':'guests','role':'guests'}]
+        with self.assertRaisesRegex(ValueError,'Migrate initialized'):
+            worker.validate_effective_transition(new,{},old,{},True)
+        # Explicitly uninitialized inventories do not pretend an Incus pool exists.
+        worker.validate_effective_transition(new,{},old,{},False)
+        with self.assertRaisesRegex(ValueError,'Migrate active disk'):
+            worker.validate_effective_transition(new,{},old,{'archive':{'uuid':'aaaa'}},False)
+
     def test_build_validates_file_disks_before_marking_ready(self):
         import worker
         with tempfile.TemporaryDirectory() as folder:

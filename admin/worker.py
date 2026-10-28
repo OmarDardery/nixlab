@@ -33,6 +33,19 @@ def update(directory, **fields):
     return data
 
 
+def validate_effective_transition(effective, disks, active_settings, previous_disks, initialized):
+    for name, previous in previous_disks.items():
+        if name not in disks or any(disks[name][key] != previous[key] for key in ('uuid', 'path', 'fsType', 'role')):
+            raise ValueError('Migrate active disk before removing/remapping: ' + name)
+    if initialized and active_settings:
+        if effective['storage'] != active_settings['storage'] or effective['guests'] != active_settings['guests']:
+            raise ValueError('Initialized Incus storage/network requires an explicit migration')
+        desired_mounts = {mount['name']: mount for mount in effective['mounts']}
+        for mount in active_settings['mounts']:
+            if mount['role'] in ('guests', 'pool') and desired_mounts.get(mount['name']) != mount:
+                raise ValueError('Migrate initialized Incus mount before removing/remapping: ' + mount['name'])
+
+
 def build(directory):
     source = directory / 'source'
     job = rt.read_json(directory / 'job.json')
@@ -52,14 +65,8 @@ def build(directory):
     validation = json.loads(json.dumps(effective))
     validation['mounts'] += list(disks.values())
     validate_settings(validation, validation, inventory())
-    previous_disks = rt.read_json(Path('/etc/nixlab/effective-disks.json'), {})
-    for name, previous in previous_disks.items():
-        if name not in disks or any(disks[name][key] != previous[key] for key in ('uuid', 'path', 'fsType', 'role')):
-            raise ValueError('Migrate active disk before removing/remapping: ' + name)
-    active_settings = rt.read_json(Path('/etc/nixlab/effective-settings.json'), {})
-    if Path('/var/lib/incus/database').exists() and active_settings:
-        if effective['storage'] != active_settings['storage'] or effective['guests'] != active_settings['guests']:
-            raise ValueError('Initialized Incus storage/network requires an explicit migration')
+    validate_effective_transition(effective, disks, rt.read_json(Path('/etc/nixlab/effective-settings.json'), {}),
+        rt.read_json(Path('/etc/nixlab/effective-disks.json'), {}), Path('/var/lib/incus/database').exists())
     update(directory, status='ready', builtAt=time.time(), effectiveSettings=effective, candidateDigest=rt.digest_source(source))
     rt.audit('build-ready', job=directory.name)
 
