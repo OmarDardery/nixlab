@@ -53,7 +53,7 @@ def save_recovery(directory):
     module_names = [str(path.relative_to(rt.ROOT)) for path in modules]
     for path, name in zip(modules, module_names):
         rt.atomic(recovery / 'modules' / name, path.read_bytes(), mode=path.stat().st_mode & 0o777)
-    files = [(rt.ROOT / 'local/settings.json', 'settings.json'), (rt.ROOT / 'flake.lock', 'flake.lock')]
+    files = [(rt.machine_path(rt.ROOT, 'settings'), 'settings.json'), (rt.ROOT / 'flake.lock', 'flake.lock')]
     files += [(path, 'secret-' + key) for key, path in rt.SECRET_PATHS.items()]
     files += [(rt.STATE / name, name) for name in ('tls.crt', 'tls.key')]
     manifest = []
@@ -86,7 +86,7 @@ def restore_files(directory):
         live_modules = rt.module_files(rt.ROOT)
         previous = set(manifest['moduleFiles'])
         for name in previous:
-            if not name.startswith('site-modules/') or '..' in Path(name).parts:
+            if not name.startswith(('site-modules/', 'machine/modules/')) or '..' in Path(name).parts:
                 raise ValueError('Invalid module recovery path')
         for path in live_modules:
             if str(path.relative_to(rt.ROOT)) not in previous:
@@ -141,7 +141,7 @@ def apply(directory):
     job = rt.read_json(directory / 'job.json')
     if job['baseDigest'] != rt.digest_source(rt.ROOT) or job['candidateDigest'] != rt.digest_source(directory / 'source'):
         raise ValueError('Source changed since review')
-    old_settings = rt.read_json(rt.ROOT / 'local/settings.json')
+    old_settings = rt.read_json(rt.machine_path(rt.ROOT, 'settings'))
     previous = str(Path('/run/current-system').resolve())
     save_recovery(directory)
     subprocess.run(['nix-store', '--add-root', str(directory / 'previous-system'), '--indirect', '--realise', previous], check=True, stdout=subprocess.DEVNULL)
@@ -153,7 +153,7 @@ def apply(directory):
         for key, data in rt.read_json(directory / 'secrets.json', {}).items():
             rt.atomic(rt.SECRET_PATHS[key], data)
         rt.install_modules(directory / 'source', rt.ROOT)
-        rt.write_json(rt.ROOT / 'local/settings.json', job['settings'])
+        rt.write_json(rt.machine_path(rt.ROOT, 'settings'), job['settings'])
         if job['updateInputs']:
             rt.atomic(rt.ROOT / 'flake.lock', (directory / 'source/flake.lock').read_bytes(), mode=0o644)
         before, after = old_settings['management'], job['settings']['management']

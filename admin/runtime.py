@@ -103,6 +103,53 @@ def audit(action, **fields):
     # Never log request bodies, credentials or generated browser certificates.
 
 
+def modern_layout(root):
+    marker = Path(root) / 'machine/format.json'
+    if not marker.exists():
+        return False
+    if read_json(marker).get('version') != 1:
+        raise ValueError('Unsupported machine directory version')
+    return True
+
+
+def machine_path(root, name):
+    modern = modern_layout(root)
+    paths = {'settings': 'settings.json' if modern else 'local/settings.json',
+             'installation': 'installation.json' if modern else 'local/installation.json',
+             'modules': 'modules' if modern else 'site-modules',
+             'installed': 'installed-system'}
+    return Path(root) / ('machine' if modern else '') / paths[name]
+
+
+def migrate_layout(root):
+    """Atomically select a local machine directory; legacy files remain recoverable."""
+    root = Path(root)
+    if modern_layout(root):
+        return {'changed': False, 'directory': str(root / 'machine')}
+    if (root / 'machine').exists():
+        raise ValueError('Inspect the existing machine directory before migration')
+    if not machine_path(root, 'settings').is_file():
+        raise ValueError('No installed settings inventory to migrate')
+    files = list(source_files(root))  # Validate all source paths before copying.
+    staging = Path(tempfile.mkdtemp(prefix='.machine-', dir=root))
+    try:
+        for name, source in files:
+            if name == 'local/settings.json': relative = 'settings.json'
+            elif name == 'local/installation.json': relative = 'installation.json'
+            elif name.startswith('site-modules/'): relative = 'modules/' + name[len('site-modules/'):]
+            elif name.startswith('installed-system/'): relative = name
+            else: continue
+            atomic(staging / relative, source.read_bytes(), mode=source.stat().st_mode & 0o777)
+        write_json(staging / 'format.json', {'version': 1})
+        os.rename(staging, root / 'machine')
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        try: os.fsync(fd)
+        finally: os.close(fd)
+    finally:
+        if staging.exists(): shutil.rmtree(staging)
+    return {'changed': True, 'directory': str(root / 'machine')}
+
+
 def validate_modules(changes):
     if not isinstance(changes, dict) or len(changes) > 16:
         raise ValueError('Upload at most 16 named Nix module files')
@@ -131,7 +178,7 @@ def install_modules(source, root):
 
 def module_files(root):
     """Approved administrator module files, including untracked additions."""
-    directory = Path(root) / 'site-modules'
+    directory = machine_path(root, 'modules')
     if directory.is_symlink():
         raise ValueError('Module directory cannot be a symlink')
     if not directory.exists():
@@ -155,9 +202,12 @@ def source_files(root=ROOT):
     else:
         result = subprocess.run(['git', '-C', str(root), 'ls-files', '-z'], capture_output=True, check=True)
         names = set(n.decode() for n in result.stdout.split(b'\0') if n)
+    modern = modern_layout(root)
+    if modern:
+        names = {name for name in names if not name.startswith(('local/', 'site-modules/', 'installed-system/'))}
     names.add('hardware-configuration.nix')
     names.update(str(f.relative_to(root)) for f in module_files(root))
-    for prefix in ('installed-system', 'local'):
+    for prefix in (('machine',) if modern else ('installed-system', 'local')):
         directory = root / prefix
         if directory.exists():
             names.update(str(f.relative_to(root)) for f in directory.rglob('*') if f.is_file())
@@ -171,6 +221,8 @@ def source_files(root=ROOT):
             raise ValueError('Managed source cannot traverse symlinks: ' + name)
         if path.is_symlink() or not path.is_file():
             raise ValueError('Managed source cannot contain symlinks: ' + name)
+        if name.startswith('machine/') and not (name in {'machine/format.json', 'machine/settings.json', 'machine/installation.json'} or (name.startswith('machine/modules/') and path.suffix in {'.nix', '.md'}) or (name.startswith('machine/installed-system/') and path.suffix == '.nix')):
+            raise ValueError('Unexpected file in machine configuration: ' + name)
         if name.startswith('local/') and name not in {'local/settings.json', 'local/installation.json'}:
             raise ValueError('Unexpected local state file in source tree')
         if name.startswith('site-modules/') and path.suffix not in {'.nix', '.md'}:

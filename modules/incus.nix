@@ -1,4 +1,4 @@
-{ lib, pkgs, site, appImage ? null, ... }:
+{ config, lib, pkgs, site, appImage ? null, ... }:
 let
   base = {
     name = "base"; project = "lab";
@@ -13,6 +13,8 @@ let
       eth0 = { type = "nic"; name = "eth0"; network = "incusbr0"; };
     };
   };
+  declared = site.instances ++ map (i: lib.filterAttrs (_: value: value != null) i)
+    (builtins.attrValues config.nixlab.incus.instances);
   instances = lib.optional site.apps.enable {
     name = "apps"; project = "lab"; type = "virtual-machine";
     start = true; # Re-enable the managed applications VM when selected.
@@ -27,8 +29,8 @@ let
     name = "apps"; project = "lab"; type = "virtual-machine";
     manageExistingOnly = true; start = false; stop = true; profiles = [ "base" ];
     config."boot.autostart" = "false";
-  } ++ site.instances;
-  inventory = pkgs.writeText "inventory.json" (builtins.toJSON site);
+  } ++ declared;
+  inventory = pkgs.writeText "inventory.json" (builtins.toJSON (site // { instances = declared; }));
   desired = pkgs.writeText "instances.json" (builtins.toJSON instances);
   reconcile = pkgs.writeShellApplication {
     name = "nixlab-reconcile";

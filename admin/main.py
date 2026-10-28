@@ -303,6 +303,7 @@ def config_cli(argv):
     parser = argparse.ArgumentParser(prog='nixlab-admin config')
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('status')
+    commands.add_parser('migrate-layout')
     review = commands.add_parser('review')
     review.add_argument('--module', action='append', default=[], metavar='NAME=FILE')
     review.add_argument('--settings', type=Path)
@@ -310,7 +311,14 @@ def config_cli(argv):
     for action in ('apply', 'confirm', 'cancel', 'rollback'):
         commands.add_parser(action).add_argument('id')
     args = parser.parse_args(argv)
-    if args.command == 'status':
+    if args.command == 'migrate-layout':
+        with rt.locked():
+            active = rt.read_json(rt.STATE / 'active.json', {})
+            job = rt.read_json(rt.STATE / 'jobs' / active.get('id', '-') / 'job.json', {})
+            if rt.read_json(rt.STATE / 'pending.json') or job.get('status') in ('building', 'ready', 'applying', 'awaiting-confirmation', 'rolling-back'):
+                raise ValueError('Finish or discard the configuration transaction before migrating layout')
+            result = rt.migrate_layout(rt.ROOT)
+    elif args.command == 'status':
         result = broker_request('GET', '/status')
     elif args.command == 'review':
         modules = {}
@@ -328,7 +336,7 @@ def config_cli(argv):
 
 
 def renew():
-    settings = rt.read_json(rt.ROOT / 'local/settings.json')
+    settings = rt.read_json(rt.machine_path(rt.ROOT, 'settings'))
     import subprocess
     checks = [subprocess.run(['openssl', 'x509', '-checkend', '2592000', '-noout', '-in', str(rt.STATE / name)], capture_output=True).returncode
               for name in ('tls.crt', 'apps-tls.crt')]

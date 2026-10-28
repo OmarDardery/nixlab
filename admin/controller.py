@@ -22,7 +22,7 @@ class Manager:
         (self.state / 'jobs').mkdir(mode=0o700, exist_ok=True)
 
     def settings(self):
-        return rt.read_json(self.root / 'local/settings.json')
+        return rt.read_json(rt.machine_path(self.root, 'settings'))
 
     def job_path(self, job_id):
         if not isinstance(job_id, str) or not re.fullmatch(r'[0-9a-f]{32}', job_id):
@@ -52,8 +52,9 @@ class Manager:
         last = rt.read_json(self.state / 'last-confirmed.json')
         if last and rt.read_json(self.job_path(last['id']) / 'job.json')['status'] != 'confirmed':
             last = None
-        return {'settings': self.settings(), 'job': job, 'lastConfirmed': last, 'pending': rt.read_json(self.state / 'pending.json'),
-                'currentSystem': current, 'setupComplete': self.settings()['ready']}
+        effective = rt.read_json(Path('/etc/nixlab/effective-settings.json'), self.settings())
+        return {'effectiveSettings': effective, 'codeOverrides': differences(self.settings(), effective), 'settings': self.settings(), 'job': job, 'lastConfirmed': last, 'pending': rt.read_json(self.state / 'pending.json'),
+                'moduleDirectory': str(rt.machine_path(self.root, 'modules')), 'layoutVersion': 1 if rt.modern_layout(self.root) else 0, 'currentSystem': current, 'setupComplete': self.settings()['ready']}
 
     def host_inventory(self):
         data = inventory()
@@ -99,7 +100,7 @@ class Manager:
                 for key in candidate['adminKeys']:
                     public_key_file.seek(0); public_key_file.truncate(); public_key_file.write(key + '\n'); public_key_file.flush()
                     command(['ssh-keygen', '-l', '-f', public_key_file.name])
-            install = rt.read_json(self.root / 'local/installation.json', {})
+            install = rt.read_json(rt.machine_path(self.root, 'installation'), {})
             wifi = candidate['radios']['wifi']
             if install.get('legacyWpaProfiles') and wifi['enable'] and not wifi['manageProfile']:
                 raise ValueError('This host used Nix wpa_supplicant profiles. Declare its SSID/password when moving Wi-Fi to NetworkManager/iwd')
@@ -141,12 +142,12 @@ class Manager:
             directory = self.state / 'jobs' / job_id
             rt.snapshot(directory / 'source', self.root)
             for name, content in modules.items():
-                rt.atomic(directory / 'source/site-modules' / name, content, mode=0o644)
-            rt.write_json(directory / 'source/local/settings.json', candidate)
+                rt.atomic(rt.machine_path(directory / 'source', 'modules') / name, content, mode=0o644)
+            rt.write_json(rt.machine_path(directory / 'source', 'settings'), candidate)
             rt.write_json(directory / 'secrets.json', encoded)
             job = {'id': job_id, 'status': 'building', 'created': time.time(), 'baseDigest': rt.digest_source(self.root),
                    'settings': candidate, 'changes': differences(current, candidate),
-                   'moduleChanges': [{'path': name, 'before': (self.root / 'site-modules' / name).read_text() if (self.root / 'site-modules' / name).exists() else None, 'after': content} for name, content in modules.items()],
+                   'moduleChanges': [{'path': name, 'before': (rt.machine_path(self.root, 'modules') / name).read_text() if (rt.machine_path(self.root, 'modules') / name).exists() else None, 'after': content} for name, content in modules.items()],
                    'secretChanges': sorted(encoded), 'updateInputs': bool(update_inputs)}
             rt.write_json(directory / 'job.json', job)
             rt.write_json(self.state / 'active.json', {'id': job_id})

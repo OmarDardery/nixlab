@@ -1,7 +1,7 @@
 { lib, pkgs, site ? import ./site.nix, ... }:
 {
   imports = [ (import ./lib/platform.nix { inherit lib; }).hypervisor ]
-    ++ (import ./lib/site-modules.nix ./site-modules);
+    ++ (import ./lib/site-modules.nix (import ./lib/machine.nix ./.).modules);
   assertions = [
     { assertion = site.ready; message = "Complete site.nix from real hardware/network inventory and set ready=true."; }
     { assertion = site.adminKeys != [ ]; message = "At least one administrator SSH public key is required."; }

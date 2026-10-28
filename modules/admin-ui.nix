@@ -2,8 +2,8 @@
 let
   enabled = site.setup.enable;
   tool = import ../admin/package.nix { inherit pkgs; };
-  install = if builtins.pathExists ../local/installation.json
-    then builtins.fromJSON (builtins.readFile ../local/installation.json)
+  install = if builtins.pathExists (import ../lib/machine.nix ../.).installation
+    then builtins.fromJSON (builtins.readFile (import ../lib/machine.nix ../.).installation)
     else { interface = site.management.interface; trustedCIDRs = site.management.trustedCIDRs; };
 in {
   config = lib.mkIf enabled {

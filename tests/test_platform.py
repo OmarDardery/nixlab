@@ -64,7 +64,8 @@ class ReconcileTests(unittest.TestCase):
             if args[0] == 'query':
                 return json.dumps(self.current)
             raise AssertionError('Unnecessary mutation: ' + str(args))
-        with patch.object(reconcile, 'run', side_effect=fake):
+        self.current['config'][reconcile.LAST_APPLIED] = reconcile.encode_state(self.spec)
+        with patch.object(reconcile, 'read_instance', return_value=(self.current, 'etag')), patch.object(reconcile, 'run', side_effect=fake):
             reconcile.reconcile(self.spec)
         self.assertFalse(any(c[0] in ('init', 'start', 'config', 'delete') for c in calls))
 
@@ -76,7 +77,8 @@ class ReconcileTests(unittest.TestCase):
             if args[0] == 'list': return json.dumps([self.current])
             if args[0] == 'query': return json.dumps(self.current)
             raise AssertionError('Unexpected mutation: ' + str(args))
-        with patch.object(reconcile, 'run', side_effect=fake):
+        self.current['config'][reconcile.LAST_APPLIED] = reconcile.encode_state(self.spec)
+        with patch.object(reconcile, 'read_instance', return_value=(self.current, 'etag')), patch.object(reconcile, 'run', side_effect=fake):
             reconcile.reconcile(self.spec)
 
     def test_interrupted_initialization_is_resumed(self):
@@ -89,7 +91,8 @@ class ReconcileTests(unittest.TestCase):
             if args[0] == 'list': return json.dumps([self.current])
             if args[0] == 'query': return json.dumps(self.current)
             return ''
-        with patch.object(reconcile, 'run', side_effect=fake):
+        self.current['config'][reconcile.LAST_APPLIED] = reconcile.encode_state(self.spec)
+        with patch.object(reconcile, 'read_instance', return_value=(self.current, 'etag')), patch.object(reconcile, 'run', side_effect=fake):
             reconcile.reconcile(self.spec)
         self.assertTrue(any(c[0] == 'start' for c in calls))
         self.assertTrue(any(c[:2] == ('config', 'unset') for c in calls))
@@ -119,6 +122,44 @@ class ReconcileTests(unittest.TestCase):
         self.spec['type'] = 'virtual-machine'
         with self.assertRaises(ValueError):
             reconcile.plan(self.current, self.spec)
+
+class FieldOwnershipTests(unittest.TestCase):
+    def setUp(self):
+        self.spec={'name':'guest','type':'container','config':{'limits.memory':'2GiB','user.old':'owned'},'devices':{}}
+        self.current={'type':'container','config':{reconcile.OWNER:'true','user.note':'keep'},'devices':{},'profiles':['base']}
+        self.current=reconcile.plan(self.current,self.spec) | {'type':'container'}
+
+    def test_removed_owned_key_is_pruned_but_runtime_key_remains(self):
+        del self.spec['config']['user.old']
+        changed=reconcile.plan(self.current,self.spec)
+        self.assertNotIn('user.old',changed['config'])
+        self.assertEqual(changed['config']['user.note'],'keep')
+        self.assertIsNone(reconcile.plan(changed | {'type':'container'},self.spec))
+
+    def test_owned_runtime_drift_is_refused(self):
+        self.current['config']['limits.memory']='4GiB'
+        with self.assertRaisesRegex(ValueError,'Runtime drift'):
+            reconcile.plan(self.current,self.spec)
+
+    def test_disk_removal_requires_migration(self):
+        self.spec['devices']={'data':{'type':'disk','pool':'guests','source':'volume','path':'/data'}}
+        self.current=reconcile.plan(self.current,self.spec) | {'type':'container'}
+        self.spec['devices']={}
+        with self.assertRaisesRegex(ValueError,'removal requires'):
+            reconcile.plan(self.current,self.spec)
+
+    def test_etag_is_forwarded_and_api_failure_is_not_hidden(self):
+        with patch.object(reconcile,'api',return_value=({'type':'sync'},None)) as api:
+            reconcile.write_instance('lab','guest',{'config':{}},'"expected"')
+            self.assertEqual(api.call_args.args[-1],'"expected"')
+        with patch.object(reconcile,'api',side_effect=RuntimeError('HTTP 412')):
+            with self.assertRaisesRegex(RuntimeError,'412'):
+                reconcile.write_instance('lab','guest',{},'old')
+
+    def test_missing_etag_refuses_updates(self):
+        with patch.object(reconcile,'api',return_value=({'metadata':self.current},None)):
+            with self.assertRaisesRegex(RuntimeError,'ETag'):
+                reconcile.read_instance('lab','guest')
 
 class CliTests(unittest.TestCase):
     def test_argument_boundaries_and_guest_exit_status(self):

@@ -99,6 +99,55 @@ class ModuleUploadTests(unittest.TestCase):
             self.assertIn([str(closure)+'/bin/switch-to-configuration','switch'],commands)
             self.assertFalse(any(c[0]=='nixos-rebuild' for c in commands))
 
+class MachineLayoutTests(unittest.TestCase):
+    def test_layout_migration_is_atomic_idempotent_and_preserves_legacy(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)/'repo';root.mkdir()
+            subprocess.run(['git','init','-q',str(root)],check=True)
+            rt.write_json(root/'local/settings.json',settings())
+            rt.atomic(root/'site-modules/disks/archive.nix','{}')
+            rt.atomic(root/'installed-system/configuration.nix','{ ... }: {}')
+            self.assertTrue(rt.migrate_layout(root)['changed'])
+            self.assertFalse(rt.migrate_layout(root)['changed'])
+            self.assertEqual(rt.read_json(rt.machine_path(root,'settings')),settings())
+            self.assertTrue((root/'site-modules/disks/archive.nix').exists())
+            self.assertTrue((root/'machine/modules/disks/archive.nix').exists())
+            self.assertTrue((root/'machine/installed-system/configuration.nix').exists())
+            names=[name for name,_ in rt.source_files(root)]
+            self.assertIn('machine/settings.json',names)
+            self.assertNotIn('local/settings.json',names)
+
+    def test_migrated_review_uses_only_canonical_settings_and_modules(self):
+        import worker
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)/'repo';root.mkdir();state=Path(folder)/'state';state.mkdir()
+            subprocess.run(['git','init','-q',str(root)],check=True)
+            rt.write_json(root/'local/settings.json',settings());rt.migrate_layout(root)
+            manager=Manager(root,state)
+            with patch.object(rt,'ROOT',root),patch.object(rt,'STATE',state),patch.object(rt,'SECRET_PATHS',{}),patch('controller.inventory',return_value=HOST),patch.object(manager,'spawn'):
+                output=manager.review({'hostName':'changed'},modules={'archive.nix':'{}'})
+                directory=manager.job_path(output['id'])
+                self.assertEqual(rt.read_json(directory/'source/machine/settings.json')['hostName'],'changed')
+                self.assertFalse((directory/'source/local/settings.json').exists())
+                self.assertTrue((directory/'source/machine/modules/archive.nix').exists())
+                worker.save_recovery(directory)
+                rt.install_modules(directory/'source',root)
+                worker.restore_files(directory)
+                self.assertFalse((root/'machine/modules/archive.nix').exists())
+                self.assertEqual(manager.settings()['hostName'],'fixture')
+
+    def test_machine_directory_rejects_credentials_and_unknown_version(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            subprocess.run(['git','init','-q',str(root)],check=True)
+            rt.write_json(root/'machine/format.json',{'version':1})
+            rt.atomic(root/'machine/password.txt','DO-NOT-COPY')
+            with self.assertRaisesRegex(ValueError,'Unexpected file'):
+                list(rt.source_files(root))
+            rt.write_json(root/'machine/format.json',{'version':2})
+            with self.assertRaisesRegex(ValueError,'Unsupported'):
+                rt.machine_path(root,'settings')
+
 class ModelTests(unittest.TestCase):
     def test_lightweight_defaults_and_monitoring_limits(self):
         self.assertFalse(DEFAULTS['apps']['enable'])

@@ -35,6 +35,12 @@ jobs:
           test "$(nix eval --json .#nixosConfigurations.validation-minimal.config.virtualisation.docker.enable)" = "false"
           test "$(nix eval --json '.#nixosConfigurations.validation-minimal.config.systemd.services' --apply 'services: builtins.hasAttr "nixlab-apps-onboarding" services')" = "false"
           test "$(nix eval --json .#nixosConfigurations.validation-services.config.services.prometheus.enable)" = "true"
+      - name: Verify typed inventory migration
+        run: |
+          nix eval --json .#nixlabMigrationChecks > /tmp/nixlab-migration.json
+          python3 -c 'import json; checks=json.load(open("/tmp/nixlab-migration.json")); assert checks and all(checks.values()), checks'
+          test "$(nix eval --raw .#nixosConfigurations.validation-file-disk.config.time.timeZone)" = "UTC"
+          test "$(nix eval --raw .#nixosConfigurations.validation-file-disk.config.nixlab.incus.instances.fixture.project)" = "lab"
       - name: Check typed legacy mount projection
         run: |
           nix eval --json .#nixosConfigurations.validation-setup.config.nixlab.storage.mounts > /tmp/nixlab-mounts.json

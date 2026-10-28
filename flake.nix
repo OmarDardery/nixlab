@@ -7,18 +7,19 @@
   };
   outputs = { self, nixpkgs, sops-nix }:
     let
-      site = import ./site.nix;
+      checkSettings = values: import ./lib/settings.nix { lib = nixpkgs.lib; inherit values; };
+      site = checkSettings (import ./site.nix);
       testSite = import ./tests/site.nix;
       mkApps = inventory: nixpkgs.lib.nixosSystem {
         system = inventory.system;
-        specialArgs.site = inventory;
+        specialArgs.inventory = checkSettings inventory;
         modules = [ sops-nix.nixosModules.sops ./guests/apps.nix ];
       };
       bootstrap = nixpkgs.lib.nixosSystem {
-        system = site.system; specialArgs = { inherit site; installedBase = null; };
+        system = site.system; specialArgs = { inventory = site; installedBase = null; };
         modules = [ ./configuration-bootstrap.nix ];
       };
-      installedNetworking = if builtins.pathExists ./installed-system/configuration.nix
+      installedNetworking = if builtins.pathExists (import ./lib/machine.nix ./.).installed
         then { networkManager = bootstrap.config.networking.networkmanager.enable; }
         else { networkManager = false; };
       apps = mkApps site;
@@ -30,7 +31,7 @@
       };
       mkHost = inventory: vm: extra: nixpkgs.lib.nixosSystem {
         system = inventory.system;
-        specialArgs = { site = inventory; appImage = artifacts vm; inherit installedNetworking; installedBase = null; };
+        specialArgs = { inventory = checkSettings inventory; appImage = artifacts vm; inherit installedNetworking; installedBase = null; };
         modules = [ sops-nix.nixosModules.sops ./configuration.nix ] ++ extra;
       };
       pkgs = import nixpkgs { system = "x86_64-linux"; };
@@ -53,12 +54,12 @@
         }) testApps [ ./tests/hardware.nix ];
         validation-bootstrap = nixpkgs.lib.nixosSystem {
           system = testSite.system;
-          specialArgs = { site = testSite // { setup = testSite.setup // { enable = true; }; }; installedBase = ./tests/installed-base.nix; };
+          specialArgs = { inventory = testSite // { setup = testSite.setup // { enable = true; }; }; installedBase = ./tests/installed-base.nix; };
           modules = [ ./configuration-bootstrap.nix ];
         };
         validation-inherited = nixpkgs.lib.nixosSystem {
           system = testSite.system;
-          specialArgs = { site = testSite; appImage = artifacts testApps; installedBase = ./tests/installed-base.nix; installedNetworking.networkManager = true; };
+          specialArgs = { inventory = testSite; appImage = artifacts testApps; installedBase = ./tests/installed-base.nix; installedNetworking.networkManager = true; };
           modules = [ sops-nix.nixosModules.sops ./configuration.nix ];
         };
         validation-setup-apps = mkApps (testSite // { setup = testSite.setup // { enable = true; }; });
@@ -85,6 +86,7 @@
         apps-image = apps.config.system.build.qemuImage;
       };
       apps.x86_64-linux.install = { type = "app"; program = "${self.packages.x86_64-linux.installer}/bin/nixlab-install"; };
+      nixlabMigrationChecks = import ./tests/settings-checks.nix { lib = nixpkgs.lib; };
       nixlabDefaults = import ./site-defaults.nix;
       nixlabSettings = site;
       nixlabOverview = {

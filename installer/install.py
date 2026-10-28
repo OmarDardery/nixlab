@@ -103,7 +103,8 @@ def main():
         else:
             run(['git', 'clone', '--single-branch', '--branch', args.ref, args.repo, str(TARGET)])
         TARGET.chmod(0o700)
-        copy_nix_modules(ORIGINAL.resolve(), TARGET / 'installed-system')
+        rt.write_json(TARGET / 'machine/format.json', {'version': 1})
+        copy_nix_modules(ORIGINAL.resolve(), rt.machine_path(TARGET, 'installed'))
         shutil.copyfile(ORIGINAL / 'hardware-configuration.nix', TARGET / 'hardware-configuration.nix')
         default = json.loads(run(['nix', '--extra-experimental-features', 'nix-command flakes', 'eval', '--json',
                                  'path:' + str(TARGET) + '#nixlabDefaults'], capture_output=True, text=True).stdout)
@@ -126,14 +127,14 @@ def main():
         memory_kib = int(next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemTotal:')))
         default['apps']['cpu'] = str(max(1, min(2, (os.cpu_count() or 2) // 2)))
         default['apps']['memory'] = str(max(1, min(2, memory_kib // 1024 // 1024 // 2))) + 'GiB'
-        rt.write_json(TARGET / 'local/settings.json', default)
-        rt.write_json(TARGET / 'local/installation.json', {'interface': interface, 'trustedCIDRs': trusted, 'installedAt': time.time(),
+        rt.write_json(rt.machine_path(TARGET, 'settings'), default)
+        rt.write_json(rt.machine_path(TARGET, 'installation'), {'interface': interface, 'trustedCIDRs': trusted, 'installedAt': time.time(),
                        'originalSystem': str(Path('/run/current-system').resolve()), 'repository': args.repo, 'ref': args.ref})
         # Pin the original generation against garbage collection for console recovery.
         run(['nix-store', '--add-root', str(rt.STATE / 'original-system'), '--indirect', '--realise', str(Path('/run/current-system').resolve())])
-    elif not (TARGET / 'local/installation.json').is_file():
+    elif not (rt.machine_path(TARGET, 'installation')).is_file():
         parser.error('Resume requires an intact installation inventory')
-    settings = rt.read_json(TARGET / 'local/settings.json')
+    settings = rt.read_json(rt.machine_path(TARGET, 'settings'))
     if settings['ready']:
         parser.error('Initial setup is already complete; use the web interface for changes')
     password = None
@@ -148,9 +149,9 @@ def main():
         run(['nixos-rebuild', 'build', '--flake', 'path:' + str(TARGET) + '#bootstrap'])
         overview = json.loads(run(['nix', '--extra-experimental-features', 'nix-command flakes', 'eval', '--json',
                                    'path:' + str(TARGET) + '#nixlabOverview'], capture_output=True, text=True).stdout)
-        installation = rt.read_json(TARGET / 'local/installation.json')
+        installation = rt.read_json(rt.machine_path(TARGET, 'installation'))
         installation['legacyWpaProfiles'] = overview['wpaProfiles']
-        rt.write_json(TARGET / 'local/installation.json', installation)
+        rt.write_json(rt.machine_path(TARGET, 'installation'), installation)
         run(['nixos-rebuild', 'switch', '--flake', 'path:' + str(TARGET) + '#bootstrap'])
     except Exception:
         if password:
