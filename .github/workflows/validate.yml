@@ -23,7 +23,7 @@ jobs:
         run: find . -name '*.nix' -exec nix-instantiate --parse '{}' ';' >/dev/null
       - name: Evaluate configuration variants
         run: |
-          for target in validation-minimal validation-file-disk validation-host validation-coupled-apps validation-apps validation-services validation-demo validation-zfs validation-inherited validation-bootstrap validation-setup validation-setup-apps; do
+          for target in validation-minimal validation-file-disk validation-host validation-coupled-apps validation-apps validation-services validation-demo validation-zfs validation-inherited validation-iso-firstboot validation-bootstrap validation-setup validation-setup-apps; do
             nix eval ".#nixosConfigurations.$target.config.system.build.toplevel.drvPath"
           done
       - name: Verify lightweight defaults and declarative settings
@@ -50,6 +50,12 @@ jobs:
           nix eval --json .#nixosConfigurations.validation-file-disk.config.virtualisation.incus.preseed.storage_pools > /tmp/nixlab-file-pools.json
           python3 -c 'import json; assert any(p["name"] == "disk-archive" and p["config"]["source"] == "/srv/nixlab/archive/incus" for p in json.load(open("/tmp/nixlab-file-pools.json")))'
 
+      - name: Validate installer ISO composition
+        run: |
+          nix eval .#nixosConfigurations.installer-iso.config.system.build.isoImage.drvPath
+          test "$(nix eval --json .#nixosConfigurations.installer-iso.config.services.openssh.enable)" = "false"
+          nix build .#packages.x86_64-linux.iso-stage --no-link
+          nix build '.#nixosConfigurations.validation-iso-firstboot.config.systemd.units."nixlab-firstboot.service".unit' --no-link
       - name: Build helper and apps system
         run: |
           nix build .#packages.x86_64-linux.homelab --no-link
@@ -67,3 +73,27 @@ jobs:
         run: nix develop --command docker-compose -f examples/demo/compose.yaml config --quiet
       - name: Plan complete host build
         run: nix build .#nixosConfigurations.validation-host.config.system.build.toplevel --no-link --dry-run
+
+  installer-iso:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
+      - name: Build installer ISO
+        run: nix build .#packages.x86_64-linux.installer-iso -o result-iso -L
+      - name: Prepare image and checksum
+        run: |
+          mkdir iso-artifact
+          cp result-iso/iso/*.iso iso-artifact/
+          cd iso-artifact
+          sha256sum *.iso > SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nixlab-installer-x86_64
+          path: iso-artifact/
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error

@@ -57,6 +57,18 @@ def copy_nix_modules(source, target):
         shutil.copyfile(path, destination)
 
 
+def copy_embedded_checkout(source, target, repository):
+    """The ISO carries a filtered source tree, not a Git working copy."""
+    if not (source / 'flake.nix').is_file() or not (source / 'flake.lock').is_file():
+        raise ValueError('Bundled checkout needs flake.nix and flake.lock')
+    shutil.copytree(source, target, symlinks=False)
+    run(['git', '-C', str(target), 'init', '-q', '-b', 'nixlab-iso'])
+    run(['git', '-C', str(target), 'add', '.'])
+    run(['git', '-C', str(target), '-c', 'user.name=Nixlab ISO', '-c',
+         'user.email=installer@nixlab.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '-q', '-m', 'Initialize bundled Nixlab source'])
+    run(['git', '-C', str(target), 'remote', 'add', 'origin', repository])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--checkout', type=Path, help='Reviewed checkout supplied by the standalone launcher')
@@ -98,8 +110,11 @@ def main():
         (rt.STATE / 'original-config').chmod(0o700)
         TARGET.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         if args.checkout:
-            run(['git', 'clone', '--no-hardlinks', str(args.checkout.resolve()), str(TARGET)])
-            run(['git', '-C', str(TARGET), 'remote', 'set-url', 'origin', args.repo])
+            if (args.checkout / '.git').exists():
+                run(['git', 'clone', '--no-hardlinks', str(args.checkout.resolve()), str(TARGET)])
+                run(['git', '-C', str(TARGET), 'remote', 'set-url', 'origin', args.repo])
+            else:
+                copy_embedded_checkout(args.checkout.resolve(), TARGET, args.repo)
         else:
             run(['git', 'clone', '--single-branch', '--branch', args.ref, args.repo, str(TARGET)])
         TARGET.chmod(0o700)

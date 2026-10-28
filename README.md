@@ -107,3 +107,11 @@ recovery, but are no longer authoritative after migration.
 See [file configuration](docs/file-modules.md) for typed settings, named guests,
 disks, reviewed uploads and the migration procedure. Feature composition is
 covered in `platform-modules/`; mutable guest data still needs independent backups.
+
+### Bootable installer ISO
+
+Build `nix build .#packages.x86_64-linux.installer-iso -o result-iso`, or download
+the `nixlab-installer-x86_64` CI artifact after its build completes. The first
+version uses standard NixOS disk/bootloader installation, then starts Nixlab's
+web setup on first boot. See [ISO installation](docs/iso.md) for exact steps and
+validation limits. No disks are formatted automatically.
