@@ -31,6 +31,20 @@ class ReconcileTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             reconcile.plan(self.current, self.spec)
 
+    def test_reconcile_cannot_remove_ownership_marker(self):
+        self.spec['config'][reconcile.OWNER] = 'false'
+        with self.assertRaisesRegex(ValueError, 'ownership marker'):
+            reconcile.plan(self.current, self.spec)
+        self.assertEqual(self.current['config'][reconcile.OWNER], 'true')
+
+    def test_invalid_owner_is_rejected_before_creating_instance(self):
+        self.spec.update(project='lab', image='images:example')
+        self.spec['config'][reconcile.OWNER] = 'false'
+        with patch.object(reconcile, 'run') as run:
+            with self.assertRaisesRegex(ValueError, 'ownership marker'):
+                reconcile.reconcile(self.spec)
+        run.assert_not_called()
+
     def test_idempotent_resource_update_preserves_runtime_keys(self):
         updated = reconcile.plan(self.current, self.spec)
         self.assertEqual(updated['config']['user.note'], 'keep')

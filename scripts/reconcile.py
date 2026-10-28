@@ -21,6 +21,8 @@ def plan(current, spec):
         raise ValueError(f"Refusing to modify unowned instance {spec['name']}")
     if current["type"] != spec["type"]:
         raise ValueError("Instance type is immutable; migrate explicitly")
+    if OWNER in spec.get("config", {}) and spec["config"][OWNER] != "true":
+        raise ValueError("The Nixlab ownership marker cannot be removed by reconciliation")
     writable = {k: copy.deepcopy(current[k]) for k in
                 ("architecture", "config", "devices", "ephemeral", "profiles", "description") if k in current}
     result = copy.deepcopy(writable)
@@ -30,6 +32,8 @@ def plan(current, spec):
     return result if result != writable else None
 
 def reconcile(spec):
+    if OWNER in spec.get("config", {}) and spec["config"][OWNER] != "true":
+        raise ValueError("The Nixlab ownership marker cannot be removed by reconciliation")
     for k in ("name", "project"):
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*", spec[k]):
             raise ValueError(f"Invalid {k}")
