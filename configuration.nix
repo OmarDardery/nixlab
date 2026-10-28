@@ -11,6 +11,7 @@
     ./modules/cloudflared.nix
     ./modules/backups.nix
     ./modules/monitoring.nix
+    ./modules/mount-schema.nix
     ./modules/mounts.nix
     ./modules/radios/wifi.nix
     ./modules/radios/bluetooth.nix

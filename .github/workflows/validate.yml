@@ -35,6 +35,10 @@ jobs:
           test "$(nix eval --json .#nixosConfigurations.validation-minimal.config.virtualisation.docker.enable)" = "false"
           test "$(nix eval --json '.#nixosConfigurations.validation-minimal.config.systemd.services' --apply 'services: builtins.hasAttr "nixlab-apps-onboarding" services')" = "false"
           test "$(nix eval --json .#nixosConfigurations.validation-services.config.services.prometheus.enable)" = "true"
+      - name: Check typed legacy mount projection
+        run: |
+          nix eval --json .#nixosConfigurations.validation-setup.config.nixlab.storage.mounts > /tmp/nixlab-mounts.json
+          python3 tests/check_mount_projection.py /tmp/nixlab-mounts.json
       - name: Build helper and apps system
         run: |
           nix build .#packages.x86_64-linux.homelab --no-link
