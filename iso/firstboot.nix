@@ -10,11 +10,17 @@
     restartIfChanged = false; stopIfChanged = false;
     path = [ pkgs.coreutils pkgs.systemd ];
     serviceConfig = {
-      Type = "oneshot"; RemainAfterExit = true; TimeoutStartSec = "2h";
+      # Do not hold multi-user.target in an activating state while rebuilding:
+      # switch-to-configuration may need to start that same target.
+      Type = "exec"; RuntimeMaxSec = "2h";
       StandardOutput = "journal+console"; StandardError = "journal+console";
       UMask = "0077";
     };
     script = ''
+      # Type=exec makes this service started before waiting for boot to settle.
+      # A degraded system can still expose its console and be inspected; the
+      # converter performs its own prerequisites and leaves failures resumable.
+      ${pkgs.systemd}/bin/systemctl is-system-running --wait >/dev/null || true
       resume=()
       if test -f /var/lib/nixlab/config/machine/installation.json; then resume=(--resume); fi
       ${installer}/bin/nixlab-install --checkout ${source} --ref ${lib.escapeShellArg revision} "''${resume[@]}"

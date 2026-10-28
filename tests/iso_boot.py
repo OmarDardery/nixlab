@@ -24,7 +24,8 @@ for name in machine local installed-system site-modules secrets; do
   test ! -e /etc/nixlab-source/"$name"
 done
 test ! -e /etc/nixlab-source/hardware-configuration.nix
-test ! -e /var/lib/nixlab/auth.json
+test ! -e /var/lib/nixlab-admin/auth.json
+test ! -e /var/lib/nixlab-admin/tls.key
 test ! -e /var/lib/incus/database
 if systemctl is-active --quiet sshd.service; then exit 1; fi
 if systemctl is-enabled --quiet sshd.service; then exit 1; fi

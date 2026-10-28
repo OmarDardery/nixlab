@@ -81,7 +81,8 @@ written inside platform code.
 
 ## Recovery and limitations
 
-The conversion service is `nixlab-firstboot.service`. Inspect its journal if it
+The conversion service is `nixlab-firstboot.service`. It lets normal boot complete
+before rebuilding, with a two-hour runtime limit. Inspect its journal if it
 fails, fix connectivity or the reported condition, and restart it. Existing
 installation inventory is resumed rather than overwritten. Partial source
 creation without intact inventory requires administrator inspection. A success
