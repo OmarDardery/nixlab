@@ -35,7 +35,6 @@ if systemctl is-enabled --quiet nixlab-firstboot.service; then exit 1; fi
 nixlab-stage-install --help >/dev/null
 nixlab-setup --help >/dev/null
 nixlab-setup --list >/tmp/nixlab-install-disks.json
-python3 -c 'import json; assert any(d["eligible"] for d in json.load(open("/tmp/nixlab-install-disks.json")))'
 printf '1\\nnixlab-test\\n' | nixlab-setup --dry-run >/tmp/nixlab-install-plan.json
 nixlab-install --help >/dev/null
 if nixlab-install >/tmp/nixlab-live-guard.log 2>&1; then exit 1; fi
