@@ -84,6 +84,8 @@ jobs:
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
       - name: Build installer ISO
         run: nix build .#packages.x86_64-linux.installer-iso -o result-iso -L
+      - name: Boot installer ISO in a disposable VM
+        run: nix develop .#iso-test --command python3 tests/iso_boot.py result-iso/iso/*.iso --log iso-boot.log
       - name: Prepare image and checksum
         run: |
           mkdir iso-artifact
@@ -97,3 +99,11 @@ jobs:
           compression-level: 0
           retention-days: 7
           if-no-files-found: error
+      - name: Publish ISO serial boot log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nixlab-installer-boot-log
+          path: iso-boot.log
+          retention-days: 7
+          if-no-files-found: ignore

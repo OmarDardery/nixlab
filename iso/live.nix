@@ -17,6 +17,9 @@ in {
   networking.hostName = "nixlab-installer";
   services.openssh.enable = lib.mkForce false;
   boot.zfs.forceImportRoot = false;
+  # Keep the local screen and a serial console available for headless recovery
+  # and for booting this exact image in the disposable CI VM.
+  boot.kernelParams = [ "console=tty0" "console=ttyS0,115200n8" ];
   isoImage = {
     edition = lib.mkForce "nixlab";
     configurationName = "Nixlab installer";

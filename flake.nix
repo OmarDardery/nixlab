@@ -135,8 +135,11 @@
         apps = testApps.config.system.build.toplevel;
         helpers = self.packages.x86_64-linux.homelab;
       };
-      devShells.x86_64-linux.default = pkgs.mkShell {
-        packages = with pkgs; [ nixfmt shellcheck python3 incus-lts.client docker-compose ];
+      devShells.x86_64-linux = {
+        default = pkgs.mkShell {
+          packages = with pkgs; [ nixfmt shellcheck python3 incus-lts.client docker-compose ];
+        };
+        iso-test = pkgs.mkShell { packages = [ pkgs.python3 pkgs.qemu ]; };
       };
     };
 }

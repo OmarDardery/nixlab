@@ -8,7 +8,7 @@
     wants = [ "network-online.target" ]; after = [ "network-online.target" ];
     unitConfig.ConditionPathExists = "!/var/lib/nixlab/iso-setup-complete";
     restartIfChanged = false; stopIfChanged = false;
-    path = [ pkgs.coreutils ];
+    path = [ pkgs.coreutils pkgs.systemd ];
     serviceConfig = {
       Type = "oneshot"; RemainAfterExit = true; TimeoutStartSec = "2h";
       StandardOutput = "journal+console"; StandardError = "journal+console";

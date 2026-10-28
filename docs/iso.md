@@ -13,6 +13,21 @@ uses the pinned NixOS minimal installer, with UEFI/USB boot support and no GUI o
 running virtualization stack. SSH is disabled in the live environment. Hardware
 boot compatibility and Secure Boot are not established by building the image.
 
+CI also boots the produced ISO in a disposable BIOS VM with no writable disks
+or network, checks the live installer commands and bundled-source exclusions,
+and verifies that SSH and installed-system conversion are not enabled there.
+Image publication is gated on that check; its serial log is a separate artifact.
+This test does not install a target OS or exercise first-boot conversion.
+
+To repeat the same media check locally:
+
+```sh
+nix develop .#iso-test --command python3 tests/iso_boot.py result-iso/iso/*.iso --log iso-boot.log
+```
+
+The runner uses KVM when accessible, otherwise QEMU software emulation. The live
+image provides both a local screen and a 115200-baud serial console.
+
 ## Installation
 
 1. Write the ISO to a USB device using an image writer, then boot the target machine.

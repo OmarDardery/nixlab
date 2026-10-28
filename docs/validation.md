@@ -1,9 +1,9 @@
 # Validation evidence and acceptance procedure
 
-Validation date: 2026-10-27. Pinned Nixpkgs:
+Validation updated: 2026-10-28. Pinned Nixpkgs:
 `718f670e845328e9c2cecdd832835712b2cbd065` (NixOS 26.05).
-The workspace is an Ubuntu container, not the target bare-metal host. No activation,
-formatting, VM start or production network change was performed.
+Source work uses an Ubuntu container and GitHub Actions, not the target bare-metal
+host. No physical host activation, formatting or production network change was performed.
 
 ## Results obtained in this workspace
 
@@ -19,7 +19,7 @@ formatting, VM start or production network change was performed.
 | Applications VM `system.build.toplevel` build | Passed; produces a complete NixOS generation, does not prove guest boot |
 | Native backup and monitoring unit derivation builds | Passed |
 | Full host build dependency plan (`nix build --dry-run`) | Passed; includes Nix-built guest disk/image dependencies |
-| Python safety + setup tests | 39 passed |
+| Python safety + setup + ISO staging tests | 71 passed |
 | Python compilation + YAML parsing | Passed |
 | `docker compose ... config --quiet` | Passed using the pinned Nixpkgs Compose executable |
 | Physical `/dev/kvm` acceleration, host firewall behavior, guest boot, UI login, sops decryption, real Cloudflare connectivity and restore | Not tested here |
@@ -48,7 +48,8 @@ The follow-up installer/portal implementation additionally passed:
 - Packaged admin/installer builds and UI/broker/Nginx unit derivation builds.
 - Real HTTPS handler tests for authentication, secure cookies, CA bootstrap, CSRF rejection,
   hostname/rebinding rejection and invalid-setting refusal; schema, snapshot, secret-isolation,
-  recovery cleanup and timeout tests. The full suite currently contains 39 tests.
+  recovery cleanup and timeout tests. Including configuration migration, module
+  transactions and ISO staging, the full suite currently contains 71 tests.
 - JavaScript syntax, installer Bash syntax/ShellCheck, and browser QA of the dashboard,
   storage selection/role enforcement and radio/preferences pages against simulated hardware.
 
@@ -92,6 +93,24 @@ docker compose -f examples/demo/compose.yaml config --quiet
 and the complete host dependency plan with pinned action commits. A configured machine should
 also run the full host build and VM image build before activation. CI job existence is not a claim
 that its remote run has passed; inspect the actual run status.
+
+## Configuration migration and installer media
+
+The expanded suite covers typed inventory, machine-directory migration,
+authenticated module uploads, immutable review/activation/recovery, Incus field
+ownership and non-destructive ISO staging. JavaScript/homepage checks also pass.
+
+[CI run 40683246380](https://github.com/OmarDardery/nixlab/actions/runs/40683246380)
+passed all source/evaluation checks and selected OS/unit builds, then built and
+published the installer ISO and checksum for `9cebb0f`. The full hypervisor step
+remains a dependency dry run. This run predates the serial boot gate and explicit
+first-boot systemctl dependency fix; use the latest passing PR run for installation.
+
+The installer workflow now requires a disposable BIOS boot of the actual image
+before publishing it. The check exercises live commands and source exclusions
+with no target disks or network. It is not an installed-host, UEFI, Secure Boot,
+KVM guest, data-disk or end-to-end first-boot conversion test. The corresponding
+serial log is retained with CI artifacts. See [ISO installation](iso.md).
 
 ## Host commissioning
 
