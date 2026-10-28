@@ -498,6 +498,24 @@ main.backend()
             self.assertEqual(status,400)
             self.assertIn('Reauthenticate',data['error'])
 
+    def test_platform_upgrade_requires_reauthentication_before_a_job_is_created(self):
+        data,_,status=self.request('/api/review',{'settings':{},'revision':'a'*40},origin=self.origin)
+        self.assertEqual(status,400)
+        self.assertIn('Reauthenticate',data['error'])
+        self.assertEqual(list((self.state/'jobs').iterdir()),[])
+
+    def test_viewer_cannot_mutate_and_role_changes_revoke_live_https_session(self):
+        username='viewer-http'
+        rt.write_json(self.state/'users.json',{username:{'role':'viewer','password':rt.password_record('viewer-http-password')}})
+        result,headers,status=self.request('/api/login',{'username':username,'password':'viewer-http-password'},origin=self.origin,auth=False)
+        self.assertEqual(status,200);self.assertEqual(result['role'],'viewer')
+        with patch.object(type(self),'cookie',headers['Set-Cookie'].split(';')[0]),patch.object(type(self),'csrf',result['csrf']):
+            _,_,status=self.request('/api/status');self.assertEqual(status,200)
+            for endpoint,body in [('/api/review',{'settings':{}}),('/api/operation',{'action':'start','name':'guest'}),('/api/recovery-export',{})]:
+                _,_,status=self.request(endpoint,body,origin=self.origin);self.assertEqual(status,403)
+            record=rt.read_json(self.state/'users.json');record[username]['role']='operator';rt.write_json(self.state/'users.json',record)
+            _,_,status=self.request('/api/status');self.assertEqual(status,401)
+
     def test_csrf_and_cross_origin_mutation_refused(self):
         _,_,status=self.request('/api/review',{'settings':{}},origin=self.origin,csrf=False);self.assertEqual(status,401)
         _,_,status=self.request('/api/review',{'settings':{}},origin='https://attacker.invalid');self.assertEqual(status,401)

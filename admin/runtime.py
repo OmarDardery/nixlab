@@ -75,10 +75,13 @@ def read_json(path, fallback=None):
 
 
 @contextlib.contextmanager
-def locked():
+def locked(blocking=True):
     STATE.mkdir(parents=True, exist_ok=True)
     with (STATE / 'mutation.lock').open('a') as stream:
-        fcntl.flock(stream, fcntl.LOCK_EX)
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+        except BlockingIOError:
+            raise ValueError('Another configuration or guest operation is active; retry after it finishes')
         yield
 
 
@@ -256,6 +259,7 @@ def snapshot(destination, root=ROOT):
         target = destination / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, target)
+        target.chmod(path.stat().st_mode & 0o777)
     write_json(destination / '.nixlab-files.json', [name for name, _ in files])
 
 

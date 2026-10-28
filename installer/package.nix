@@ -3,6 +3,8 @@ let source = pkgs.runCommand "nixlab-installer-source" { } ''
   mkdir -p $out
   cp -r ${../installer} $out/installer
   cp -r ${../admin} $out/admin
+  cp ${../scripts/preflight.py} $out/admin/preflight.py
+  cp ${../scripts/backup.py} $out/admin/backup.py
 '';
 in pkgs.writeShellApplication {
   name = "nixlab-install";

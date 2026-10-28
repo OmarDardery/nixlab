@@ -38,6 +38,7 @@ let
     text = ''exec python3 ${../scripts/reconcile.py} ${desired}'';
   };
 in {
+  environment.etc."nixlab/desired-instances.json".source = desired;
   virtualisation.incus = {
     enable = true;
     ui.enable = true;

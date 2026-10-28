@@ -1,0 +1,1 @@
+{"id":"demo","title":"Web application + PostgreSQL + Redis","description":"Deploy the existing Git-owned demonstration stack in the applications VM. Supply Portainer and database initialization passwords on Applications before building.","settings":{"apps":{"enable":true,"enableDemo":true}}}

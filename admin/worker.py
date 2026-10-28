@@ -49,7 +49,12 @@ def validate_effective_transition(effective, disks, active_settings, previous_di
 def build(directory):
     source = directory / 'source'
     job = rt.read_json(directory / 'job.json')
+    old_inputs = rt.read_json(source / 'flake.lock', {}).get('nodes', {})
     with (directory / 'build.log').open('a', buffering=1) as log:
+        if job.get('platformRevision'):
+            import upgrades
+            changes = upgrades.prepare(source, job['platformRevision'], log)
+            update(directory, platformChanges=changes)
         if job['updateInputs']:
             run(['nix', '--extra-experimental-features', 'nix-command flakes', 'flake', 'update', 'nixpkgs', '--flake', 'path:' + str(source)], log)
         run(['nix', '--extra-experimental-features', 'nix-command flakes', 'build', 'path:' + str(source) + '#nixosConfigurations.hypervisor.config.system.build.toplevel',
@@ -67,13 +72,24 @@ def build(directory):
     validate_settings(validation, validation, inventory())
     validate_effective_transition(effective, disks, rt.read_json(Path('/etc/nixlab/effective-settings.json'), {}),
         rt.read_json(Path('/etc/nixlab/effective-disks.json'), {}), Path('/var/lib/incus/database').exists())
-    update(directory, status='ready', builtAt=time.time(), effectiveSettings=effective, candidateDigest=rt.digest_source(source))
+    new_inputs = rt.read_json(source / 'flake.lock', {}).get('nodes', {})
+    changed_inputs = [{'input': key, 'before': old_inputs.get(key, {}).get('locked', {}).get('rev'),
+                       'after': value.get('locked', {}).get('rev')} for key, value in new_inputs.items()
+                      if value.get('locked') != old_inputs.get(key, {}).get('locked')]
+    booted = Path('/run/booted-system/kernel')
+    kernel = directory / 'system/kernel'
+    reboot = booted.exists() and kernel.exists() and booted.resolve() != kernel.resolve()
+    update(directory, status='ready', builtAt=time.time(), effectiveSettings=effective, candidateDigest=rt.digest_source(source),
+           inputChanges=changed_inputs, rebootRequired=bool(reboot))
     rt.audit('build-ready', job=directory.name)
 
 
 def save_recovery(directory):
     recovery = directory / 'recovery'
     recovery.mkdir(mode=0o700, exist_ok=True)
+    platform = bool(rt.read_json(directory / 'job.json', {}).get('platformRevision'))
+    if platform:
+        rt.snapshot(recovery / 'platform', rt.ROOT)
     modules = rt.module_files(rt.ROOT)
     module_names = [str(path.relative_to(rt.ROOT)) for path in modules]
     for path, name in zip(modules, module_names):
@@ -98,7 +114,7 @@ def save_recovery(directory):
         radios = json.loads(subprocess.run(['rfkill', '--json'], capture_output=True, text=True, check=True).stdout).get('rfkilldevices', [])
     except (OSError, ValueError, subprocess.CalledProcessError):
         radios = []
-    rt.write_json(recovery / 'manifest.json', {'files': manifest, 'nmConnections': uuids, 'radios': radios, 'moduleFiles': module_names})
+    rt.write_json(recovery / 'manifest.json', {'files': manifest, 'nmConnections': uuids, 'radios': radios, 'moduleFiles': module_names, 'platformSnapshot': platform})
 
 
 def restore_files(directory):
@@ -106,6 +122,9 @@ def restore_files(directory):
     manifest = rt.read_json(recovery / 'manifest.json')
     if not manifest:
         raise ValueError('Recovery manifest is missing')
+    if manifest.get('platformSnapshot'):
+        import upgrades
+        upgrades.publish(recovery / 'platform', rt.ROOT)
     if 'moduleFiles' in manifest:
         # Validate the complete live tree before removing or restoring any module.
         live_modules = rt.module_files(rt.ROOT)
@@ -178,6 +197,9 @@ def apply(directory):
         # Live secrets are separate from the immutable, reviewed Nix snapshot.
         for key, data in rt.read_json(directory / 'secrets.json', {}).items():
             rt.atomic(rt.SECRET_PATHS[key], data)
+        if job.get('platformRevision'):
+            import upgrades
+            upgrades.publish(directory / 'source', rt.ROOT)
         rt.install_modules(directory / 'source', rt.ROOT)
         rt.write_json(rt.machine_path(rt.ROOT, 'settings'), job['settings'])
         if job['updateInputs']:

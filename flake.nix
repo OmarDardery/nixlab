@@ -47,7 +47,7 @@
           in type != "symlink" && builtins.baseNameOf path != "__pycache__" && (toString path == toString self.outPath || builtins.elem top [ "admin" "configuration.nix" "configuration-bootstrap.nix"
             "docs" "examples" "flake.lock" "flake.nix" "guests" "installer" "iso" "lib"
             "modules" "platform-modules" "scripts" "site-defaults.nix" "site.nix" "tests"
-            "README.md" ".gitignore" ]);
+            "README.md" "install.sh" "platform-release.json" ".gitignore" ]);
       };
       isoInstaller = import ./installer/package.nix { inherit pkgs; };
       firstbootModule = import ./iso/firstboot.nix {
@@ -114,6 +114,7 @@
         installer = isoInstaller;
         installer-iso = installerIso.config.system.build.isoImage;
         iso-stage = installerIso.config.system.build.nixlabStageInstaller;
+        iso-setup = installerIso.config.system.build.nixlabGuidedInstaller;
         admin = import ./admin/package.nix { inherit pkgs; };
         homelab = import ./scripts/homelab.nix { inherit pkgs; };
         apps-image = apps.config.system.build.qemuImage;
@@ -131,6 +132,7 @@
         fileSystems = builtins.mapAttrs (_: fs: { inherit (fs) device fsType options; }) bootstrap.config.fileSystems;
       };
       checks.x86_64-linux = {
+        portal = import ./tests/portal-vm.nix { inherit pkgs; };
         host = self.nixosConfigurations.validation-host.config.system.build.toplevel;
         apps = testApps.config.system.build.toplevel;
         helpers = self.packages.x86_64-linux.homelab;
@@ -139,7 +141,12 @@
         default = pkgs.mkShell {
           packages = with pkgs; [ nixfmt shellcheck python3 incus-lts.client docker-compose ];
         };
-        iso-test = pkgs.mkShell { packages = [ pkgs.python3 pkgs.qemu ]; };
+        iso-test = pkgs.mkShell {
+          packages = [ pkgs.python3 pkgs.qemu ];
+          NIXLAB_OVMF_CODE = pkgs.OVMF.firmware;
+          NIXLAB_OVMF_VARS = pkgs.OVMF.variables;
+          NIXLAB_OVMF_SMM = if pkgs.OVMF.systemManagementModeRequired then "1" else "0";
+        };
       };
     };
 }

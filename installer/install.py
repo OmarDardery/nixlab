@@ -57,11 +57,13 @@ def copy_nix_modules(source, target):
         shutil.copyfile(path, destination)
 
 
-def copy_embedded_checkout(source, target, repository):
+def copy_embedded_checkout(source, target, repository, revision=None):
     """The ISO carries a filtered source tree, not a Git working copy."""
     if not (source / 'flake.nix').is_file() or not (source / 'flake.lock').is_file():
         raise ValueError('Bundled checkout needs flake.nix and flake.lock')
     shutil.copytree(source, target, symlinks=False)
+    if revision and len(revision) == 40 and all(c in '0123456789abcdef' for c in revision):
+        rt.write_json(target / 'platform-release.json', {'version': '0.1.0-rc1', 'revision': revision, 'repository': repository})
     run(['git', '-C', str(target), 'init', '-q', '-b', 'nixlab-iso'])
     run(['git', '-C', str(target), 'add', '.'])
     run(['git', '-C', str(target), '-c', 'user.name=Nixlab ISO', '-c',
@@ -116,7 +118,7 @@ def main():
                 run(['git', 'clone', '--no-hardlinks', str(args.checkout.resolve()), str(TARGET)])
                 run(['git', '-C', str(TARGET), 'remote', 'set-url', 'origin', args.repo])
             else:
-                copy_embedded_checkout(args.checkout.resolve(), TARGET, args.repo)
+                copy_embedded_checkout(args.checkout.resolve(), TARGET, args.repo, args.ref)
         else:
             run(['git', 'clone', '--single-branch', '--branch', args.ref, args.repo, str(TARGET)])
         TARGET.chmod(0o700)

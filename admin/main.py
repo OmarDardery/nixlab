@@ -15,6 +15,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 import runtime as rt
+import accounts as access_accounts
 
 SOCKET = Path(os.environ.get('NIXLAB_SOCKET', '/run/nixlab-admin/backend.sock'))
 MAX_BODY = 262144
@@ -29,7 +30,9 @@ def json_body(handler):
         raise ValueError('Invalid request length')
     if not 0 < length <= MAX_BODY:
         raise ValueError('Request body is missing or too large')
-    return json.loads(handler.rfile.read(length))
+    body = json.loads(handler.rfile.read(length))
+    if not isinstance(body, dict): raise ValueError('Request body must be an object')
+    return body
 
 
 def reply(handler, status, data, content_type='application/json', extra=None):
@@ -57,7 +60,9 @@ class UnixHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 
 def backend():
     from controller import Manager
+    from operations import Operations, guests
     manager = Manager()
+    operations = Operations()
     class Broker(BaseHTTPRequestHandler):
         def log_message(self, *_):
             pass
@@ -67,6 +72,19 @@ def backend():
                     result = manager.status()
                 elif self.path == '/inventory':
                     result = manager.host_inventory()
+                elif self.path == '/operations':
+                    result = {'jobs': operations.status(), 'archives': operations.archives()}
+                elif self.path == '/guests':
+                    result = {'guests': guests() if manager.settings()['ready'] else []}
+                elif self.path == '/users':
+                    import accounts
+                    result = {'users': accounts.list_users()}
+                elif self.path == '/health':
+                    import recovery
+                    result = recovery.health()
+                elif self.path == '/recipes':
+                    import catalog
+                    result = {'recipes': catalog.recipes()}
                 elif self.path == '/access':
                     settings = manager.effective_settings()
                     hosts = [settings['management']['address'], settings['hostName'], 'localhost', '127.0.0.1']
@@ -87,8 +105,12 @@ def backend():
         def do_POST(self):
             try:
                 body = json_body(self)
+                actor = body.pop('_actor', 'root')
+                if not isinstance(actor, str) or not __import__('re').fullmatch(r'[a-z][a-z0-9_-]{0,31}', actor):
+                    raise ValueError('Invalid audit identity')
+                rt.audit('broker-request', principal=actor, operation=self.path)
                 if self.path == '/review':
-                    result = manager.review(body['settings'], body.get('secrets', {}), body.get('updateInputs', False), body.get('modules', {}))
+                    result = manager.review(body['settings'], body.get('secrets', {}), body.get('updateInputs', False), body.get('modules', {}), body.get('revision'), principal=actor)
                 elif self.path == '/apply':
                     result = manager.apply(body['id'])
                 elif self.path == '/cancel':
@@ -98,9 +120,18 @@ def backend():
                 elif self.path == '/rollback':
                     result = manager.rollback(body['id'])
                 elif self.path == '/password':
-                    result = manager.change_password(body['password'])
+                    import accounts
+                    result = accounts.change_password(body.get('username', 'admin'), body['password'])
+                elif self.path == '/users':
+                    import accounts
+                    result = accounts.update(body.get('username'), body.get('role'), body.get('password'), body.get('delete', False))
                 elif self.path == '/migrate-layout':
                     result = manager.migrate_layout()
+                elif self.path == '/operation':
+                    result = operations.submit(body, principal=actor)
+                elif self.path == '/recovery-export':
+                    import recovery
+                    result = recovery.download(body.get('recipient'))
                 elif self.path == '/browser-certificate':
                     result = manager.browser_certificate()
                 else:
@@ -145,23 +176,27 @@ class Auth:
         self.sessions = {}
         self.failures = collections.defaultdict(list)
         self.lock = threading.RLock()
-    def login(self, password, address):
+    def login(self, password, address, username='admin'):
+        import accounts
         with self.lock:
             now = time.monotonic()
             attempts = [t for t in self.failures[address] if now - t < 300]
             self.failures[address] = attempts
             if len(attempts) >= 5:
                 raise ValueError('Too many sign-in attempts; wait five minutes')
-            if not rt.password_matches(password, rt.read_json(rt.STATE / 'auth.json')):
+            if not isinstance(username, str) or not accounts.matches(username, password):
                 attempts.append(now)
                 raise ValueError('Invalid administrator password')
             self.failures.pop(address, None)
             if len(self.sessions) > 128:
                 self.sessions.clear()
             token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-            self.sessions[token] = {'csrf': csrf, 'created': now, 'used': now}
+            item = accounts.record(username)
+            self.sessions[token] = {'csrf': csrf, 'created': now, 'used': now, 'username': username,
+                                    'role': item['role'], 'identity': accounts.fingerprint(item)}
             return token, csrf
     def get(self, cookie):
+        import accounts
         token = ''
         for part in cookie.split(';'):
             if part.strip().startswith('nixlab_session='):
@@ -170,6 +205,10 @@ class Auth:
             item = self.sessions.get(token)
             now = time.monotonic()
             if not item or now - item['used'] > 1800 or now - item['created'] > 28800:
+                self.sessions.pop(token, None)
+                return None
+            current = accounts.record(item['username'])
+            if not current or accounts.fingerprint(current) != item['identity']:
                 self.sessions.pop(token, None)
                 return None
             item['used'] = now
@@ -240,6 +279,7 @@ def web():
                 path = urlsplit(self.path).path
                 assets = {'/': ('index.html', 'text/html; charset=utf-8'),
                           '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
+                          '/operations.js': ('operations.js', 'text/javascript; charset=utf-8'),
                           '/style.css': ('style.css', 'text/css; charset=utf-8')}
                 if path in assets:
                     filename, mime = assets[path]
@@ -247,11 +287,37 @@ def web():
                 if path == '/ca.crt':
                     return reply(self, 200, broker_request('GET', '/ca')['certificate'].encode(), 'application/x-x509-ca-cert', {'Content-Disposition': 'attachment; filename=nixlab-ca.crt'})
                 session = self.session()
+                if path.startswith('/docs/'):
+                    import html
+                    import re
+                    name = path[len('/docs/'):]
+                    if not re.fullmatch(r'[a-z0-9-]+\.md', name):
+                        return reply(self, 404, {'error': 'Choose a packaged Markdown guide'})
+                    source = rt.SOURCE / 'docs' / name
+                    if not source.is_file(): return reply(self, 404, {'error': 'Guide not found'})
+                    text = source.read_text()
+                    try:
+                        import markdown
+                        content = markdown.markdown(text, extensions=['fenced_code', 'tables'])
+                    except ImportError:
+                        content = '<pre>' + html.escape(text) + '</pre>'
+                    page = ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+                            '<title>Nixlab guide</title><link rel="stylesheet" href="/style.css">'
+                            '<main class="page"><article class="card"><a href="/">Back to Nixlab</a>' + content + '</article></main></html>')
+                    return reply(self, 200, page.encode(), 'text/html; charset=utf-8')
                 if path == '/api/session':
-                    return reply(self, 200, {'csrf': session['csrf']})
-                if path in ('/api/status', '/api/inventory', '/api/ca'):
-                    return reply(self, 200, broker_request('GET', path[4:]))
+                    return reply(self, 200, {key: session[key] for key in ('csrf', 'username', 'role')})
+                if path == '/api/users':
+                    if session['role'] != 'admin': raise access_accounts.AuthorizationError('Administrator account required')
+                    return reply(self, 200, broker_request('GET', '/users'))
+                if path in ('/api/status', '/api/inventory', '/api/ca', '/api/operations', '/api/guests', '/api/health', '/api/recipes'):
+                    result = broker_request('GET', path[4:])
+                    if path == '/api/status' and session['role'] != 'admin' and result.get('job'):
+                        result['job'] = {k: v for k, v in result['job'].items() if k not in ('log', 'moduleChanges', 'platformChanges')}
+                    return reply(self, 200, result)
                 reply(self, 404, {'error': 'Unknown endpoint'})
+            except access_accounts.AuthorizationError as exc:
+                reply(self, 403, {'error': str(exc)})
             except PermissionError as exc:
                 reply(self, 401, {'error': str(exc)})
             except (ValueError, OSError) as exc:
@@ -263,30 +329,40 @@ def web():
                     raise PermissionError('Same-origin request required')
                 if self.path == '/api/login':
                     body = json_body(self)
-                    token, csrf = auth.login(body.get('password'), self.client_address[0])
-                    return reply(self, 200, {'csrf': csrf}, extra={
+                    username = body.get('username', 'admin')
+                    token, csrf = auth.login(body.get('password'), self.client_address[0], username)
+                    return reply(self, 200, {'csrf': csrf, 'username': username, 'role': auth.get('nixlab_session=' + token)['role']}, extra={
                         'Set-Cookie': 'nixlab_session=' + token + '; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=28800'})
                 session = self.session(mutation=True)
                 body = json_body(self)
+                import accounts
+                accounts.authorize(session, self.path, body)
                 if self.path == '/api/logout':
                     session['created'] = -1000000000
                     return reply(self, 200, {'ok': True}, extra={'Set-Cookie': 'nixlab_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0'})
                 if self.path == '/api/password':
-                    if not rt.password_matches(body.get('current'), rt.read_json(rt.STATE / 'auth.json')):
+                    if not accounts.matches(session['username'], body.get('current')):
                         raise ValueError('Current password is incorrect')
-                    result = broker_request('POST', '/password', {'password': body['password']})
-                    auth.sessions.clear()
+                    result = broker_request('POST', '/password', {'username': session['username'], 'password': body['password'], '_actor': session['username']})
+                    with auth.lock:
+                        auth.sessions = {key: item for key, item in auth.sessions.items() if item['username'] != session['username']}
                     return reply(self, 200, result)
-                if self.path == '/api/migrate-layout' and not rt.password_matches(body.get('current'), rt.read_json(rt.STATE / 'auth.json')):
+                if self.path == '/api/migrate-layout' and not accounts.matches(session['username'], body.get('current')):
                     raise ValueError('Reauthenticate to migrate the machine layout')
-                if self.path == '/api/review' and body.get('modules'):
-                    if body.get('acknowledgePrivilegedModules') is not True or not rt.password_matches(body.get('adminPassword'), rt.read_json(rt.STATE / 'auth.json')):
+                if self.path == '/api/review' and (body.get('modules') or body.get('revision')):
+                    if body.get('acknowledgePrivilegedModules') is not True or not accounts.matches(session['username'], body.get('adminPassword')):
                         raise ValueError('Reauthenticate and acknowledge privileged Nix modules')
                     body.pop('adminPassword', None)
-                actions = {'/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/browser-certificate', '/api/migrate-layout'}
+                if self.path in ('/api/recovery-export', '/api/users'):
+                    if not accounts.matches(session['username'], body.pop('current', None)):
+                        raise ValueError('Reauthenticate before exporting recovery material or changing accounts')
+                actions = {'/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/browser-certificate', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export'}
                 if self.path not in actions:
                     return reply(self, 404, {'error': 'Unknown action'})
+                body['_actor'] = session['username']
                 reply(self, 200, broker_request('POST', self.path[4:], body))
+            except access_accounts.AuthorizationError as exc:
+                reply(self, 403, {'error': str(exc)})
             except PermissionError as exc:
                 reply(self, 401, {'error': str(exc)})
             except (ValueError, KeyError, OSError) as exc:
@@ -312,6 +388,7 @@ def config_cli(argv):
     review.add_argument('--module', action='append', default=[], metavar='NAME=FILE')
     review.add_argument('--settings', type=Path)
     review.add_argument('--update-inputs', action='store_true')
+    review.add_argument('--revision', help='Full reviewed upstream platform commit SHA')
     for action in ('apply', 'confirm', 'cancel', 'rollback'):
         commands.add_parser(action).add_argument('id')
     args = parser.parse_args(argv)
@@ -328,7 +405,9 @@ def config_cli(argv):
             modules[name] = Path(filename).read_text()
         rt.validate_modules(modules)
         settings = json.loads(args.settings.read_text()) if args.settings else {}
-        result = broker_request('POST', '/review', {'settings': settings, 'modules': modules, 'updateInputs': args.update_inputs})
+        request = {'settings': settings, 'modules': modules, 'updateInputs': args.update_inputs}
+        if args.revision: request['revision'] = args.revision
+        result = broker_request('POST', '/review', request)
     else:
         result = broker_request('POST', '/' + args.command, {'id': args.id})
     print(json.dumps(result, indent=2))
@@ -351,6 +430,27 @@ def renew():
         subprocess.run(['systemctl', 'try-restart', *services], check=True)
 
 
+def guests_cli(argv):
+    import argparse
+    parser = argparse.ArgumentParser(prog='nixlab-admin guests')
+    parser.add_argument('action', choices=['list', 'status', 'register-export', 'start', 'stop', 'restart', 'snapshot', 'snapshot-copy', 'export', 'restore', 'backup', 'release-restore'])
+    parser.add_argument('--file', type=Path)
+    parser.add_argument('--name'); parser.add_argument('--project', default='lab')
+    parser.add_argument('--snapshot'); parser.add_argument('--target'); parser.add_argument('--archive')
+    parser.add_argument('--acknowledge', action='store_true')
+    args = parser.parse_args(argv)
+    if args.action == 'register-export':
+        from operations import Operations
+        if args.file is None: parser.error('Use --file with the recovered local Incus export')
+        result = Operations().register_archive(args.file, args.project, args.name)
+    elif args.action in ('list', 'status'):
+        result = broker_request('GET', '/guests' if args.action == 'list' else '/operations')
+    else:
+        request = {k: v for k, v in vars(args).items() if v is not None and k != 'file'}
+        result = broker_request('POST', '/operation', request)
+    print(json.dumps(result, indent=2))
+
+
 if __name__ == '__main__':
     os.umask(0o027)
     action = sys.argv[1] if len(sys.argv) > 1 else ''
@@ -364,6 +464,17 @@ if __name__ == '__main__':
     elif action == 'job':
         from worker import job
         job(sys.argv[2], sys.argv[3])
+    elif action == 'operation-job' and os.geteuid() == 0:
+        from operations import Operations
+        Operations().run(sys.argv[2])
+    elif action == 'recovery' and os.geteuid() == 0:
+        import recovery
+        recovery.cli(sys.argv[2:])
+    elif action == 'guests' and os.geteuid() == 0:
+        guests_cli(sys.argv[2:])
+    elif action == 'recovery-backup' and os.geteuid() == 0:
+        import recovery
+        recovery.backup(Path(sys.argv[2]))
     elif action == 'config' and os.geteuid() == 0:
         config_cli(sys.argv[2:])
     elif action == 'renew':
@@ -374,4 +485,4 @@ if __name__ == '__main__':
         rt.write_json(rt.STATE / 'auth.json', rt.password_record(value), mode=0o640, group='nixlab-ui')
         print('Password changed. Restart nixlab-ui to revoke existing sessions.')
     else:
-        sys.exit('Usage: nixlab-admin {backend|web|guard|renew|reset-password|config}')
+        sys.exit('Usage: nixlab-admin {backend|web|guard|renew|reset-password|config|guests|recovery}')

@@ -46,6 +46,7 @@ class Manager:
         return job
 
     def status(self):
+        import upgrades
         active = rt.read_json(self.state / 'active.json', {})
         job = self.job(active['id']) if active.get('id') else None
         if job and job['status'] == 'building' and time.time() - job['created'] > 30:
@@ -59,7 +60,7 @@ class Manager:
         if last and rt.read_json(self.job_path(last['id']) / 'job.json')['status'] != 'confirmed':
             last = None
         effective = self.effective_settings()
-        return {'effectiveSettings': effective, 'codeOverrides': differences(self.settings(), effective), 'settings': self.settings(), 'job': job, 'lastConfirmed': last, 'pending': rt.read_json(self.state / 'pending.json'),
+        return {'release': upgrades.metadata(self.root), 'effectiveSettings': effective, 'codeOverrides': differences(self.settings(), effective), 'settings': self.settings(), 'job': job, 'lastConfirmed': last, 'pending': rt.read_json(self.state / 'pending.json'),
                 'moduleDirectory': str(rt.machine_path(self.root, 'modules')), 'layoutVersion': 1 if rt.modern_layout(self.root) else 0, 'currentSystem': current, 'setupComplete': self.settings()['ready']}
 
     def host_inventory(self):
@@ -87,8 +88,10 @@ class Manager:
                 sys.executable, str(rt.SOURCE / 'main.py'), 'job', phase, job_id]
         subprocess.run(args, check=True, capture_output=True, text=True)
 
-    def review(self, changes, secret_values=None, update_inputs=False, modules=None):
-        with rt.locked():
+    def review(self, changes, secret_values=None, update_inputs=False, modules=None, revision=None, principal='root'):
+        with rt.locked(blocking=False):
+            if revision is not None and (not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{40}', revision)):
+                raise ValueError('Specify the full reviewed platform commit SHA')
             modules = rt.validate_modules({} if modules is None else modules)
             current = self.settings()
             active = rt.read_json(self.state / 'active.json', {})
@@ -152,9 +155,9 @@ class Manager:
             rt.write_json(rt.machine_path(directory / 'source', 'settings'), candidate)
             rt.write_json(directory / 'secrets.json', encoded)
             job = {'id': job_id, 'status': 'building', 'created': time.time(), 'baseDigest': rt.digest_source(self.root),
-                   'settings': candidate, 'changes': differences(current, candidate),
+                   'settings': candidate, 'changes': differences(current, candidate), 'principal': principal,
                    'moduleChanges': [{'path': name, 'before': (rt.machine_path(self.root, 'modules') / name).read_text() if (rt.machine_path(self.root, 'modules') / name).exists() else None, 'after': content} for name, content in modules.items()],
-                   'secretChanges': sorted(encoded), 'updateInputs': bool(update_inputs)}
+                   'secretChanges': sorted(encoded), 'updateInputs': bool(update_inputs), 'platformRevision': revision}
             rt.write_json(directory / 'job.json', job)
             rt.write_json(self.state / 'active.json', {'id': job_id})
             if active.get('id') and previous['status'] in ('ready', 'failed', 'cancelled'):
@@ -173,7 +176,7 @@ class Manager:
             return {'id': job_id}
 
     def apply(self, job_id):
-        with rt.locked():
+        with rt.locked(blocking=False):
             directory = self.job_path(job_id)
             job = rt.read_json(directory / 'job.json')
             if rt.read_json(self.state / 'active.json', {}).get('id') != job_id:
@@ -196,7 +199,7 @@ class Manager:
             return {'id': job_id}
 
     def confirm(self, job_id):
-        with rt.locked():
+        with rt.locked(blocking=False):
             pending = rt.read_json(self.state / 'pending.json')
             job = rt.read_json(self.job_path(job_id) / 'job.json')
             if not pending or pending['id'] != job_id or job['status'] != 'awaiting-confirmation':
@@ -221,7 +224,7 @@ class Manager:
             return {'ok': True}
 
     def rollback(self, job_id):
-        with rt.locked():
+        with rt.locked(blocking=False):
             job = self.job(job_id)
             if job['status'] not in ('awaiting-confirmation', 'confirmed', 'failed') or not job.get('previousSystem'):
                 raise ValueError('This transaction has no recoverable previous generation')
@@ -245,7 +248,7 @@ class Manager:
             return {'ok': True}
 
     def cancel(self, job_id):
-        with rt.locked():
+        with rt.locked(blocking=False):
             directory = self.job_path(job_id)
             job = rt.read_json(directory / 'job.json')
             if job['status'] not in ('building', 'ready', 'failed'):

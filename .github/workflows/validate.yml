@@ -17,6 +17,7 @@ jobs:
       - name: Validate UI JavaScript and installer shell
         run: |
           node --check admin/static/app.js
+          node --check admin/static/operations.js
           node tests/test_homepage.js
           bash -n install.sh
       - name: Parse all Nix files
@@ -55,6 +56,7 @@ jobs:
           nix eval .#nixosConfigurations.installer-iso.config.system.build.isoImage.drvPath
           test "$(nix eval --json .#nixosConfigurations.installer-iso.config.services.openssh.enable)" = "false"
           nix build .#packages.x86_64-linux.iso-stage --no-link
+          nix build .#packages.x86_64-linux.iso-setup --no-link
           nix build '.#nixosConfigurations.validation-iso-firstboot.config.systemd.units."nixlab-firstboot.service".unit' --no-link
       - name: Build helper and apps system
         run: |
@@ -69,6 +71,8 @@ jobs:
       - name: Build backup and monitoring units
         run: |
           nix build '.#nixosConfigurations.validation-services.config.systemd.units."restic-backups-nixlab.service".unit' '.#nixosConfigurations.validation-services.config.systemd.units."nixlab-metrics.service".unit' --no-link
+      - name: Boot portal and verify real NixOS permissions
+        run: nix build .#checks.x86_64-linux.portal --no-link -L
       - name: Validate Compose project
         run: nix develop --command docker-compose -f examples/demo/compose.yaml config --quiet
       - name: Plan complete host build
@@ -86,6 +90,8 @@ jobs:
         run: nix build .#packages.x86_64-linux.installer-iso -o result-iso -L
       - name: Boot installer ISO in a disposable VM
         run: nix develop .#iso-test --command python3 tests/iso_boot.py result-iso/iso/*.iso --log iso-boot.log
+      - name: Boot installer ISO with UEFI firmware
+        run: nix develop .#iso-test --command python3 tests/iso_boot.py result-iso/iso/*.iso --uefi --log iso-boot-uefi.log
       - name: Prepare image and checksum
         run: |
           mkdir iso-artifact
@@ -104,6 +110,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: nixlab-installer-boot-log
-          path: iso-boot.log
+          path: iso-boot*.log
           retention-days: 7
           if-no-files-found: ignore
