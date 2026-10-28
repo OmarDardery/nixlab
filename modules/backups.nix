@@ -4,11 +4,11 @@ let
   backup = pkgs.writeShellApplication {
     name = "nixlab-export";
     runtimeInputs = [ pkgs.python3 pkgs.incus-lts.client ];
-    text = ''exec python3 ${../scripts/backup.py} "$@"'';
+    text = ''PYTHONPATH=${../scripts} exec python3 ${../scripts/backup.py} "$@"'';
   };
   prepare = pkgs.writeShellApplication {
     name = "nixlab-backup-prepare";
-    runtimeInputs = [ pkgs.util-linux ];
+    runtimeInputs = [ pkgs.util-linux pkgs.coreutils ];
     text = ''
       mkdir -p /var/lib/nixlab-admin
       exec 9>/var/lib/nixlab-admin/mutation.lock

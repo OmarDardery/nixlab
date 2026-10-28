@@ -19,7 +19,7 @@ let
   projectTool = pkgs.writeShellApplication {
     name = "nixlab-project";
     runtimeInputs = [ pkgs.python3 pkgs.docker pkgs.docker-compose pkgs.util-linux ];
-    text = ''exec python3 ${../scripts/project.py} "$@"'';
+    text = ''PYTHONPATH=${../scripts} exec python3 ${../scripts/project.py} "$@"'';
   };
 in {
   virtualisation.docker = {

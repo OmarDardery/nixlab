@@ -1,77 +1,43 @@
-# Quality-of-life roadmap
+# Release scope and future extensions
 
-Status: proposed work, except the homepage launcher described below. No roadmap item is an
-installed service or a promise of compatibility. Order prioritizes recovery and daily operations
-over additional dashboards. Features should work through structured, reviewed Nix settings and
-existing Incus/SSH APIs. Avoid adding persistent processes when an on-demand query or systemd job
-will do.
+The current release is a single-host NixOS/Incus appliance for a homelab laptop or
+server. Implementation and target-hardware acceptance are tracked separately.
+See [operations](operations.md), [installation](iso.md) and the
+[commissioning checklist](commissioning.md).
 
-## Available now
+## Implemented release workflows
 
-The overview links to Incus, optional Portainer, upstream Incus/community helper catalogs,
-configuration pages, SSH access, configured Cloudflare public hostnames, project guides and source.
-Management URLs use active settings rather than unsaved form values. Disabled services point to
-their configuration page. Prometheus remains on loopback; the homepage does not invent a public
-monitoring endpoint. Resource links open separate tabs without opener/referrer access and do not
-load external embeds or execute scripts.
+| Area | Delivered behavior |
+|---|---|
+| Installation | Bootable minimal ISO; guided, explicitly confirmed single-disk installer; BIOS/UEFI configuration; manual advanced path; preserved network profiles; installed-system first-boot setup |
+| Configuration | Typed inventory, recursively discovered machine modules, reviewed uploads, immutable builds and confirmation/recovery; one project repository |
+| Updates | Reviewed full-SHA platform upgrades, machine-state preservation, file/input impact records and source/OS rollback; package refresh and explicit reboot policy |
+| Daily operations | On-demand guest summary and ownership/drift, allowlisted lifecycle/snapshot/export jobs and operation history; Incus UI for deep administration |
+| Recovery | New-name stopped restores, checksum validation, autostart suppression, address/shared-volume release checks, off-host archive registration and durable restart intent |
+| Backups | Offline guest/custom-volume exports plus configuration/runtime identity kits; independent encrypted restic destination and explicit retention |
+| Access | Administrator/operator/viewer portal roles, reauthentication, session revocation, existing root broker boundary, separate native Incus and SSH permissions |
+| Optional features | File-discovered catalog for laptop policy, SMART, private Tailscale SSH, history, applications VM and demo; runtime-credential failure webhooks |
+| Support | Packaged local guides, release identifiers, portable configuration/encrypted-secret kits and bounded diagnostic report |
 
-The platform already includes reviewed builds, activation confirmation/recovery, settings export,
-UUID mounts, modular radios, offline guest backups, an administration CLI and optional history.
-The items below extend these features rather than install overlapping control panels.
+Automated gates include source/security tests, NixOS configuration and selected OS
+builds, a booted portal/UNIX-permission integration test, and BIOS/UEFI live-media
+checks with a disposable disk in dry-run mode. Actual guided installation and
+first-boot conversion on the target, guest boot, radio/firmware behavior, interrupted
+activation and a verified off-host workload restore remain acceptance testing.
 
-## P0 — Commissioning and recovery
+## Separate future product scopes
 
-| Work | Why | Acceptance |
-|---|---|---|
-| Repeatable target-host test matrix | Configuration builds cannot establish boot/recovery correctness | Record Intel/AMD, UEFI/BIOS, Ethernet/Wi-Fi, guest boot, missing data disk and interrupted activation results; preserve the original host generation |
-| Restore drill | A successful backup job alone does not establish recoverability | Restore a guest and a database into isolated test instances; verify data and record elapsed time |
-| Recovery kit export | Configuration, secrets and guest data need separate recovery paths | Export source revision, lock, desired settings, imported hardware modules and a manifest; keep secrets in a separate encrypted archive; restore on a spare NixOS machine |
-| Release-aware documentation links | Pre-release links currently target the implementation branch | Ship a release/source identifier with the portal; ensure every guide link resolves for that installed revision, including offline recovery instructions |
+These are not hidden commissioning steps or capabilities claimed by this release:
 
-## P1 — Daily administration
+- Multi-host clustering/HA, quorum, fencing and shared-storage failover qualification.
+- Multi-tenant isolation, an Incus/OpenFGA authorization integration and cross-service SSO.
+- A broad third-party application catalog or automatic compatibility with arbitrary
+  Proxmox/community scripts. Current helper links are references; packaged recipes
+  never download or execute those scripts.
+- Graphical RAID/LUKS/ZFS provisioning, online pool migration/shrinking and automatic
+  Proxmox disk/network conversion. Native/manual migration remains explicit.
+- PBS compatibility, arbitrary database-consistency plugins and automatic data rollback.
 
-| Work | Lightweight design | Acceptance |
-|---|---|---|
-| Unified guest summary | Fetch Incus API inventory on demand; keep deep guest administration in Incus | Show guest names, IPs, state and limits; provide start/stop/restart through a strict action allowlist with output/status and audit records; surface source ownership |
-| Application recipe catalog | Curated Nix modules or Git-owned Compose definitions; reuse current guest deployment jobs | Preview resource/network/storage changes, pin image digests/guest fingerprints and deploy a reviewed recipe without raw shell input |
-| Optional community helper compatibility | Package a reviewed/pinned Incus script engine and dependencies; support a curated allowlist initially | Test representative guest installers on NixOS-hosted Incus; honor project/profile/network selection; record source hashes and logs; never run Proxmox host tweaks |
-| Backup/restore workflow | Extend existing systemd backup jobs and transaction logs | Show last success, failures, retention and destination; preview a restore into a new name instead of overwriting a live guest |
-| Optional failure notifications | Native systemd failure units with a configured webhook/email destination and runtime credentials | Notify backup/activation/storage failures, redact secrets, support a test message and avoid a new always-on task platform |
-| Configuration ownership/drift view | Compare evaluated source intent with Incus/API state when requested | Explain which fields Nix owns; show drift and require review before adopting existing resources; do not silently recreate/delete guests |
-
-Community helper scripts remain imperative inside their guests. Pinning them improves traceability
-but does not freeze package repositories or make every installation reproducible. Prefer native
-recipes for applications requiring full declarative management. Compatibility mode should be
-optional, add no resident daemon, and never expose arbitrary root script execution over the web.
-
-## P2 — Storage, access and maintenance
-
-| Work | Proposed behavior | Acceptance |
-|---|---|---|
-| Disk health and capacity | Optional native smartd plus on-demand filesystem/pool health | Identify device limitations (USB/RAID), show failures and attach alerts; keep monitoring opt-in |
-| Storage migration assistant | Preview existing UUID/dataset mappings, destination capacity and Incus volume movement | Require a verified backup and explicit migration plan; no automatic formatting, shrinking or pool destruction |
-| Private remote access | Optional native Tailscale configuration, private names and documented TLS trust | Keep dashboards private, accept secrets at runtime and validate access before removing the existing route |
-| Update impact preview | Expand existing review to show lock/input changes, affected services and guest OS changes | Preserve reviewed immutable builds, recovery roots and explicit reboots; distinguish OS rollback from database migration |
-| Secret/certificate health | Display presence, ownership and expiry; support application-specific rotation jobs | Never display stored private material; explain bootstrap credentials versus rotation of existing accounts |
-| Proxmox migration assistant | Extend the migration guide with inventory and import previews | Import into new guest names, validate disks/networking before cutover and keep the original guest recoverable |
-
-## P3 — Usability
-
-- Searchable keyboard launcher for tools, guests, projects and documentation.
-- Mobile/accessibility checks: keyboard focus, labels, contrast and narrow-screen tables.
-- Copyable, redacted diagnostic bundle with exact revision, service failures and relevant logs.
-- Offline packaged documentation with lightweight static rendering.
-- Optional saved administration tasks with fixed argument schemas, exit status and audit records.
-  Preserve the constrained execution boundary; do not add a general browser root terminal.
-
-## Resource and ownership rules
-
-1. No additional dashboard or daemon without a concrete capability the existing stack lacks.
-2. Separate optional VM memory reservations from host overhead; measure RSS, idle CPU, writes and
-   startup time on target hardware before claiming savings.
-3. Services, firewall rules, mounts, radio policy, schedules and source-managed application
-   definitions flow through Nix. Prefer official options and idempotent native integrations.
-4. Use background systemd jobs for long operations, on-demand reads for summaries and bounded
-   polling while a job is active. Never expose credentials through diagnostics.
-5. Keep mutable disks, databases, snapshots, helper-installed applications and runtime identities
-   explicit. Back them up independently; OS generations alone cannot restore their contents.
+Configuration changes remain reviewed Nix intent. Mutable disks, databases,
+certificates, snapshots and runtime identities require independent protection.
+Do not equate OS rollback, a successful backup job or an image build with recoverability.

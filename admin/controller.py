@@ -22,7 +22,8 @@ class Manager:
         (self.state / 'jobs').mkdir(mode=0o700, exist_ok=True)
 
     def settings(self):
-        return rt.read_json(rt.machine_path(self.root, 'settings'))
+        defaults = rt.read_json(rt.SOURCE / 'default-settings.json', {})
+        return merge(defaults, rt.read_json(rt.machine_path(self.root, 'settings')))
 
     def effective_settings(self):
         return rt.read_json(Path('/etc/nixlab/effective-settings.json'), self.settings())

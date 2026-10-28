@@ -15,6 +15,7 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'admin'))
+sys.path.append(str(Path(__file__).resolve().parents[1] / 'scripts'))
 import runtime as rt
 
 REPOSITORY = 'https://github.com/OmarDardery/nixlab.git'

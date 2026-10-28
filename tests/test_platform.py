@@ -4,11 +4,13 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
 BASE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BASE / 'scripts'))
 
 def module(name):
     spec = importlib.util.spec_from_file_location(name, BASE / 'scripts' / (name + '.py'))
@@ -206,10 +208,13 @@ class BackupTests(unittest.TestCase):
         self.assertEqual(list(self.root.glob('.export-*')), [])
 
     def test_failed_backup_recovers_only_originally_running_guests(self):
+        (self.root/'inventory.json').write_text('{"previous":"retain"}')
         states = {'apps': 'Running', 'off': 'Stopped'}
         calls = []
         def fake(*args):
             calls.append(args)
+            if args[:2] in (('profile','list'),('network','list')) or args[:3] == ('config','trust','list'):
+                return '[]'
             if args[:2] == ('project', 'list'):
                 return json.dumps([{'name': 'lab'}])
             if args[:2] == ('storage', 'list'):
@@ -221,6 +226,7 @@ class BackupTests(unittest.TestCase):
             if args[0] == 'start':
                 states[args[1]] = 'Running'; return ''
             if args[0] == 'query':
+                if args[1] == '/1.0': return '{"config":{}}'
                 return json.dumps({'status': states[args[1].split('/')[3]]})
             if args[0] == 'export':
                 raise RuntimeError('export failed')
@@ -231,6 +237,22 @@ class BackupTests(unittest.TestCase):
         self.assertEqual(states, {'apps': 'Running', 'off': 'Stopped'})
         self.assertEqual(json.loads(backup.PENDING.read_text()), [])
         self.assertFalse(any(c[:2] == ('start', 'off') for c in calls))
+        self.assertEqual(json.loads((self.root/'inventory.json').read_text()),{'previous':'retain'})
+
+    def test_successful_inventory_records_mutable_profiles_networks_and_trust(self):
+        def fake(*args):
+            if args[:2] == ('project','list'): return '[{"name":"lab"}]'
+            if args[:2] == ('profile','list'): return '[{"name":"custom","devices":{"data":{"type":"disk"}}}]'
+            if args[:2] == ('network','list'): return '[{"name":"custom-network"}]'
+            if args[:3] == ('config','trust','list'): return '[{"name":"client-identity"}]'
+            if args[0] == 'query': return '{"config":{"core.https_address":"192.0.2.10:8443"}}'
+            return '[]'
+        with patch.object(backup,'incus',side_effect=fake),patch.dict(os.environ,{'NIXLAB_DEMO_BACKUP':'0'}):backup.backup()
+        data=json.loads((self.root/'inventory.json').read_text())
+        self.assertEqual(data['profiles']['lab'][0]['name'],'custom')
+        self.assertEqual(data['networks']['lab'][0]['name'],'custom-network')
+        self.assertEqual(data['trustedCertificates'][0]['name'],'client-identity')
+        self.assertEqual(data['archiveSHA256'],{})
 
 class NetworkTests(unittest.TestCase):
     def setUp(self):

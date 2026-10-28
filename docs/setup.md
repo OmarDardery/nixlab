@@ -190,8 +190,9 @@ shell-command endpoint or arbitrary destination path. See [file modules](file-mo
 The HTTPS process runs as an unprivileged `nixlab-ui` user. Its root broker accepts only defined
 operations over a mode-0660 local UNIX socket. The portal has TLS, a salted PBKDF2 password hash,
 rate-limited login, secure HttpOnly/SameSite cookies, idle/hard session expiration, CSRF tokens,
-same-origin checks and management hostname/source checks. It is a single trusted infrastructure
-administrator interface, not a multi-tenant permission system. Keep it off public tunnels.
+same-origin checks and management hostname/source checks. It supports administrator, operator and viewer portal accounts; configuration and
+code changes remain administrator-only. Native Incus/SSH permissions are separate.
+It is not a multi-tenant isolation or SSO system. Keep it off public tunnels.
 
 Build/apply run in independent systemd units, so restarting the web process does not abandon the
 activation or its recovery guard. Logs are visible in the UI and journal; important operations are
@@ -202,8 +203,10 @@ transaction roots are released after the next successful confirmation. The origi
 generation remains pinned separately for console recovery. The broker/UI are restarted after a switch to load updated runtimes.
 
 Package refresh is a review checkbox: the Nixpkgs stable input advances inside the candidate,
-its lock file is built/reviewed and only then becomes live. Repository code updates still need a
-reviewed source update; this service never blindly pulls executable code from Git on a timer.
+its lock file is built/reviewed and only then becomes live. Repository code updates use the Review page with a full reviewed upstream commit SHA
+and password reauthentication. The isolated candidate preserves machine files and records
+platform changes before activation; source participates in recovery. No executable code
+is blindly pulled on a timer. See [ongoing operations](operations.md).
 A monthly service renews local leaf certificates before expiry, reloads the Incus server identity without intentionally stopping guests, and reprovisions the VM identity.
 
 If sops-nix is enabled by an advanced source configuration, it retains ownership of secret
@@ -277,3 +280,6 @@ this does not test their availability. Prometheus stays private on loopback.
 
 Helper links open upstream documentation; they do not execute installers or establish Nixlab
 compatibility. See the [quality-of-life roadmap](roadmap.md) for the proposed curated integration.
+
+For guided ISO installation, guest jobs, account roles, recipes, reviewed platform updates,
+local documentation and recovery exports, see [operations](operations.md).

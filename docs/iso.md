@@ -13,24 +13,53 @@ uses the pinned NixOS minimal installer, with UEFI/USB boot support and no GUI o
 running virtualization stack. SSH is disabled in the live environment. Hardware
 boot compatibility and Secure Boot are not established by building the image.
 
-CI also boots the produced ISO in a disposable BIOS VM with no writable disks
-or network, checks the live installer commands and bundled-source exclusions,
+CI also boots the produced ISO in disposable BIOS and UEFI VMs with one blank
+virtual test disk and no network, checks the live installer commands and bundled-source exclusions,
 and verifies that SSH and installed-system conversion are not enabled there.
 It also checks that manually invoking the converter on the live OS is refused
 before network discovery or configuration changes.
 Image publication is gated on that check; its serial log is a separate artifact.
-This test does not install a target OS or exercise first-boot conversion.
+The guided installer is exercised in dry-run mode. This test does not install a target
+OS or exercise first-boot conversion.
 
 To repeat the same media check locally:
 
 ```sh
 nix develop .#iso-test --command python3 tests/iso_boot.py result-iso/iso/*.iso --log iso-boot.log
+nix develop .#iso-test --command python3 tests/iso_boot.py result-iso/iso/*.iso --uefi --log iso-boot-uefi.log
 ```
 
 The runner uses KVM when accessible, otherwise QEMU software emulation. The live
 image provides both a local screen and a 115200-baud serial console.
 
-## Installation
+## Guided installation
+
+1. Extract the CI artifact, verify `SHA256SUMS`, and write the `.iso` to a USB device.
+2. Boot the laptop/server in the firmware mode you want to install (UEFI or BIOS).
+   This unsigned media does not provision Secure Boot keys.
+3. Connect to the Internet; use `nmtui` for Wi-Fi if needed.
+4. Run `sudo nixlab-setup`. It lists disk paths, capacity, model, serial/WWN and stable
+   identity. Select a whole disk and host name. Mounted disks, the live USB, read-only
+   devices and disks smaller than 32 GiB are not eligible.
+5. Review the plan and type its exact erase phrase. **All data on that selected disk
+   will be replaced.** Identity and mount state are checked again before the first write.
+   Other disks are not selected. `sudo nixlab-setup --dry-run` prints a plan without writes.
+6. The installer creates GPT with an ext4 root and the appropriate EFI or BIOS boot
+   partition, generates the actual hardware configuration, copies root-only NetworkManager
+   profiles and stages first-boot setup. BIOS uses a stable disk identity. Laptop lid
+   policy keeps the installed server running with the lid closed.
+7. Set the root password at the normal `nixos-install` prompt. After success, remove the
+   USB and reboot. The installed console prints setup URL, generated password and CA fingerprint.
+8. Verify the fingerprint, sign in, add your SSH key and complete **Build & review →
+   Activate → Confirm access**. Only the reviewed activation provisions the hypervisor.
+
+The console wizard intentionally supports one ext4 boot disk. Custom RAID, encryption,
+ZFS root and nonstandard boot layouts use the manual path below. A failed guided install
+can leave the selected disk partially prepared; inspect it before starting another erase.
+Disk preparation is a local/SSH console action; there is no dedicated browser
+formatting endpoint. No disk is erased merely by booting this image.
+
+## Manual installation
 
 1. Write the ISO to a USB device using an image writer, then boot the target machine.
 2. Connect the live environment to the Internet. The source is bundled, but the
@@ -89,14 +118,13 @@ creation without intact inventory requires administrator inspection. A success
 marker prevents conversion on later boots. Root can always inspect the generated
 base configuration before installing or use the normal NixOS recovery workflow.
 
-This first image has a console installation flow, followed by web configuration
-on the installed host. It is not yet a Proxmox-style graphical partitioning
-wizard or a fully offline installer. The installed-system conversion command
+The image provides a guided console installer followed by web configuration
+on the installed host. It is not a graphical partitioning wizard or a fully offline installer. The installed-system conversion command
 refuses this RAM-backed live OS. Use the staging command on the mounted target
 instead.
 
-The bundled source is initialized as a local Git snapshot because the ISO does
-not carry Git history. Before a later platform upgrade, fetch and review the
-chosen upstream ref, then switch to a new branch tracking that ref. Plain
-`git pull` on the initial `nixlab-iso` branch has no upstream. Do not force a
-checkout over local edits; machine/ remains ignored and separate from source.
+The bundled source is initialized as a local Git snapshot. The embedded upstream revision
+is recorded independently in `platform-release.json`. Use the portal's reviewed commit
+upgrade or `nixlab-admin config review --revision FULL_COMMIT_SHA` for later source updates;
+no manual upstream-branch setup is required. Plain `git pull` is not the managed update path.
+See [operations](operations.md) for upgrades, recovery and account boundaries.

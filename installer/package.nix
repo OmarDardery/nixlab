@@ -6,6 +6,7 @@ let source = pkgs.runCommand "nixlab-installer-source" { } ''
   chmod -R u+w $out/admin
   cp ${../scripts/preflight.py} $out/admin/preflight.py
   cp ${../scripts/backup.py} $out/admin/backup.py
+  cp ${../scripts/locking.py} $out/admin/locking.py
 '';
 in pkgs.writeShellApplication {
   name = "nixlab-install";

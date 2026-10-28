@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 from urllib.parse import quote
+from locking import open_lock
 
 ROOT = Path(os.environ.get('NIXLAB_EXPORT_DIRECTORY', '/var/lib/nixlab/exports'))
 PENDING = Path('/var/lib/nixlab/restart-pending.json')
@@ -76,8 +77,13 @@ def backup():
     projects = json.loads(incus('project', 'list', '--format=json'))
     guests = []
     volumes = []
+    profiles, networks = {}, {}
+    trusted = json.loads(incus('config', 'trust', 'list', '--format=json'))
+    server = query('/1.0').get('config', {})
     pools = json.loads(incus('storage', 'list', '--format=json'))
     for project in projects:
+        profiles[project['name']] = json.loads(incus('profile', 'list', '--project', project['name'], '--format=json'))
+        networks[project['name']] = json.loads(incus('network', 'list', '--project', project['name'], '--format=json'))
         for guest in json.loads(incus('list', '--project', project['name'], '--format=json')):
             guest['project'] = project['name']
             if guest['status'] not in ('Running', 'Stopped'):
@@ -98,8 +104,8 @@ def backup():
         for guest in pending:
             # No --force: a failed graceful stop aborts the backup and restarts stopped guests.
             incus('stop', guest['name'], '--project', guest['project'], '--timeout', '180')
-        manifest = {'guests': guests, 'projects': projects, 'pools': pools, 'customVolumes': volumes}
-        (ROOT / 'inventory.json').write_text(json.dumps(manifest, indent=2))
+        manifest = {'guests': guests, 'projects': projects, 'pools': pools, 'customVolumes': volumes,
+                    'profiles': profiles, 'networks': networks, 'trustedCertificates': trusted, 'serverConfiguration': server}
         expected = {'inventory.json'}
         for guest in guests:
             filename = guest['archive']
@@ -109,6 +115,20 @@ def backup():
             filename = volume['archive']
             export(['storage', 'volume', 'export', volume['pool'], volume['name'], '--project', volume['project']], filename)
             expected.add(filename)
+        checksums = {}
+        for filename in expected - {'inventory.json'}:
+            digest = hashlib.sha256()
+            with (ROOT / filename).open('rb') as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b''): digest.update(block)
+            checksums[filename] = digest.hexdigest()
+        manifest['archiveSHA256'] = checksums
+        fd, temporary = tempfile.mkstemp(dir=ROOT, prefix='.inventory-')
+        try:
+            with os.fdopen(fd, 'w') as stream:
+                json.dump(manifest, stream, indent=2); stream.flush(); os.fsync(stream.fileno())
+            os.replace(temporary, ROOT / 'inventory.json')
+        finally:
+            Path(temporary).unlink(missing_ok=True)
         # Retire stale local exports only after a complete export set exists.
         # Historical backups remain governed by restic retention.
         for f in ROOT.glob('*.tar.gz'):
@@ -119,7 +139,7 @@ def backup():
 
 if __name__ == '__main__':
     os.umask(0o077)
-    with open('/run/lock/nixlab-incus.lock', 'w') as lock:
+    with open_lock('/run/lock/nixlab-incus.lock') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
             recover() if '--recover' in sys.argv else backup()

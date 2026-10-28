@@ -22,16 +22,29 @@ import recovery
 import runtime as rt
 import upgrades
 from main import Auth
+from locking import open_lock
 
 
 class DiskTests(unittest.TestCase):
+    def test_data_disk_preparation_refuses_wrong_phrase_before_commands(self):
+        with patch.dict(sys.modules, {'disk_tools': install_disk}):
+            import disks as data_disks
+        with patch.object(data_disks.os,'geteuid',return_value=0),patch.object(data_disks,'Path') as path, \
+                patch.object(data_disks.sys.stdin,'isatty',return_value=True), \
+                patch.object(install_disk,'disks',return_value=[self.disk]),patch.object(install_disk,'run') as run, \
+                patch('builtins.input',side_effect=['1','archive','data','wrong']),patch('builtins.print'):
+            path.return_value.exists.return_value=True
+            with self.assertRaisesRegex(ValueError,'confirmation'):
+                data_disks.prepare()
+        run.assert_not_called()
+
     def setUp(self):
         self.disk = {'path': '/dev/test', 'type': 'disk', 'size': 64 * 1024**3, 'model': 'test', 'serial': 'one',
                      'wwn': 'abc', 'maj:min': '8:0', 'ro': False, 'mountpoints': [None], 'children': [], 'byId': '/dev/disk/by-id/test-serial'}
 
     def test_mounted_descendant_live_disk_read_only_and_non_disk_are_refused(self):
         self.assertTrue(install_disk.eligible(self.disk))
-        for change in ({'ro': True}, {'type': 'loop'}, {'mountpoints': ['/']}, {'size': 1024},
+        for change in ({'ro': True}, {'busy': True}, {'type': 'loop'}, {'mountpoints': ['/']}, {'size': 1024},
                        {'children': [{'mountpoints': ['/iso']}]}):
             value = self.disk | change
             self.assertFalse(install_disk.eligible(value))
@@ -137,6 +150,24 @@ class PlatformUpgradeTests(unittest.TestCase):
         self.assertTrue(upgrades.platform_path('platform-modules/features/hello.nix'))
 
 
+class LockTests(unittest.TestCase):
+    def test_opening_a_lock_never_truncates_existing_content(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'lock';path.write_text('retain')
+            with open_lock(path): pass
+            self.assertEqual(path.read_text(),'retain')
+            self.assertEqual(path.stat().st_mode & 0o777,0o600)
+
+    def test_symlink_and_hard_link_cannot_redirect_privileged_lock_open(self):
+        with tempfile.TemporaryDirectory() as folder:
+            folder=Path(folder);target=folder/'protected';target.write_text('retain')
+            link=folder/'lock';link.symlink_to(target)
+            with self.assertRaises(OSError): open_lock(link)
+            link.unlink();os.link(target,link)
+            with self.assertRaises(ValueError): open_lock(link)
+            self.assertEqual(target.read_text(),'retain')
+
+
 class IdentityTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
@@ -207,6 +238,77 @@ class RecoveryKitTests(unittest.TestCase):
 
 
 class GuestOperationTests(unittest.TestCase):
+    def test_restart_recovery_waits_for_live_mutations(self):
+        import backup
+        with tempfile.TemporaryDirectory() as folder:
+            folder=Path(folder);state=folder/'state';ops=operations.Operations(folder/'root',state)
+            pending=folder/'pending.json';rt.write_json(pending,[{'project':'lab','name':'guest'}])
+            with patch.object(rt,'STATE',state),patch.object(operations,'INCUS_LOCK',folder/'incus.lock'), \
+                    patch.object(backup,'PENDING',pending),patch.object(backup,'recover') as recover:
+                with rt.locked():ops.recover_interrupted()
+                recover.assert_not_called()
+                ops.recover_interrupted()
+                recover.assert_called_once()
+
+    def test_interrupted_export_cleanup_preserves_completed_archive(self):
+        import backup
+        with tempfile.TemporaryDirectory() as folder:
+            folder=Path(folder);state=folder/'state';ops=operations.Operations(folder/'root',state);job_id='d'*32
+            directory=ops.directory/job_id;directory.mkdir()
+            rt.write_json(directory/'job.json',{'id':job_id,'action':'export','status':'failed'})
+            archive=directory/'guest.tar.gz';archive.write_bytes(b'complete')
+            partial=archive.with_suffix('.partial.tar.gz');partial.write_bytes(b'partial')
+            with patch.object(rt,'STATE',state),patch.object(operations,'INCUS_LOCK',folder/'incus.lock'),patch.object(backup,'PENDING',folder/'no-pending'):
+                ops.recover_interrupted()
+            self.assertFalse(partial.exists())
+            self.assertEqual(archive.read_bytes(),b'complete')
+
+    def test_off_host_restore_does_not_require_original_instance_to_exist(self):
+        with tempfile.TemporaryDirectory() as folder:
+            ops=operations.Operations(Path(folder)/'root',Path(folder)/'state');archive_id='a'*32
+            directory=ops.directory/archive_id;directory.mkdir()
+            archive=directory/'guest.tar.gz';archive.write_bytes(b'export-content')
+            rt.write_json(directory/'job.json',{'id':archive_id,'sha256':operations.file_hash(archive)})
+            job={'action':'restore','project':'lab','name':'lost-original','target':'restored','archive':archive_id}
+            with patch.object(operations,'instance',side_effect=AssertionError('Original must not be queried')), \
+                    patch.object(operations,'guests',return_value=[]),patch.object(operations,'incus') as incus:
+                result=ops.perform(job)
+            self.assertEqual(result['restoredInstance'],'restored')
+            self.assertIn('import',incus.call_args.args)
+
+    def test_failed_export_keeps_restart_intent_and_attempts_recovery(self):
+        import backup
+        with tempfile.TemporaryDirectory() as folder:
+            folder=Path(folder);ops=operations.Operations(folder/'root',folder/'state');job_id='b'*32
+            (ops.directory/job_id).mkdir()
+            def fail(*args,**kwargs):
+                if args[0]=='export':raise ValueError('export failed')
+                self.assertNotIn('--force',args)
+                return ''
+            with patch.object(backup,'PENDING',folder/'pending.json'),patch.object(backup,'recover') as recover, \
+                    patch.object(backup,'save_pending') as pending,patch.object(operations,'instance',return_value={'status':'Running'}), \
+                    patch.object(operations,'incus',side_effect=fail):
+                with self.assertRaisesRegex(ValueError,'export failed'):ops.perform({'id':job_id,'action':'export','project':'lab','name':'guest'})
+                pending.assert_called_once_with([{'name':'guest','project':'lab'}])
+                self.assertEqual(recover.call_count,2)
+
+    def test_missing_archive_mount_never_creates_fallback_directory(self):
+        with tempfile.TemporaryDirectory() as folder:
+            folder=Path(folder);ops=operations.Operations(folder/'root',folder/'state');target=folder/'missing/exports/on-demand'
+            job={'id':'c'*32,'archiveRoot':str(target),'archiveMount':{'path':str(folder/'missing'),'uuid':'expected'}}
+            with patch.object(operations.subprocess,'run',return_value=subprocess.CompletedProcess([],1,stdout='')):
+                with self.assertRaisesRegex(ValueError,'filesystem is missing'):ops.archive_path(job,create=True)
+            self.assertFalse(target.exists())
+
+    def test_shared_writable_volume_blocks_restore_release(self):
+        with tempfile.TemporaryDirectory() as folder:
+            ops=operations.Operations(Path(folder)/'root',Path(folder)/'state')
+            devices={'data':{'type':'disk','pool':'guests','source':'database-data','path':'/data'}}
+            with patch.object(operations,'instance',return_value={'expanded_devices':devices}), \
+                    patch.object(operations,'incus',return_value=json.dumps([{'name':'original','expanded_devices':devices}])):
+                with self.assertRaisesRegex(ValueError,'shared with another'):
+                    ops.perform({'action':'release-restore','project':'lab','name':'copy'})
+
     def test_remote_prefixes_paths_and_shell_arguments_are_rejected(self):
         for value in ('remote:guest', 'x/y', '../guest', '--force', 'x; echo', ''):
             with self.assertRaises(ValueError): operations.name(value)

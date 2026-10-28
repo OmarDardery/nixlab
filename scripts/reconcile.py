@@ -9,6 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import quote, urlsplit
+from locking import open_lock
 
 OWNER = "user.nixlab.managed"
 INITIALIZING = "user.nixlab.initializing"
@@ -178,7 +179,7 @@ def reconcile(spec):
 
 if __name__ == "__main__":
     # Shared with the export job; a rebuild cannot change instance resources mid-export.
-    with open("/run/lock/nixlab-incus.lock", "w") as lock:
+    with open_lock('/run/lock/nixlab-incus.lock') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         for spec in json.loads(Path(sys.argv[1]).read_text()):
             reconcile(spec)

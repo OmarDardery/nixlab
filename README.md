@@ -3,16 +3,19 @@
 A declarative NixOS bare-metal host using Incus for system containers and KVM VMs,
 with Docker Compose isolated inside a NixOS applications VM.
 
-**Recommended installation:** run the [bootstrap installer](install.sh) on a fresh conventional
-NixOS host, open its printed HTTPS address, and finish the [web setup wizard](docs/setup.md).
-The installer preserves the actual hardware, bootloader, users and state version. The portal
-configures networking, existing data disks, Wi-Fi/Bluetooth, applications and runtime secrets;
-it builds/reviews a candidate before switching, with a persistent rollback/confirmation guard.
+**Recommended installation:** boot the [installer ISO](docs/iso.md), connect to the Internet,
+and run `sudo nixlab-setup`. The guided console installer reviews one selected disk,
+requires typed erase confirmation, installs NixOS and starts the private web setup on first boot.
+An [existing conventional NixOS installation](docs/setup.md) can use the conversion installer instead.
 
-Implementation remains in hardware commissioning: source checks/builds and HTTPS tests pass,
-but no physical machine was converted in this workspace. Read [validation results](docs/validation.md)
-and the supported starting configurations in the [setup guide](docs/setup.md). Manual Git/Nix
-configuration remains available and intentionally refuses activation with an incomplete inventory.
+The portal handles host settings, reviewed file uploads and source upgrades, guest operations,
+backup/restore jobs, account roles, recovery downloads and offline guides. Optional recipes
+include laptop lid policy, SMART health, private SSH access, monitoring and the applications VM.
+See [operations](docs/operations.md) and the [commissioning checklist](docs/commissioning.md).
+
+This is a single-host release candidate. CI gates include source tests, real NixOS portal/UNIX
+permissions, and BIOS/UEFI media boot checks. Hardware installation, first-boot conversion,
+actual workloads, network-loss recovery and a restore drill remain commissioning requirements.
 
 ## Selected stack
 
@@ -111,7 +114,6 @@ covered in `platform-modules/`; mutable guest data still needs independent backu
 ### Bootable installer ISO
 
 Build `nix build .#packages.x86_64-linux.installer-iso -o result-iso`, or download
-the `nixlab-installer-x86_64` CI artifact after its build completes. The first
-version uses standard NixOS disk/bootloader installation, then starts Nixlab's
-web setup on first boot. See [ISO installation](docs/iso.md) for exact steps and
+the `nixlab-installer-x86_64` CI artifact after its build completes. The guided installer prepares one explicitly confirmed boot disk and starts Nixlab's
+web setup on first boot. The standard NixOS manual installation path remains available. See [ISO installation](docs/iso.md) for exact steps and
 validation limits. No disks are formatted automatically.

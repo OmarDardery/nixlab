@@ -7,9 +7,13 @@ in {
       description = "Root-owned runtime file containing an HTTPS webhook URL; never place its value in Nix."; };
   };
   config = lib.mkIf cfg.enable {
+    assertions = [ { assertion = lib.hasPrefix "/" cfg.webhookFile && !(lib.hasPrefix "/nix/store/" cfg.webhookFile);
+      message = "Notification credentials must come from an absolute runtime file outside the Nix store."; } ];
+    environment.etc."nixlab/notification-settings.json".text = builtins.toJSON { inherit (cfg) webhookFile; };
     systemd.services."nixlab-notify@" = {
       description = "Send a bounded Nixlab failure notification";
       wants = [ "network-online.target" ]; after = [ "network-online.target" ];
+      environment.SSL_CERT_FILE = "/etc/ssl/certs/ca-certificates.crt";
       unitConfig = { StartLimitIntervalSec = 300; StartLimitBurst = 3; };
       serviceConfig = {
         Type = "oneshot"; TimeoutStartSec = "30s"; Restart = "on-failure"; RestartSec = "10s";
@@ -20,7 +24,7 @@ in {
     };
     systemd.services.nixlab-instances.onFailure = [ "nixlab-notify@%n.service" ];
     systemd.services.nixlab-kvm-check.onFailure = [ "nixlab-notify@%n.service" ];
-    systemd.services.nixlab-rollback-guard.onFailure = lib.mkIf site.setup.enable [ "nixlab-notify@%n.service" ];
-    systemd.services.restic-backups-nixlab.onFailure = lib.mkIf site.backup.enable [ "nixlab-notify@%n.service" ];
+    systemd.services.nixlab-rollback-guard = lib.mkIf site.setup.enable { onFailure = [ "nixlab-notify@%n.service" ]; };
+    systemd.services.restic-backups-nixlab = lib.mkIf site.backup.enable { onFailure = [ "nixlab-notify@%n.service" ]; };
   };
 }

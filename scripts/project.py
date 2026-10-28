@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from locking import open_lock
 
 ROOT = Path("/srv/compose")
 
@@ -31,7 +32,7 @@ def main():
         p.error("Project has no /srv/compose/<name>/compose.yaml")
     if os.geteuid() != 0:
         p.error("Run via sudo or authenticated Incus exec")
-    with open("/run/lock/nixlab-project.lock", "w") as lock:
+    with open_lock('/run/lock/nixlab-project.lock') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         compose(args.project, "config", "--quiet")
         if args.action == "deploy":

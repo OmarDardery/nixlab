@@ -5,6 +5,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 import ipaddress
 import json
 import os
+import re
+import subprocess
 from pathlib import Path
 import secrets
 import socket
@@ -106,7 +108,7 @@ def backend():
             try:
                 body = json_body(self)
                 actor = body.pop('_actor', 'root')
-                if not isinstance(actor, str) or not __import__('re').fullmatch(r'[a-z][a-z0-9_-]{0,31}', actor):
+                if not isinstance(actor, str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,31}', actor):
                     raise ValueError('Invalid audit identity')
                 rt.audit('broker-request', principal=actor, operation=self.path)
                 if self.path == '/review':
@@ -293,7 +295,9 @@ def web():
                     name = path[len('/docs/'):]
                     if not re.fullmatch(r'[a-z0-9-]+\.md', name):
                         return reply(self, 404, {'error': 'Choose a packaged Markdown guide'})
-                    source = rt.SOURCE / 'docs' / name
+                    directory = rt.SOURCE / 'docs'
+                    if not directory.is_dir(): directory = rt.SOURCE.parent / 'docs'
+                    source = directory / name
                     if not source.is_file(): return reply(self, 404, {'error': 'Guide not found'})
                     text = source.read_text()
                     try:
@@ -472,6 +476,12 @@ if __name__ == '__main__':
         recovery.cli(sys.argv[2:])
     elif action == 'guests' and os.geteuid() == 0:
         guests_cli(sys.argv[2:])
+    elif action == 'disk' and os.geteuid() == 0 and sys.argv[2:] == ['prepare']:
+        from disks import prepare
+        try:
+            prepare()
+        except (ValueError, OSError, StopIteration, EOFError, subprocess.CalledProcessError) as exc:
+            sys.exit(str(exc))
     elif action == 'recovery-backup' and os.geteuid() == 0:
         import recovery
         recovery.backup(Path(sys.argv[2]))
@@ -485,4 +495,4 @@ if __name__ == '__main__':
         rt.write_json(rt.STATE / 'auth.json', rt.password_record(value), mode=0o640, group='nixlab-ui')
         print('Password changed. Restart nixlab-ui to revoke existing sessions.')
     else:
-        sys.exit('Usage: nixlab-admin {backend|web|guard|renew|reset-password|config|guests|recovery}')
+        sys.exit('Usage: nixlab-admin {backend|web|guard|renew|reset-password|config|guests|recovery|disk prepare}')

@@ -74,6 +74,10 @@
         validation-minimal = mkHost (testSite // { apps = testSite.apps // { enable = false; }; }) testApps [ ./tests/hardware.nix ];
         validation-file-disk = mkHost testSite testApps
           ([ ./tests/hardware.nix ] ++ (import ./lib/site-modules.nix ./tests/module-tree));
+        validation-recipes = mkHost (testSite // { apps = testSite.apps // { enable = false; }; }) null
+          ([ ./tests/hardware.nix { nixlab.notifications.enable = true; } ] ++ map
+            (path: builtins.toFile "nixlab-recipe.nix" (builtins.fromJSON (builtins.readFile path)).module)
+            [ ./admin/recipes/laptop.json ./admin/recipes/disk-health.json ./admin/recipes/private-access.json ]);
         validation-host = mkHost testSite testApps [ ./tests/hardware.nix ];
         validation-apps = testApps;
         validation-coupled-apps = coupledApps;

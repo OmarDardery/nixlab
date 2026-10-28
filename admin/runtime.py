@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from locking import open_lock
 
 ROOT = Path(os.environ.get('NIXLAB_ROOT', '/var/lib/nixlab/config'))
 STATE = Path(os.environ.get('NIXLAB_STATE', '/var/lib/nixlab-admin'))
@@ -74,14 +75,18 @@ def read_json(path, fallback=None):
     return json.loads(Path(path).read_text()) if Path(path).exists() else fallback
 
 
+class BusyError(ValueError):
+    pass
+
+
 @contextlib.contextmanager
 def locked(blocking=True):
     STATE.mkdir(parents=True, exist_ok=True)
-    with (STATE / 'mutation.lock').open('a') as stream:
+    with open_lock(STATE / 'mutation.lock') as stream:
         try:
             fcntl.flock(stream, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
         except BlockingIOError:
-            raise ValueError('Another configuration or guest operation is active; retry after it finishes')
+            raise BusyError('Another configuration or guest operation is active; retry after it finishes')
         yield
 
 

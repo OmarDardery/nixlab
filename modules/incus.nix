@@ -35,7 +35,7 @@ let
   reconcile = pkgs.writeShellApplication {
     name = "nixlab-reconcile";
     runtimeInputs = [ pkgs.python3 pkgs.incus-lts.client ];
-    text = ''exec python3 ${../scripts/reconcile.py} ${desired}'';
+    text = ''PYTHONPATH=${../scripts} exec python3 ${../scripts/reconcile.py} ${desired}'';
   };
 in {
   environment.etc."nixlab/desired-instances.json".source = desired;

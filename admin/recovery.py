@@ -47,7 +47,12 @@ def secret_files():
     for name in ('auth.json', 'users.json', 'ca.key', 'ca.crt', 'tls.key', 'tls.crt', 'apps-tls.key', 'apps-tls.crt'):
         files['admin/' + name] = rt.STATE / name
     for name, path in rt.SECRET_PATHS.items(): files['runtime/' + name] = path
-    settings = rt.read_json(rt.machine_path(rt.ROOT, 'settings'), {})
+    settings = rt.read_json(Path('/etc/nixlab/effective-settings.json'), rt.read_json(rt.machine_path(rt.ROOT, 'settings'), {}))
+    for section, key in (('backup', 'passwordFile'), ('backup', 'environmentFile'), ('tunnel', 'credentialsFile')):
+        value = settings.get(section, {}).get(key)
+        if value: files['runtime/' + section + '-' + key] = Path(value)
+    notification = rt.read_json(Path('/etc/nixlab/notification-settings.json'), {})
+    if notification.get('webhookFile'): files['runtime/notification-url'] = Path(notification['webhookFile'])
     key = Path(settings.get('secrets', {}).get('ageKeyFile', '/var/lib/sops-nix/key.txt'))
     if key.is_file(): files['sops/age-key.txt'] = key
     for path in Path('/var/lib/nixlab-secrets').rglob('*'):
@@ -62,9 +67,14 @@ def secret_files():
 def write_archive(stream, files, kind):
     manifest = {'format': 1, 'kind': kind, 'created': time.time(), 'release': upgrades.metadata(rt.ROOT), 'files': {}}
     with tarfile.open(fileobj=stream, mode='w|gz') as archive:
+        total = 0
+        if len(files) >= 10000: raise ValueError('Recovery kit has too many files')
         for name, path in sorted(files.items()):
             if not path.is_file() or path.is_symlink(): raise ValueError('Recovery source changed or is a symlink')
-            data = path.read_bytes()
+            if path.stat().st_size > 16 * 1024**2: raise ValueError('Recovery member exceeds 16 MiB')
+            with path.open('rb') as source: data = source.read(16 * 1024**2 + 1)
+            total += len(data)
+            if len(data) > 16 * 1024**2 or total > 100 * 1024**2: raise ValueError('Recovery kit exceeds size limits')
             manifest['files'][name] = hashlib.sha256(data).hexdigest()
             item = tarfile.TarInfo(name); item.size = len(data); item.mode = 0o600
             archive.addfile(item, io.BytesIO(data))
@@ -141,7 +151,8 @@ def inspect(archive):
 
 
 def stage(archive, destination):
-    destination = Path(destination)
+    destination = Path(destination).absolute()
+    if destination.resolve() != destination: raise ValueError('Recovery staging cannot traverse symlinks')
     if destination.exists() or destination.is_symlink(): raise ValueError('Recovery staging destination must not exist')
     manifest, entries = inspect(archive)
     destination.mkdir(mode=0o700, parents=True)
@@ -156,6 +167,13 @@ def download(recipient=None):
         files = {Path(result['configuration']).name: base64.b64encode(Path(result['configuration']).read_bytes()).decode()}
         if recipient:
             path = Path(result['encryptedSecrets']); files[path.name] = base64.b64encode(path.read_bytes()).decode()
+            envelope = io.BytesIO()
+            with tarfile.open(fileobj=envelope, mode='w') as archive:
+                for name, encoded in files.items():
+                    body = base64.b64decode(encoded)
+                    item = tarfile.TarInfo(name); item.size = len(body); item.mode = 0o600
+                    archive.addfile(item, io.BytesIO(body))
+            files = {'nixlab-recovery-kit.tar': base64.b64encode(envelope.getvalue()).decode()}
         return {'files': files}
 
 

@@ -19,12 +19,13 @@ jobs:
           node --check admin/static/app.js
           node --check admin/static/operations.js
           node tests/test_homepage.js
+          node tests/test_operations_ui.js
           bash -n install.sh
       - name: Parse all Nix files
         run: find . -name '*.nix' -exec nix-instantiate --parse '{}' ';' >/dev/null
       - name: Evaluate configuration variants
         run: |
-          for target in validation-minimal validation-file-disk validation-host validation-coupled-apps validation-apps validation-services validation-demo validation-zfs validation-inherited validation-iso-firstboot validation-bootstrap validation-setup validation-setup-apps; do
+          for target in validation-minimal validation-file-disk validation-recipes validation-host validation-coupled-apps validation-apps validation-services validation-demo validation-zfs validation-inherited validation-iso-firstboot validation-bootstrap validation-setup validation-setup-apps; do
             nix eval ".#nixosConfigurations.$target.config.system.build.toplevel.drvPath"
           done
       - name: Verify lightweight defaults and declarative settings
@@ -71,12 +72,19 @@ jobs:
       - name: Build backup and monitoring units
         run: |
           nix build '.#nixosConfigurations.validation-services.config.systemd.units."restic-backups-nixlab.service".unit' '.#nixosConfigurations.validation-services.config.systemd.units."nixlab-metrics.service".unit' --no-link
+          nix build '.#nixosConfigurations.validation-recipes.config.systemd.units."nixlab-notify@.service".unit' --no-link
       - name: Boot portal and verify real NixOS permissions
         run: nix build .#checks.x86_64-linux.portal --no-link -L
       - name: Validate Compose project
         run: nix develop --command docker-compose -f examples/demo/compose.yaml config --quiet
-      - name: Plan complete host build
-        run: nix build .#nixosConfigurations.validation-host.config.system.build.toplevel --no-link --dry-run
+      - name: Build complete hypervisor and verify guest image artifacts
+        run: |
+          nix build .#nixosConfigurations.validation-host.config.system.build.toplevel --no-link -L
+          nix build .#nixosConfigurations.validation-apps.config.system.build.qemuImage -o result-app-image
+          nix build .#nixosConfigurations.validation-apps.config.system.build.metadata -o result-app-metadata
+          test -s result-app-image/nixos.qcow2
+          metadata_name="$(nix eval --raw .#nixosConfigurations.validation-apps.config.image.fileName)"
+          test -s "result-app-metadata/tarball/$metadata_name"
 
   installer-iso:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'

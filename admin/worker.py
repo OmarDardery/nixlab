@@ -261,12 +261,12 @@ def job(phase, job_id):
 
 def guard():
     pending = rt.read_json(rt.STATE / 'pending.json')
-    if not pending or time.time() < pending['deadline']:
-        return
-    with rt.locked():
-        pending = rt.read_json(rt.STATE / 'pending.json')
-        if pending and rt.read_json(rt.STATE / 'jobs' / pending['id'] / 'job.json', {}).get('status') == 'confirmed':
-            rt.durable_unlink(rt.STATE / 'pending.json')
-            return
-        if pending and time.time() >= pending['deadline']:
-            rollback(rt.STATE / 'jobs' / pending['id'], 'confirmation timed out')
+    if pending and time.time() >= pending['deadline']:
+        with rt.locked():
+            pending = rt.read_json(rt.STATE / 'pending.json')
+            if pending and rt.read_json(rt.STATE / 'jobs' / pending['id'] / 'job.json', {}).get('status') == 'confirmed':
+                rt.durable_unlink(rt.STATE / 'pending.json')
+            elif pending and time.time() >= pending['deadline']:
+                rollback(rt.STATE / 'jobs' / pending['id'], 'confirmation timed out')
+    from operations import Operations
+    Operations().recover_interrupted()

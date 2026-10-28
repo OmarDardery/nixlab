@@ -12,10 +12,12 @@ import sys
 import time
 from urllib.parse import quote
 import runtime as rt
+from locking import open_lock
 
 OWNER = 'user.nixlab.managed'
 LAST = 'user.nixlab.last-applied'
 ACTIONS = {'start', 'stop', 'restart', 'snapshot', 'snapshot-copy', 'export', 'restore', 'backup', 'release-restore'}
+INCUS_LOCK = Path('/run/lock/nixlab-incus.lock')
 
 
 def name(value):
@@ -184,6 +186,10 @@ class Operations:
         if action == 'backup':
             subprocess.run(['systemctl', 'start', 'restic-backups-nixlab.service'], check=True, timeout=43200)
             return {}
+        if action == 'export':
+            import backup
+            backup.PENDING.parent.mkdir(parents=True, exist_ok=True)
+            backup.recover()
         current = {} if action == 'restore' else instance(project, guest)
         if action in ('start', 'restart') and current.get('config', {}).get('user.nixlab.restore-review') == 'required':
             raise ValueError('Review restored networking, disks and credentials, then release the restore before starting it')
@@ -200,7 +206,7 @@ class Operations:
             overrides = ['--config', 'boot.autostart=false', '--config', OWNER + '=false',
                          '--config', LAST + '=', '--config', 'user.nixlab.restore-review=required']
             if action == 'snapshot-copy':
-                incus('copy', guest + '/' + name(job['snapshot']), target, '--project', project, *overrides, timeout=43200)
+                incus('copy', guest + '/' + name(job['snapshot']), target, '--project', project, '--stateless', *overrides, timeout=43200)
             else:
                 archive_job = rt.read_json(self.path(job['archive']) / 'job.json')
                 archive = self.archive_path(archive_job)
@@ -212,18 +218,22 @@ class Operations:
             # A restored copy remains stopped and autostart-disabled. Fixed IPs
             # must be changed in Incus before it can be released from quarantine.
             addresses = {d['ipv4.address'] for d in current.get('expanded_devices', {}).values() if d.get('ipv4.address')}
+            writable = {(d.get('pool', ''), d['source']) for d in current.get('expanded_devices', {}).values()
+                        if d.get('type') == 'disk' and d.get('path') != '/' and d.get('source') and d.get('readonly') != 'true'}
             all_instances = json.loads(incus('list', '--project', project, '--format=json'))
             for other in all_instances:
                 if other['name'] != guest and addresses & {d['ipv4.address'] for d in other.get('expanded_devices', {}).values() if d.get('ipv4.address')}:
                     raise ValueError('A restored fixed address conflicts with another instance; change its NIC configuration first')
+                volumes = {(d.get('pool', ''), d['source']) for d in other.get('expanded_devices', {}).values()
+                           if d.get('type') == 'disk' and d.get('path') != '/' and d.get('source')}
+                if other['name'] != guest and writable & volumes:
+                    raise ValueError('A writable restored data volume is shared with another instance; clone or detach it before release')
             incus('config', 'set', guest, 'user.nixlab.restore-review=complete', '--project', project)
         elif action == 'export':
             import backup
             directory = self.path(job['id'])
             target = self.archive_path(job, create=True)
             temporary = target.with_suffix('.partial.tar.gz')
-            backup.PENDING.parent.mkdir(parents=True, exist_ok=True)
-            backup.recover()
             running = current.get('status') == 'Running'
             if current.get('status') not in ('Running', 'Stopped'):
                 raise ValueError('Export requires a running or stopped instance')
@@ -276,7 +286,7 @@ class Operations:
         job.update(status='running', started=time.time()); rt.write_json(directory / 'job.json', job)
         try:
             import contextlib
-            with (contextlib.nullcontext() if job['action'] == 'backup' else rt.locked()), open('/run/lock/nixlab-incus.lock', 'a') as lock:
+            with (contextlib.nullcontext() if job['action'] == 'backup' else rt.locked()), open_lock(INCUS_LOCK) as lock:
                 # The scheduled backup takes this lock itself. Do not hold it
                 # while starting that unit, or it would wait on our own lock.
                 if job['action'] != 'backup': fcntl.flock(lock, fcntl.LOCK_EX)
@@ -288,6 +298,27 @@ class Operations:
         finally:
             rt.write_json(directory / 'job.json', job)
             rt.audit('guest-operation-finished', operation=job_id, status=job['status'])
+
+    def recover_interrupted(self):
+        import backup
+        try:
+            with rt.locked(blocking=False), open_lock(INCUS_LOCK) as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                for record in self.status():
+                    # Registration holds the configuration lock for its entire
+                    # copy. An importing record observed here is interrupted.
+                    if record.get('status') == 'importing':
+                        record.update(status='failed', error='Archive registration interrupted; register the original file again')
+                        rt.write_json(self.path(record['id']) / 'job.json', record)
+                    if record.get('action') == 'export' and record.get('status') == 'failed':
+                        try:
+                            self.archive_path(record).with_suffix('.partial.tar.gz').unlink(missing_ok=True)
+                        except ValueError:
+                            pass  # Missing backup disks must never cause fallback writes.
+                if backup.PENDING.is_file() and rt.read_json(backup.PENDING, []):
+                    backup.recover()
+        except (rt.BusyError, BlockingIOError):
+            return
 
 
 def file_hash(path):

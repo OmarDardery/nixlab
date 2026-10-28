@@ -388,7 +388,7 @@ class RecoveryTests(unittest.TestCase):
             state=Path(folder);job_id='c'*32
             rt.write_json(state/'jobs'/job_id/'job.json',{'status':'confirmed'})
             rt.write_json(state/'pending.json',{'id':job_id,'deadline':time.time()-1})
-            with patch.object(rt,'STATE',state),patch.object(worker,'rollback') as rollback:
+            with patch.object(rt,'STATE',state),patch('operations.Operations.recover_interrupted'),patch.object(worker,'rollback') as rollback:
                 worker.guard()
                 rollback.assert_not_called()
             self.assertFalse((state/'pending.json').exists())
@@ -399,7 +399,7 @@ class RecoveryTests(unittest.TestCase):
             state=Path(folder);job_id='d'*32
             rt.write_json(state/'jobs'/job_id/'job.json',{'status':'awaiting-confirmation'})
             rt.write_json(state/'pending.json',{'id':job_id,'deadline':time.time()-1})
-            with patch.object(rt,'STATE',state),patch.object(worker,'rollback') as rollback:
+            with patch.object(rt,'STATE',state),patch('operations.Operations.recover_interrupted'),patch.object(worker,'rollback') as rollback:
                 worker.guard()
                 rollback.assert_called_once_with(state/'jobs'/job_id,'confirmation timed out')
 

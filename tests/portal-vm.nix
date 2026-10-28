@@ -26,7 +26,7 @@ in pkgs.testers.runNixOSTest {
       requiredBy = [ "nixlab-admin-backend.service" "nixlab-ui.service" ];
       path = [ pkgs.openssl ];
       serviceConfig = { Type = "oneshot"; RemainAfterExit = true; UMask = "0077"; };
-      script = ''PYTHONPATH=${../admin} ${pkgs.python3}/bin/python3 ${./portal-fixture.py}'';
+      script = ''PYTHONPATH=${../admin}:${../scripts} ${pkgs.python3}/bin/python3 ${./portal-fixture.py}'';
     };
   };
   testScript = ''

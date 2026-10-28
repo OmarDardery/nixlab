@@ -19,7 +19,7 @@ host. No physical host activation, formatting or production network change was p
 | Applications VM `system.build.toplevel` build | Passed; produces a complete NixOS generation, does not prove guest boot |
 | Native backup and monitoring unit derivation builds | Passed |
 | Full host build dependency plan (`nix build --dry-run`) | Passed; includes Nix-built guest disk/image dependencies |
-| Python safety + setup + ISO staging tests | 72 passed |
+| Python safety + setup + ISO staging tests | 105 passed |
 | Python compilation + YAML parsing | Passed |
 | `docker compose ... config --quiet` | Passed using the pinned Nixpkgs Compose executable |
 | Physical `/dev/kvm` acceleration, host firewall behavior, guest boot, UI login, sops decryption, real Cloudflare connectivity and restore | Not tested here |
@@ -49,13 +49,16 @@ The follow-up installer/portal implementation additionally passed:
 - Real HTTPS handler tests for authentication, secure cookies, CA bootstrap, CSRF rejection,
   hostname/rebinding rejection and invalid-setting refusal; schema, snapshot, secret-isolation,
   recovery cleanup and timeout tests. Including configuration migration, module
-  transactions and ISO staging/live-media refusal, the full suite currently contains 72 tests.
+  transactions and ISO staging/live-media refusal, the full suite currently contains 105 tests.
 - JavaScript syntax, installer Bash syntax/ShellCheck, and browser QA of the dashboard,
   storage selection/role enforcement and radio/preferences pages against simulated hardware.
 
-The execution sandbox rejects filesystem UNIX-socket connections. The HTTPS integration tests
+The original workspace HTTPS tests use a transport adapter because that sandbox rejected filesystem UNIX-socket connections. The HTTPS integration tests
 therefore use an explicit **test-only loopback transport adapter** for the same broker handlers.
-Production has no TCP broker mode. Actual UNIX socket access separation, systemd activation,
+Production has no TCP broker mode. The added `checks.x86_64-linux.portal` boots NixOS
+and exercises the actual systemd/UNIX socket permissions, HTTPS, roles, revocation and
+encrypted recovery. Earlier CI run 40704585174 passed that VM test. Target-hardware
+activation,
 root privilege boundary, runtime mounts/radios, first boot, certificate enrollment, guest closure
 transfer and the network-loss rollback guard still need integration testing on NixOS hardware.
 The browser preview performed no host management actions and used reserved/fictitious inventory.
@@ -168,3 +171,26 @@ and that no application-onboarding unit exists. The full services fixture verifi
 can be enabled. It also compares evaluated Nix defaults with the Python test fixture, validates
 monitoring limits and parses the settings-export JavaScript. Runtime memory measurements and
 physical-host activation remain separate target-machine checks.
+
+## Single-host workflow completion
+
+The release adds guided console disk installation and data-disk preparation, full-SHA
+platform publication/recovery, allowlisted guest operations and restore isolation,
+portal roles, off-host archive registration, recovery kits, local guides, recipes and
+runtime-credential failure notifications. The current Python suite has 105 tests;
+JavaScript checks cover operations roles, escaped metadata and source approval controls.
+
+CI additionally evaluates the packaged recipe modules, builds the notification unit,
+boots the real portal and permissions test, and requires both BIOS and UEFI media
+checks with a disposable blank disk and an installer dry run. Read the final run linked
+from PR #1 for its exact result; adding a gate is not itself evidence that it passed.
+The earlier expanded media run stopped on a QEMU test-device argument, corrected by
+separating the disk backend and virtio device.
+
+Run [target commissioning](commissioning.md) to establish actual installation,
+first-boot conversion, guest boot, network-loss recovery and an off-host restore on
+the chosen laptop. These are not replaced by the portal integration/media tests.
+
+The final workflow builds the complete fixture hypervisor and applications QCOW2/metadata,
+then checks the exact artifact paths used by Incus provisioning. Earlier dry-run
+evidence remains historical; the final PR run records whether this full build passed.

@@ -172,8 +172,9 @@ permission. Manual stopped state survives unrelated rebuilds, while incomplete
 initialization is retried. Configuration writes carry the ETag from the same GET,
 so concurrent changes return an error instead of being lost.
 
-This completes the configuration-model transition while retaining legacy input
-compatibility. It does not implement the separate product-roadmap features such
-as an integrated restore dashboard, generic application catalog, multi-user RBAC,
-clustering/HA or PBS-style backup. Physical commissioning and a restore drill are
-still release gates; configuration tests cannot establish hardware reliability.
+The configuration-model transition retains legacy compatibility. The portal also provides
+guest/restore jobs, a packaged recipe catalog, account roles, recovery kits and reviewed
+platform updates; see [operations](operations.md). Clustering/HA, broad third-party
+catalog compatibility, multi-tenant isolation and PBS compatibility remain separate
+product scopes. Physical commissioning and a restore drill remain release gates;
+configuration tests cannot establish hardware reliability.

@@ -56,7 +56,8 @@ def boot_vm(image, log, timeout, folder, uefi):
     command = ['qemu-system-x86_64', '-accel', acceleration, '-m', '2048', '-smp', '2',
                '-display', 'none', '-monitor', 'none', '-serial', 'stdio', '-no-reboot',
                '-nic', 'none', '-boot', 'order=d,menu=off', '-cdrom', str(image),
-               '-drive', 'file=' + str(disk) + ',if=virtio,format=qcow2,serial=NIXLAB_TEST_DISK']
+               '-drive', 'file=' + str(disk) + ',if=none,format=qcow2,id=test-disk',
+               '-device', 'virtio-blk-pci,drive=test-disk,serial=NIXLAB_TEST_DISK']
     if uefi:
         code, variables = os.environ.get('NIXLAB_OVMF_CODE'), os.environ.get('NIXLAB_OVMF_VARS')
         if not code or not variables: raise RuntimeError('Use the pinned iso-test shell for UEFI firmware')
