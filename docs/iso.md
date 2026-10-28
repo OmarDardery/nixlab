@@ -67,9 +67,9 @@ formatting endpoint. No disk is erased merely by booting this image.
    installed-system and first-boot builds can still need packages/flake inputs.
 3. Use the standard NixOS partitioning and filesystem tools to prepare the disks
    you explicitly selected. Mount the target root at `/mnt`, and mount its boot
-   filesystem as required for your selected bootloader. No Nixlab command formats
-   disks or guesses a boot device. Existing disks should be left untouched unless
-   you deliberately selected them for this installation.
+   filesystem as required for your selected bootloader. The manual staging command
+   below does not partition disks or choose a boot device. Preserve existing data disks
+   unless you deliberately selected them for this installation.
 4. Generate the target's hardware/configuration files:
 
    ```sh
