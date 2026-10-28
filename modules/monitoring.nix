@@ -1,9 +1,17 @@
 { lib, pkgs, site, ... }:
 {
+  assertions = [
+    { assertion = builtins.isInt site.monitoring.retentionDays && site.monitoring.retentionDays >= 1 && site.monitoring.retentionDays <= 90;
+      message = "Monitoring retentionDays must be an integer from 1 to 90."; }
+    { assertion = builtins.isInt site.monitoring.scrapeSeconds && site.monitoring.scrapeSeconds >= 15 && site.monitoring.scrapeSeconds <= 300;
+      message = "Monitoring scrapeSeconds must be an integer from 15 to 300."; }
+  ];
   services.prometheus = {
-    enable = true;
+    enable = site.monitoring.history;
     listenAddress = "127.0.0.1";
-    retentionTime = "30d";
+    retentionTime = "${toString site.monitoring.retentionDays}d";
+    globalConfig.scrape_interval = "${toString site.monitoring.scrapeSeconds}s";
+    globalConfig.evaluation_interval = "${toString site.monitoring.scrapeSeconds}s";
     exporters.node = {
       enable = true; listenAddress = "127.0.0.1"; openFirewall = false;
       enabledCollectors = [ "systemd" "textfile" ];
@@ -52,12 +60,12 @@
       if test -f /var/lib/nixlab/last-backup-success; then
         read -r last < /var/lib/nixlab/last-backup-success
       fi
-      printf 'nixlab_last_backup_success_seconds %s\\nnixlab_backup_enabled %s\\n' "$last" '${if site.backup.enable then "1" else "0"}' > "$metrics/backup.tmp"
+      printf 'nixlab_last_backup_success_seconds %s\nnixlab_backup_enabled %s\n' "$last" '${if site.backup.enable then "1" else "0"}' > "$metrics/backup.tmp"
       mv "$metrics/backup.tmp" "$metrics/backup.prom"
     '';
   };
   systemd.timers.nixlab-metrics = {
     wantedBy = [ "timers.target" ];
-    timerConfig = { OnBootSec = "2min"; OnUnitActiveSec = "60s"; };
+    timerConfig = { OnBootSec = "2min"; OnUnitActiveSec = "${toString site.monitoring.scrapeSeconds}s"; };
   };
 }

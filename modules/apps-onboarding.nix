@@ -38,6 +38,9 @@ in {
     ];
     services.nginx = {
       enable = true;
+      # One proxy worker is enough for a private management dashboard.
+      appendConfig = "worker_processes 1;";
+      eventsConfig = "worker_connections 256;";
       virtualHosts.nixlab-portainer = {
         listen = [ { addr = site.management.address; port = 9441; ssl = true; } ];
         sslCertificate = "/run/credentials/nginx.service/nixlab-tls.crt";

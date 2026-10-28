@@ -108,6 +108,10 @@ def validate_settings(candidate, current, host, require_devices=True):
             raise ValueError('A managed Wi-Fi profile needs a valid SSID')
         if m['configure'] and m['interface'] == w['interface'] and not w['manageProfile']:
             raise ValueError('Static Wi-Fi addressing requires a managed Wi-Fi profile')
+    for field, lower, upper in (('retentionDays', 1, 90), ('scrapeSeconds', 15, 300)):
+        value = candidate['monitoring'][field]
+        if type(value) is not int or not lower <= value <= upper:
+            raise ValueError('Monitoring ' + field + ' must be between ' + str(lower) + ' and ' + str(upper))
     if not re.fullmatch(r'[A-Za-z0-9_+.-]+(?:/[A-Za-z0-9_+.-]+)*', candidate['maintenance']['timeZone']):
         raise ValueError('Invalid time zone')
     zone = Path('/etc/zoneinfo', candidate['maintenance']['timeZone'])

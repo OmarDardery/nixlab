@@ -28,9 +28,9 @@
     hostId = ""; # eight hexadecimal characters, required for ZFS
   };
   apps = {
-    enable = true;
-    cpu = "4";
-    memory = "4GiB";
+    enable = false; # opt in to Docker/Portainer; no idle VM on a hypervisor-only host
+    cpu = "2";
+    memory = "2GiB";
     disk = "64GiB";
     # Version verified against upstream LTS releases 2026-10-27.
     # For immutable registry content replace with image@sha256:digest.
@@ -45,6 +45,7 @@
     wifi = { enable = false; interface = ""; ssid = ""; manageProfile = false; };
     bluetooth.enable = false;
   };
+  monitoring = { history = false; retentionDays = 14; scrapeSeconds = 60; };
   maintenance = { trim = true; optimiseStore = true; timeZone = "Africa/Cairo"; };
   setup = { enable = false; port = 9440; confirmationSeconds = 600; };
   secrets = {

@@ -124,8 +124,8 @@ def main():
                 keys.extend(line.strip() for line in path.read_text().splitlines() if line.startswith(('ssh-ed25519 ', 'ssh-rsa ', 'ecdsa-sha2-')))
         default['adminKeys'] = sorted(set(keys))
         memory_kib = int(next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemTotal:')))
-        default['apps']['cpu'] = str(max(1, min(4, (os.cpu_count() or 2) // 2)))
-        default['apps']['memory'] = str(max(1, min(4, memory_kib // 1024 // 1024 // 2))) + 'GiB'
+        default['apps']['cpu'] = str(max(1, min(2, (os.cpu_count() or 2) // 2)))
+        default['apps']['memory'] = str(max(1, min(2, memory_kib // 1024 // 1024 // 2))) + 'GiB'
         rt.write_json(TARGET / 'local/settings.json', default)
         rt.write_json(TARGET / 'local/installation.json', {'interface': interface, 'trustedCIDRs': trusted, 'installedAt': time.time(),
                        'originalSystem': str(Path('/run/current-system').resolve()), 'repository': args.repo, 'ref': args.ref})

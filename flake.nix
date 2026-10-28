@@ -39,9 +39,11 @@
         hypervisor = mkHost site apps [ ];
         inherit apps bootstrap;
         # Evaluation fixtures, never an installation target.
+        validation-minimal = mkHost (testSite // { apps = testSite.apps // { enable = false; }; }) testApps [ ./tests/hardware.nix ];
         validation-host = mkHost testSite testApps [ ./tests/hardware.nix ];
         validation-apps = testApps;
         validation-services = mkHost (testSite // {
+          monitoring = testSite.monitoring // { history = true; };
           backup = testSite.backup // { enable = true; repository = "sftp:backup@example.invalid:/nixlab"; };
           tunnel = testSite.tunnel // { enable = true; uuid = "00000000-0000-4000-8000-000000000001";
             ingress."app.example.invalid" = "http://10.77.0.10:8080"; };

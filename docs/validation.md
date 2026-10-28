@@ -141,3 +141,11 @@ and verify Incus autostart, ZFS import if used, secrets, VM agent and applicatio
   return the catch-all response and no management interface appears in public ingress.
 
 Do not call this production-commissioned until these tests pass on the chosen hardware/network.
+
+## Lightweight profile regression checks
+
+CI evaluates `validation-minimal`, verifies that Docker, Nginx and local Prometheus are disabled
+and that no application-onboarding unit exists. The full services fixture verifies that history
+can be enabled. It also compares evaluated Nix defaults with the Python test fixture, validates
+monitoring limits and parses the settings-export JavaScript. Runtime memory measurements and
+physical-host activation remain separate target-machine checks.

@@ -1,5 +1,7 @@
 # TEST FIXTURE ONLY. No values below describe the user's host or network.
 let base = import ../site.nix; in base // {
+  # Exercise the optional application platform in full-stack fixtures.
+  apps = base.apps // { enable = true; };
   ready = true; cpuVendor = "intel";
   adminKeys = [ "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA fixture-only" ];
   management = { interface = "eth0"; address = "192.0.2.10"; prefixLength = 24;

@@ -22,9 +22,18 @@ jobs:
         run: find . -name '*.nix' -exec nix-instantiate --parse '{}' ';' >/dev/null
       - name: Evaluate configuration variants
         run: |
-          for target in validation-host validation-apps validation-services validation-demo validation-zfs validation-inherited validation-bootstrap validation-setup validation-setup-apps; do
+          for target in validation-minimal validation-host validation-apps validation-services validation-demo validation-zfs validation-inherited validation-bootstrap validation-setup validation-setup-apps; do
             nix eval ".#nixosConfigurations.$target.config.system.build.toplevel.drvPath"
           done
+      - name: Verify lightweight defaults and declarative settings
+        run: |
+          nix eval --json .#nixlabDefaults > /tmp/nixlab-defaults.json
+          python3 -c 'import json; from pathlib import Path; assert json.loads(Path("/tmp/nixlab-defaults.json").read_text()) == json.loads(Path("tests/fixtures/defaults.json").read_text())'
+          test "$(nix eval --json .#nixosConfigurations.validation-minimal.config.services.prometheus.enable)" = "false"
+          test "$(nix eval --json .#nixosConfigurations.validation-minimal.config.services.nginx.enable)" = "false"
+          test "$(nix eval --json .#nixosConfigurations.validation-minimal.config.virtualisation.docker.enable)" = "false"
+          test "$(nix eval --json '.#nixosConfigurations.validation-minimal.config.systemd.services' --apply 'services: builtins.hasAttr "nixlab-apps-onboarding" services')" = "false"
+          test "$(nix eval --json .#nixosConfigurations.validation-services.config.services.prometheus.enable)" = "true"
       - name: Build helper and apps system
         run: |
           nix build .#packages.x86_64-linux.homelab --no-link

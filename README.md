@@ -21,7 +21,7 @@ configuration remains available and intentionally refuses activation with an inc
 | Host | NixOS 26.05, pinned Nixpkgs + lock file | Reproducible OS generations and rollback |
 | Guests | Incus LTS with KVM/QEMU | One API for Linux system containers and full VMs |
 | Virtualization UI | Packaged `incus-ui-canonical` | Established Incus-compatible fork; uses the authenticated Incus API |
-| Applications | Docker/Compose in the `apps` NixOS VM | Separate kernel and Docker firewall from the hypervisor |
+| Applications (opt-in) | Docker/Compose in the `apps` NixOS VM | Separate kernel and Docker firewall from the hypervisor |
 | Application UI | Portainer CE 2.45.3 LTS | Compose stacks, Git deployment, editor, logs, console, resource views |
 | Administration | SSH, native Incus remote CLI, packaged `homelab` | Real command/API calls with output and exit codes |
 | Network | Private Incus bridge + NixOS nftables/NAT | Per-guest IPs, DHCP/reservations, controlled LAN reachability |
@@ -84,3 +84,8 @@ sudo homelab backup apps
 Numeric selectors are explicit aliases in the client's JSON config, not inferred from
 Proxmox IDs. `backup` is an on-demand Incus export; scheduled restic backups additionally
 stop guests and protect custom volumes. See the consistency distinctions in the recovery guide.
+
+Lightweight defaults: Docker/Portainer and local Prometheus history are opt-in. The setup UI
+serves its own static assets; only the optional application portal adds a one-worker Nginx proxy.
+Settings remain declared through Nix and can be exported from the UI. See the
+[resource and ownership policy](docs/setup.md#lightweight-defaults-and-declarative-ownership).

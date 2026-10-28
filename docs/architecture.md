@@ -136,3 +136,11 @@ Default guest IPv6 is disabled until a real routed prefix/firewall plan exists.
 No live migration, GPU/USB passthrough, TPM enrollment, public admin UIs or Proxmox Backup
 Server-compatible backup format is claimed. Guest image import is initialization, not guest
 configuration deployment. Update an existing NixOS VM through `nixos-rebuild` over SSH/Incus.
+
+## Resource policy
+
+The default deployment is an Incus host without an idle Docker VM or Prometheus history database.
+Both are opt-in through declared settings. The setup portal serves its own static assets using
+its existing authenticated Python HTTP service. Only the optional Portainer portal needs Nginx,
+limited to one worker and providing verified TLS/WebSocket proxying. See [setup](setup.md#lightweight-defaults-and-declarative-ownership)
+for service ownership, monitoring trade-offs and state that must be backed up separately.

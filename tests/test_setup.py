@@ -46,6 +46,19 @@ HOST = {'architecture':'x86_64','cpuVendor':'intel','kvm':True,
         'disks':[{'uuid':'aaaa-bbbb','fstype':'ext4','mountpoints':[],'path':'/dev/test','type':'part','size':1000000}]}
 
 class ModelTests(unittest.TestCase):
+    def test_lightweight_defaults_and_monitoring_limits(self):
+        self.assertFalse(DEFAULTS['apps']['enable'])
+        self.assertFalse(DEFAULTS['monitoring']['history'])
+        current = settings()
+        proposed = copy.deepcopy(current)
+        proposed['monitoring'].update(history=True, retentionDays=7, scrapeSeconds=120)
+        self.assertEqual(model.validate_settings(proposed, current, HOST, False)['monitoring']['retentionDays'], 7)
+        for key, invalid in (('retentionDays', 0), ('retentionDays', 91), ('scrapeSeconds', 14), ('scrapeSeconds', 301)):
+            proposed = copy.deepcopy(current)
+            proposed['monitoring'][key] = invalid
+            with self.assertRaisesRegex(ValueError, 'Monitoring'):
+                model.validate_settings(proposed, current, HOST, False)
+
     def test_unknown_nix_code_field_rejected(self):
         current=settings(); proposed=copy.deepcopy(current); proposed['rawNix']='builtins.readFile /etc/shadow'
         with self.assertRaisesRegex(ValueError,'Unknown setting'):

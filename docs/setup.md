@@ -88,7 +88,7 @@ The portal is at `https://HOST_IP:9440` by default. Sign in with the initial pas
   duplicate UUIDs, mismatched filesystem types and mount paths that hide files are rejected.
 - **Access:** paste an SSH public key for the `operator` account. Existing local accounts remain
   in the imported installation. The host's managed SSH policy requires key authentication.
-- **Applications:** choose VM CPU/RAM/disk and initial Portainer password. CPU/RAM suggestions use
+- **Applications:** optionally enable Docker/Portainer (off by default), then choose VM CPU/RAM/disk and initial Portainer password. CPU/RAM suggestions use
   detected hardware. The optional demo also needs a database initialization password.
 - **Radios:** choose Wi-Fi/Bluetooth on or off. Wi-Fi uses NetworkManager with the iwd backend.
   Existing NetworkManager profiles can remain; an old Nix wpa_supplicant profile requires entering
@@ -219,3 +219,45 @@ restore that profile and activate its `bin/switch-to-configuration switch`, then
 `/etc/nixos.pre-nixlab` to `/etc/nixos` after removing only the managed symlink. Guest data is
 retained separately. If a console/manual rollback leaves a radio blocked, `rfkill unblock wifi`
 restores it; the portal's managed rollback restores its recorded radio state automatically.
+
+## Lightweight defaults and declarative ownership
+
+A new installation starts with Incus, its embedded web UI, the small Python setup frontend/root
+broker, and a host node exporter. There is no Node.js runtime, SPA build service, Cockpit,
+libvirtd, host Docker, Grafana or database for the setup portal. Browser assets are static files
+served by the authenticated HTTPS process that is already needed for configuration requests.
+Adding BusyBox httpd, Apache httpd or a separate static web server here would add a daemon
+without removing that API process. Authentication, TLS and source checks also apply to assets.
+
+Docker/Portainer is **opt-in** on the Applications page. Disabled means no new apps VM, Docker
+engine or Portainer proxy is started on the host. An existing owned apps VM is stopped and retained.
+Initial resource suggestions are capped at 2 vCPUs/2 GiB, based on detected hardware; this is a
+starting allocation, not a promise that every application fits it. Increase it for real workloads.
+Wi-Fi, Bluetooth, the demo, Cloudflare and backups also remain opt-in. Backup protection still
+requires configuring an independent destination; the lightweight preset is not a backup policy.
+
+Local Prometheus history is **opt-in** on Host preferences. With it disabled, host node metrics,
+Incus live resource views, persistent journal and systemd service health remain available; there
+is no local historical database or Prometheus alert evaluation. The apps VM node exporter is
+started only with history enabled. Enable history for trend graphs/alert rules, with a default
+60-second interval and 14-day retention. External alert delivery still requires a receiver.
+
+Nginx runs only when the application portal is enabled, with one worker and 256 connections.
+It provides verified upstream HTTPS, client CIDR restrictions and WebSocket forwarding. This is
+why it is retained for Portainer instead of a basic static httpd. No throughput or RAM benchmark
+is implied by these configuration choices. Incus, QEMU and the application workloads dominate
+resource requirements; ordinary containers avoid the overhead of an additional guest kernel.
+
+All of these choices flow through typed desired settings into native NixOS modules. Existing
+installations retain their explicit applications setting; a source update does not silently
+turn off an opted-in VM. The UI exports desired settings JSON without secret values for review
+and backup. After activation the authoritative settings are in `local/settings.json`; back that
+up together with the source revision, `flake.lock`, preserved installation modules and separate
+secrets. Imported settings must be reviewed for the target machine rather than blindly restored.
+
+Nix declares services, packages, mounts, firewall rules, radios, Compose definitions and desired
+Incus resources. Native options are preferred; guarded initialization/reconciliation covers
+Incus state and runtime credentials. VM disks, snapshots, Portainer-created stacks, database
+contents, certificate enrollment and backup contents are mutable state, not reproducible Nix
+configuration. To make an application reproducible, keep its Compose project in Git or the
+Nix-owned project definitions; editing it only in Portainer does not make it declarative.
