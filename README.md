@@ -89,3 +89,6 @@ Lightweight defaults: Docker/Portainer and local Prometheus history are opt-in. 
 serves its own static assets; only the optional application portal adds a one-worker Nginx proxy.
 Settings remain declared through Nix and can be exported from the UI. See the
 [resource and ownership policy](docs/setup.md#lightweight-defaults-and-declarative-ownership).
+
+The homepage provides management/resource links and configured public application endpoints.
+See the [quality-of-life roadmap](docs/roadmap.md) for prioritized proposals and acceptance criteria.

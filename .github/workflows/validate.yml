@@ -17,6 +17,7 @@ jobs:
       - name: Validate UI JavaScript and installer shell
         run: |
           node --check admin/static/app.js
+          node tests/test_homepage.js
           bash -n install.sh
       - name: Parse all Nix files
         run: find . -name '*.nix' -exec nix-instantiate --parse '{}' ';' >/dev/null

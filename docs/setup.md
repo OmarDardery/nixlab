@@ -261,3 +261,14 @@ Incus state and runtime credentials. VM disks, snapshots, Portainer-created stac
 contents, certificate enrollment and backup contents are mutable state, not reproducible Nix
 configuration. To make an application reproducible, keep its Compose project in Git or the
 Nix-owned project definitions; editing it only in Portainer does not make it declarative.
+
+## Homepage launcher
+
+The overview links to active Incus and optional Portainer endpoints, upstream Incus helper scripts
+and the Community Scripts catalog, SSH administration, Cloudflare, project guides and source.
+Disabled tools link to their configuration page. Management URLs use the currently active address,
+not an unsaved edit. Only configured non-wildcard tunnel hostnames become public application links;
+this does not test their availability. Prometheus stays private on loopback.
+
+Helper links open upstream documentation; they do not execute installers or establish Nixlab
+compatibility. See the [quality-of-life roadmap](roadmap.md) for the proposed curated integration.
