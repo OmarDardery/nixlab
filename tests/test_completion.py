@@ -26,6 +26,11 @@ from locking import open_lock
 
 
 class DiskTests(unittest.TestCase):
+    def test_missing_installation_tools_fail_before_any_subprocess_or_erasure(self):
+        with patch.object(install_disk.shutil,'which',return_value=None),patch.object(install_disk,'run') as run:
+            with self.assertRaisesRegex(ValueError,'tools missing'):install_disk.preflight('/unused')
+        run.assert_not_called()
+
     def test_data_disk_preparation_refuses_wrong_phrase_before_commands(self):
         with patch.dict(sys.modules, {'disk_tools': install_disk}):
             import disks as data_disks

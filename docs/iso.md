@@ -42,7 +42,8 @@ image provides both a local screen and a 115200-baud serial console.
    identity. Select a whole disk and host name. Mounted disks, the live USB, read-only
    devices and disks smaller than 32 GiB are not eligible.
 5. Review the plan and type its exact erase phrase. **All data on that selected disk
-   will be replaced.** Identity and mount state are checked again before the first write.
+   will be replaced.** Required tools and pinned flake input availability are checked before erasure;
+   identity and mount state are then checked again immediately before the first write.
    Other disks are not selected. `sudo nixlab-setup --dry-run` prints a plan without writes.
 6. The installer creates GPT with an ext4 root and the appropriate EFI or BIOS boot
    partition, generates the actual hardware configuration, copies root-only NetworkManager

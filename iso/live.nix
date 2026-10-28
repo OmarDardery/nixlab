@@ -14,7 +14,7 @@ let
   };
   guided = pkgs.writeShellApplication {
     name = "nixlab-setup";
-    runtimeInputs = with pkgs; [ python3 util-linux parted dosfstools e2fsprogs systemd nixos-install-tools ];
+    runtimeInputs = with pkgs; [ python3 nix util-linux parted dosfstools e2fsprogs systemd nixos-install-tools ];
     text = ''exec python3 ${./.}/install_disk.py --module ${firstboot} "$@"'';
   };
 in {

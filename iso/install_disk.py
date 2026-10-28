@@ -100,6 +100,18 @@ def configuration(proposal):
             + '  system.stateVersion = "26.05";\n}\n')
 
 
+def preflight(module, source='/etc/nixlab-source'):
+    required = ['nix', 'wipefs', 'parted', 'mkfs.ext4', 'mkfs.fat', 'mount', 'umount',
+                'udevadm', 'nixos-generate-config', 'nixos-install']
+    missing = [name for name in required if not shutil.which(name)]
+    if missing: raise ValueError('Installation tools missing: ' + ', '.join(missing))
+    source = Path(source)
+    if not Path(module).is_file() or not (source / 'flake.lock').is_file():
+        raise ValueError('Bundled source or first-boot module is missing; no disk changes made')
+    print('Checking pinned platform inputs before erasing the selected disk…', flush=True)
+    run(['nix', '--extra-experimental-features', 'nix-command flakes', 'flake', 'metadata', 'path:' + str(source.resolve())], timeout=600)
+
+
 def install(proposal, confirmed, module):
     if confirmed != proposal['confirmation']:
         raise ValueError('Erase confirmation does not match; no disk changes made')
@@ -110,6 +122,7 @@ def install(proposal, confirmed, module):
     root = Path('/mnt')
     if root.is_symlink() or root.resolve() != root or root.is_mount() or (root.exists() and any(root.iterdir())):
         raise ValueError('/mnt must be an empty, unmounted ordinary directory')
+    preflight(module)
     # Re-read immediately before the first destructive command. No path, size,
     # serial/WWN, major:minor or mount state from the selection screen is trusted.
     device = verify_target(proposal, disks())['path']

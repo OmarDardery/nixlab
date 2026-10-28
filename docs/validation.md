@@ -19,7 +19,7 @@ host. No physical host activation, formatting or production network change was p
 | Applications VM `system.build.toplevel` build | Passed; produces a complete NixOS generation, does not prove guest boot |
 | Native backup and monitoring unit derivation builds | Passed |
 | Full host build dependency plan (`nix build --dry-run`) | Passed; includes Nix-built guest disk/image dependencies |
-| Python safety + setup + ISO staging tests | 105 passed |
+| Python safety + setup + ISO staging tests | 106 passed |
 | Python compilation + YAML parsing | Passed |
 | `docker compose ... config --quiet` | Passed using the pinned Nixpkgs Compose executable |
 | Physical `/dev/kvm` acceleration, host firewall behavior, guest boot, UI login, sops decryption, real Cloudflare connectivity and restore | Not tested here |
@@ -49,7 +49,7 @@ The follow-up installer/portal implementation additionally passed:
 - Real HTTPS handler tests for authentication, secure cookies, CA bootstrap, CSRF rejection,
   hostname/rebinding rejection and invalid-setting refusal; schema, snapshot, secret-isolation,
   recovery cleanup and timeout tests. Including configuration migration, module
-  transactions and ISO staging/live-media refusal, the full suite currently contains 105 tests.
+  transactions and ISO staging/live-media refusal, the full suite currently contains 106 tests.
 - JavaScript syntax, installer Bash syntax/ShellCheck, and browser QA of the dashboard,
   storage selection/role enforcement and radio/preferences pages against simulated hardware.
 
@@ -177,7 +177,7 @@ physical-host activation remain separate target-machine checks.
 The release adds guided console disk installation and data-disk preparation, full-SHA
 platform publication/recovery, allowlisted guest operations and restore isolation,
 portal roles, off-host archive registration, recovery kits, local guides, recipes and
-runtime-credential failure notifications. The current Python suite has 105 tests;
+runtime-credential failure notifications. The current Python suite has 106 tests;
 JavaScript checks cover operations roles, escaped metadata and source approval controls.
 
 CI additionally evaluates the packaged recipe modules, builds the notification unit,
