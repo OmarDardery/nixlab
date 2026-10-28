@@ -27,6 +27,9 @@ class Manager:
     def effective_settings(self):
         return rt.read_json(Path('/etc/nixlab/effective-settings.json'), self.settings())
 
+    def migrate_layout(self):
+        return rt.migrate_idle_layout(self.root, self.state)
+
     def job_path(self, job_id):
         if not isinstance(job_id, str) or not re.fullmatch(r'[0-9a-f]{32}', job_id):
             raise ValueError('Invalid transaction ID')

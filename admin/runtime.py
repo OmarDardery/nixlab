@@ -121,6 +121,16 @@ def machine_path(root, name):
     return Path(root) / ('machine' if modern else '') / paths[name]
 
 
+def migrate_idle_layout(root, state):
+    with locked():
+        state = Path(state)
+        active = read_json(state / 'active.json', {})
+        job = read_json(state / 'jobs' / active.get('id', '-') / 'job.json', {})
+        if read_json(state / 'pending.json') or job.get('status') in ('building', 'ready', 'applying', 'awaiting-confirmation', 'rolling-back'):
+            raise ValueError('Finish or discard the configuration transaction before migrating layout')
+        return migrate_layout(root)
+
+
 def migrate_layout(root):
     """Atomically select a local machine directory; legacy files remain recoverable."""
     root = Path(root)

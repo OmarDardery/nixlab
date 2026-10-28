@@ -95,7 +95,8 @@ Discovery makes features available; optional services retain their enable flags.
 ## Migrating an existing installation
 
 Upgrade the platform code and activate the updated admin package first. Finish
-or discard any pending configuration transaction. Then run:
+or discard any pending configuration transaction. Use the **Migrate local configuration** action on the Configuration files page,
+with administrator reauthentication, or run:
 
 ```sh
 sudo nixlab-admin config migrate-layout

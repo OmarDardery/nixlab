@@ -99,6 +99,8 @@ def backend():
                     result = manager.rollback(body['id'])
                 elif self.path == '/password':
                     result = manager.change_password(body['password'])
+                elif self.path == '/migrate-layout':
+                    result = manager.migrate_layout()
                 elif self.path == '/browser-certificate':
                     result = manager.browser_certificate()
                 else:
@@ -275,11 +277,13 @@ def web():
                     result = broker_request('POST', '/password', {'password': body['password']})
                     auth.sessions.clear()
                     return reply(self, 200, result)
+                if self.path == '/api/migrate-layout' and not rt.password_matches(body.get('current'), rt.read_json(rt.STATE / 'auth.json')):
+                    raise ValueError('Reauthenticate to migrate the machine layout')
                 if self.path == '/api/review' and body.get('modules'):
                     if body.get('acknowledgePrivilegedModules') is not True or not rt.password_matches(body.get('adminPassword'), rt.read_json(rt.STATE / 'auth.json')):
                         raise ValueError('Reauthenticate and acknowledge privileged Nix modules')
                     body.pop('adminPassword', None)
-                actions = {'/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/browser-certificate'}
+                actions = {'/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/browser-certificate', '/api/migrate-layout'}
                 if self.path not in actions:
                     return reply(self, 404, {'error': 'Unknown action'})
                 reply(self, 200, broker_request('POST', self.path[4:], body))
@@ -312,12 +316,7 @@ def config_cli(argv):
         commands.add_parser(action).add_argument('id')
     args = parser.parse_args(argv)
     if args.command == 'migrate-layout':
-        with rt.locked():
-            active = rt.read_json(rt.STATE / 'active.json', {})
-            job = rt.read_json(rt.STATE / 'jobs' / active.get('id', '-') / 'job.json', {})
-            if rt.read_json(rt.STATE / 'pending.json') or job.get('status') in ('building', 'ready', 'applying', 'awaiting-confirmation', 'rolling-back'):
-                raise ValueError('Finish or discard the configuration transaction before migrating layout')
-            result = rt.migrate_layout(rt.ROOT)
+        result = rt.migrate_idle_layout(rt.ROOT, rt.STATE)
     elif args.command == 'status':
         result = broker_request('GET', '/status')
     elif args.command == 'review':

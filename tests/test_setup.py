@@ -119,6 +119,15 @@ class ModuleUploadTests(unittest.TestCase):
             self.assertFalse(any(c[0]=='nixos-rebuild' for c in commands))
 
 class MachineLayoutTests(unittest.TestCase):
+    def test_layout_migration_is_blocked_by_pending_transaction(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)/'repo';root.mkdir();state=Path(folder)/'state';state.mkdir()
+            rt.write_json(state/'pending.json',{'id':'example'})
+            with patch.object(rt,'STATE',state):
+                with self.assertRaisesRegex(ValueError,'Finish or discard'):
+                    Manager(root,state).migrate_layout()
+            self.assertFalse((root/'machine').exists())
+
     def test_layout_migration_is_atomic_idempotent_and_preserves_legacy(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)/'repo';root.mkdir()
@@ -466,6 +475,11 @@ main.backend()
         self.assertEqual(status,200)
         for flag in ('HttpOnly','Secure','SameSite=Strict'):self.assertIn(flag,headers['Set-Cookie'])
         data,_,status=self.request('/api/status');self.assertEqual(status,200);self.assertEqual(data['settings']['hostName'],'fixture')
+    def test_layout_migration_requires_reauthentication(self):
+        data,_,status=self.request('/api/migrate-layout',{'current':'wrong'},origin=self.origin)
+        self.assertEqual(status,400)
+        self.assertIn('Reauthenticate',data['error'])
+
     def test_module_upload_requires_reauthentication(self):
         for extra in ({}, {'adminPassword':'wrong','acknowledgePrivilegedModules':True}):
             body={'settings':{},'modules':{'archive.nix':'{}'}} | extra
