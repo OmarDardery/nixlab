@@ -1,5 +1,7 @@
 """Installer target safety and source bootstrap; no disks or bootloaders touched."""
 import importlib.util
+import contextlib
+import io
 from pathlib import Path
 import subprocess
 import tempfile
@@ -74,6 +76,22 @@ class StageTests(unittest.TestCase):
 
 
 class EmbeddedSourceTests(unittest.TestCase):
+    def test_live_media_conversion_is_refused_before_host_changes(self):
+        installer = load('nixlab_iso_guard', BASE / 'installer/install.py')
+        with patch.object(installer.os, 'geteuid', return_value=0), \
+                patch.object(installer, 'Path') as paths, \
+                patch.object(installer, 'choose_network') as network, \
+                patch.object(installer, 'run') as run, \
+                patch.object(installer.sys, 'argv', ['nixlab-install']), \
+                contextlib.redirect_stderr(io.StringIO()) as error:
+            paths.return_value.exists.return_value = True
+            with self.assertRaises(SystemExit) as result:
+                installer.main()
+        self.assertEqual(result.exception.code, 2)
+        self.assertIn('live installation media', error.getvalue())
+        network.assert_not_called()
+        run.assert_not_called()
+
     def test_plain_source_becomes_local_repository_without_network_clone(self):
         installer = load('nixlab_iso_install', BASE / 'installer/install.py')
         with tempfile.TemporaryDirectory() as folder:

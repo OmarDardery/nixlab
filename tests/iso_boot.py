@@ -1,7 +1,7 @@
 """Boot the built ISO in a disposable BIOS VM with no disks or network.
 
-Runs only live-environment read/help checks. Never invokes installation,
-partitioning, target staging or installed-system conversion.
+Runs only live-environment read/help/guard checks. Never installs, partitions,
+stages or converts a target system.
 """
 import argparse
 import os
@@ -26,11 +26,13 @@ done
 test ! -e /etc/nixlab-source/hardware-configuration.nix
 test ! -e /var/lib/nixlab/auth.json
 test ! -e /var/lib/incus/database
-! systemctl is-active --quiet sshd.service
-! systemctl is-enabled --quiet sshd.service
-! systemctl is-enabled --quiet nixlab-firstboot.service
+if systemctl is-active --quiet sshd.service; then exit 1; fi
+if systemctl is-enabled --quiet sshd.service; then exit 1; fi
+if systemctl is-enabled --quiet nixlab-firstboot.service; then exit 1; fi
 nixlab-stage-install --help >/dev/null
 nixlab-install --help >/dev/null
+if nixlab-install >/tmp/nixlab-live-guard.log 2>&1; then exit 1; fi
+grep -q 'live installation media' /tmp/nixlab-live-guard.log
 printf '\\nNIXLAB_ISO_%s\\n' SMOKE_OK
 """
 

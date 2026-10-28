@@ -33,8 +33,10 @@ in {
   environment.etc."nixlab-source".source = nixlabSource;
   environment.etc."nixlab-iso-revision".text = nixlabRevision + "\n";
   environment.etc."nixlab-installation.md".source = ../docs/iso.md;
-  services.getty.helpLine = lib.mkAfter ''
+  services.getty.helpLine = lib.mkForce ''
     Nixlab installation media — no disks are modified automatically.
+    The local nixos account has passwordless sudo; use sudo -i for a root shell.
+    SSH is disabled on this live image. Use the local or serial console.
     Read /etc/nixlab-installation.md. Prepare and mount your target, generate its
     NixOS config, then use nixlab-stage-install --confirm-target /mnt.
     Internet access is required for installation and first-boot setup.

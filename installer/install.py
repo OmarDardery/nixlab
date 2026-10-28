@@ -81,6 +81,8 @@ def main():
     args = parser.parse_args()
     if os.geteuid() != 0 or not Path('/etc/NIXOS').exists():
         parser.error('Run as root on an installed NixOS system')
+    if Path('/etc/nixlab-iso-revision').exists():
+        parser.error('This is live installation media. Use nixlab-stage-install on the mounted target, then nixos-install')
     if os.uname().machine != 'x86_64':
         parser.error('This release supports Intel/AMD x86_64 NixOS hosts')
     if TARGET.exists() and not args.resume:

@@ -16,6 +16,8 @@ boot compatibility and Secure Boot are not established by building the image.
 CI also boots the produced ISO in a disposable BIOS VM with no writable disks
 or network, checks the live installer commands and bundled-source exclusions,
 and verifies that SSH and installed-system conversion are not enabled there.
+It also checks that manually invoking the converter on the live OS is refused
+before network discovery or configuration changes.
 Image publication is gated on that check; its serial log is a separate artifact.
 This test does not install a target OS or exercise first-boot conversion.
 
@@ -88,9 +90,9 @@ base configuration before installing or use the normal NixOS recovery workflow.
 
 This first image has a console installation flow, followed by web configuration
 on the installed host. It is not yet a Proxmox-style graphical partitioning
-wizard or a fully offline installer. Do not run the installed-system conversion
-command directly on the RAM-backed live OS. Use the staging command on the
-mounted target instead.
+wizard or a fully offline installer. The installed-system conversion command
+refuses this RAM-backed live OS. Use the staging command on the mounted target
+instead.
 
 The bundled source is initialized as a local Git snapshot because the ISO does
 not carry Git history. Before a later platform upgrade, fetch and review the
