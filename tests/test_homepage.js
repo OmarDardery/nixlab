@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../admin/static/app.js'), 'utf8');
-const bootstrap = source.lastIndexOf('\n(async()=>');
+const bootstrap = source.lastIndexOf('\n(async () =>');
 assert.ok(bootstrap > 0, 'Locate browser bootstrap before evaluating renderers');
 const context = vm.createContext({document:{querySelector:()=>({})},setInterval:()=>0,URL});
 vm.runInContext(source.slice(0,bootstrap), context);

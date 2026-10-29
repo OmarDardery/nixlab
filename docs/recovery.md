@@ -60,7 +60,7 @@ schema compatibility too; OS rollback does not undo a database migration.
 ## Independent scheduled backups
 
 Set `site.backup.enable = true` only with an independent repository, runtime credentials
-and enough staging disk. Default schedule is approximately 03:00 Africa/Cairo with up to
+and enough staging disk. Default schedule is approximately 03:00 in the configured timezone with up to
 ten minutes jitter; missed runs execute after boot. `initialize` is false until explicitly
 approved for the chosen remote target. Repository initialization is not disk formatting,
 but it still needs the correct remote path, access and retained recovery password.
@@ -71,18 +71,22 @@ The service:
 2. Enumerates projects, instances, pools and custom volumes. Unsupported guest states fail explicitly.
 3. Runs the demo PostgreSQL `pg_dump --format=custom` hook when the demo is enabled. Redis is a cache;
    it deliberately has no durable data. Other live-consistency hooks must be implemented per application.
-4. Records restart intent on persistent disk, then gracefully stops all originally running guests.
-   No forced shutdown is used. Custom volumes are exported while all guests are stopped.
-5. Atomically replaces each local guest/volume archive only when its export succeeds. Exports include
+4. Records restart intent on persistent disk, then gracefully stops each group's originally running guests.
+   No forced shutdown is used. Each consistency group is stopped, exported with its
+   custom volumes, and recovered before the next group begins. Shared writable volumes
+   join their consumers into one group.
+5. Publishes a complete generation only after all selected guest/volume exports and recovery kits succeed. Exports include
    instance configuration and snapshots. Inventory metadata is retained for reconstruction.
 6. Restarts only guests that were previously running, including after an export error. A systemd
    `ExecStopPost` and boot recovery unit retry journaled restarts if the exporter was killed.
 7. Runs restic against the completed exports and retains 7 daily, 4 weekly and 6 monthly snapshots.
    A success timestamp is written only after the restic service's successful command path.
 
-This is a deliberate **offline backup** strategy with downtime for every running guest during
-export. It prioritizes a simple consistent baseline; a large pool can make that outage long.
-Staging needs one current full export set plus the largest in-progress replacement and overhead.
+This is a deliberate **offline backup** strategy with downtime for each selected running guest
+during its group's export. Large exports can make that group's outage long.
+Staging needs room for two retained complete generations plus a full new generation and overhead.
+The free-space reserve is a minimum preflight check, not an export-size estimate; an export
+that fills staging fails and recovers its guests without replacing prior complete generations.
 Exports are root-readable plaintext on local disk; use encrypted host storage where required.
 Only the off-host restic repository is encrypted by restic. Keep its password/private access
 credentials separately from the failed host.
@@ -142,7 +146,7 @@ do not substitute this demo hook for Immich's documented backup workflow.
    inspect snapshots, run `restic check` and restore the chosen snapshot into a root-only staging path.
    With the runtime environment/password set, use `restic snapshots`, then
    `restic restore SNAPSHOT --target /root/nixlab-restore`.
-5. Inspect `inventory.json`. Import custom volume archives into their original pool/project first,
+5. Read `latest.json` and inspect `generations/<generation>/inventory.json` (or the legacy flat inventory). Import custom volume archives into their original pool/project first,
    using `incus storage volume import POOL ARCHIVE --project PROJECT`. Create any additional
    projects/pools/networks from the inventory before import. Do not overwrite an existing volume.
 6. Import each instance archive with `incus import ARCHIVE --project PROJECT` into the correctly
@@ -172,3 +176,18 @@ Trusted Incus socket/certificates, Docker socket, passwordless sudo and Portaine
 privileged control planes. Keep them private, use distinct identities, revoke lost keys, and
 protect backups because they include guest secrets. The default firewall restricts management
 by interface/source; it is not a substitute for authentication or physical network security.
+
+## Current local layout
+
+New backups use `.incomplete/` for unpublished work and `generations/<id>/` for
+complete archives, recovery kits and their inventory/checksums. `latest.json`
+selects the latest published generation. Restic excludes `.incomplete/` and
+preserves the complete generation directories. A later failed export cannot
+replace members of the previous complete set. Two complete local generations are
+kept; legacy flat archives remain readable until explicitly retired.
+
+Stopped guests remain stopped; running guests recover after their own group,
+including after cancellation/failure. Shared writable volumes require their
+consumers to stop together. Excluded groups are explicitly omitted and do not
+advance the full-host success timestamp. Exports do not protect external host
+writers or devices; apply workload-specific maintenance policies.

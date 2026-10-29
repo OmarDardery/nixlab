@@ -1,0 +1,5 @@
+{
+  "debian": {"title": "Debian container", "status": "upstream-supported", "notes": "Baseline qualification target; requires an Incus images remote."},
+  "adguard": {"title": "AdGuard Home", "status": "upstream-supported", "notes": "Qualification target. LAN DNS needs a LAN bridge or explicit reachability policy."},
+  "vaultwarden": {"title": "Vaultwarden", "status": "upstream-supported", "notes": "Qualification target. Check pool space and RAM; upstream may compile application components."}
+}

@@ -8,38 +8,19 @@ target-machine acceptance work.
 
 ## Daily work
 
-The portal's Operations & recovery page loads guest inventory on demand. It shows
-state, addresses, limits, declared-field ownership/drift, service health, certificate
-expiry and backup success. Long actions run as systemd jobs and remain independent
-of the browser. Refresh retrieves results; active jobs are polled while that page is open.
+The Backups & Recovery page coordinates independent backups, repository checks,
+archive restores, recovery downloads and host health. Use Incus for ordinary guest
+lifecycle, consoles and snapshots. Legacy commands below remain for compatibility.
 
-Start/stop/restart use fixed local Incus commands; stop and export use graceful
-shutdown without force. Snapshots stay on the same storage and are not independent
-backups. Instance exports exclude custom-volume contents. The configured full restic
-backup exports custom volumes too and includes configuration and runtime identities.
-Application-consistency hooks remain application-specific; the demonstration stack
-has a PostgreSQL dump hook.
-
-```sh
-sudo nixlab-admin guests list
-sudo nixlab-admin guests snapshot --name myguest --snapshot before-update
-sudo nixlab-admin guests export --name myguest --acknowledge
-sudo nixlab-admin guests status
-sudo nixlab-admin guests backup --acknowledge
-```
-
-The scheduled backup and guest jobs serialize exports through the same Incus lock.
-Configuration publication/backup preparation also use the configuration lock. Avoid
-concurrent manual Incus changes during a backup. A durable restart record recovers
-guests stopped by interrupted exports; the recovery unit is available even when
-scheduled backups are disabled. Check health for guests still awaiting restart.
-
-On-demand exports use the selected backup staging directory, in `on-demand/`, rather
-than the portal's transaction directory. A selected backup filesystem must be mounted
-with its expected UUID; a missing disk never silently redirects an export onto root.
-The default staging directory shares the system filesystem: provision enough space
-or select an independent staging disk before exporting large guests. Exports are not
-automatically deleted; manage retention after verifying an independent copy.
+For maintenance, inspect system generations with `sudo nix-env --list-generations
+--profile /nix/var/nix/profiles/system` and GC roots with `nix-store --gc --print-roots`.
+After reviewing boot and recovery needs, `sudo nix-collect-garbage --delete-older-than 30d`
+removes old profile generations and unreferenced store paths; it changes boot-menu
+history. Active system and Nixlab's explicit recovery roots remain protected.
+`sudo nixlab-admin prune-jobs` previews old terminal configuration jobs beyond the
+newest 20; add `--apply` to remove them, or `--keep N` to choose the retained count.
+Active, pending and last-confirmed jobs are protected. Guest-operation history and
+export archives are separate and are not pruned by this command.
 
 ## Restore and recover off-host archives
 
@@ -186,7 +167,7 @@ Restore selected runtime credentials with root-only permissions; the portal pass
 record needs group `nixlab-ui` and mode 0640. Preserve CA identity only when intended.
 Guest/application data comes from its independent backups, not this kit.
 
-Scheduled backups create root-only configuration and secret archives in staging, then
+Scheduled backups create root-only configuration and secret archives inside each complete generation, then
 restic encrypts them for off-host storage. Those staging archives are **not encrypted
 at rest** unless their filesystem is encrypted. Protect the staging disk accordingly.
 
@@ -203,3 +184,31 @@ or select another runtime file through `nixlab.notifications.webhookFile`. Faile
 instance, backup and rollback units trigger bounded notification jobs. The payload
 contains service identity and failure state; URLs, responses, journals and secrets
 are withheld. Redirects are refused. No resident notification daemon is added.
+
+## Generation layout and coverage
+
+A run stages exports and recovery kits under `.incomplete/<id>`, then atomically
+publishes `generations/<id>` and updates `latest.json`. Restic excludes incomplete
+data. Two complete local generations are retained; legacy flat files are not
+moved/deleted automatically. The inventory and checksums inside each generation
+are authoritative. Recovery kit failure also prevents publication.
+
+Guest groups stop/export/recover in turn. Shared writable custom volumes join all
+consumers, including projects sharing the default volume namespace. Additional
+`backup.groups` contain lists of `project/guest` names. Host writers/external data
+still need their own consistency procedures.
+
+`backup.exclude` and Incus `user.nixlab.backup=manual` protect whole consistency
+groups from automatic shutdown. Explicit exclusion names must match existing
+guests; a typo refuses shutdown. The generation and portal record exclusions and
+selected coverage. Off-host upload can succeed for that selection, but the global
+full-host freshness indicator is not advanced. Investigate missing coverage.
+
+Run an independent repository check from the portal or
+`sudo nixlab-admin guests backup-check`. `sudo systemctl stop restic-backups-nixlab`
+cancels a scheduled backup; signal handling and the cleanup/recovery unit restore
+original guest running states. Inspect pending restart intent before retrying.
+The portal tracks the actual service through export, off-host transfer and retention,
+keeps cancellation available during transfer, and reports an off-host failure even
+when the local generation completed successfully.
+The default calendar is `*-*-* 03:00:00`; change `backup.schedule` through review.

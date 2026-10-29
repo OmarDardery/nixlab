@@ -8,10 +8,10 @@ and run `sudo nixlab-setup`. The guided console installer reviews one selected d
 requires typed erase confirmation, installs NixOS and starts the private web setup on first boot.
 An [existing conventional NixOS installation](docs/setup.md) can use the conversion installer instead.
 
-The portal handles host settings, reviewed file uploads and source upgrades, guest operations,
-backup/restore jobs, account roles, recovery downloads and offline guides. Optional recipes
+The portal handles host settings, reviewed file uploads and source upgrades, Ethernet/hardware prerequisites,
+independent backups/recovery, accounts and offline guides. Incus handles guest operations, consoles, networks and snapshots. Optional recipes
 include laptop lid policy, SMART health, private SSH access, monitoring and the applications VM.
-See [operations](docs/operations.md) and the [commissioning checklist](docs/commissioning.md).
+See the [ownership contract](docs/ownership.md), [helper integration](docs/helpers.md), [hardware support](docs/hardware.md) and [commissioning checklist](docs/commissioning.md).
 
 This is a single-host release candidate. CI gates include source tests, real NixOS portal/UNIX
 permissions, and BIOS/UEFI media boot checks. Hardware installation, first-boot conversion,
@@ -65,7 +65,7 @@ docs/                        # research, commissioning, operation and recovery
 
 ## Start here
 
-For the installer and browser-first workflow, start with [web setup](docs/setup.md).
+For the installer and browser-first workflow, start with [the quick start](docs/start.md).
 The following guides also cover the advanced/manual deployment path.
 
 1. Read [architecture decisions](docs/architecture.md).
@@ -117,3 +117,21 @@ Build `nix build .#packages.x86_64-linux.installer-iso -o result-iso`, or downlo
 the `nixlab-installer-x86_64` CI artifact after its build completes. The guided installer prepares one explicitly confirmed boot disk and starts Nixlab's
 web setup on first boot. The standard NixOS manual installation path remains available. See [ISO installation](docs/iso.md) for exact steps and
 validation limits. No disks are formatted automatically.
+
+### Focused host foundation
+
+Use **Incus** for guest creation, lifecycle, consoles, limits, snapshots, managed
+networks and volumes. Nixlab supplies reviewed Ethernet bridges/VLANs, host
+firewall integration, stable USB serial prerequisites and recoverable host changes.
+The portal does not duplicate those guest editors.
+
+`nixlab-helpers` packages the upstream Community Scripts Incus wizard with both
+source repositories pinned. Run it from SSH/the console; the portal only links
+and reports compatibility. No application, including Klipper, is installed by
+default. Current qualification targets remain explicitly unverified until their
+live install/restore evidence is recorded.
+
+Backups publish complete generations, recover each stopped guest group immediately,
+and preserve two complete local generations. Shared writable volumes join their
+consumers. Maintenance exclusions remain visible and do not refresh full-host
+backup freshness. Legacy archives and CLI/API commands remain supported.

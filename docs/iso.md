@@ -7,7 +7,8 @@ nix build .#packages.x86_64-linux.installer-iso -o result-iso
 ```
 
 The image is under `result-iso/iso/`. The CI build publishes an ISO and SHA256SUMS
-as the `nixlab-installer-x86_64` workflow artifact, retained for seven days. These
+as the `nixlab-installer-x86_64` workflow artifact, retained for 90 days. The artifact
+also contains build metadata and the trial checklist. These
 are candidate installation images, not hardware-certified releases. The media
 uses the pinned NixOS minimal installer, with UEFI/USB boot support and no GUI or
 running virtualization stack. SSH is disabled in the live environment. Hardware

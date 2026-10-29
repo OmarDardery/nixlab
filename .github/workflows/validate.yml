@@ -14,20 +14,30 @@ jobs:
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
       - name: Python safety tests
         run: |
-          python3 -m compileall -q admin iso scripts tests
+          python3 -m compileall -q admin iso scripts tests helpers installer
           python3 -m unittest discover -s tests -v
       - name: Validate UI JavaScript and installer shell
         run: |
           node --check admin/static/app.js
+          node --check admin/static/api.js
+          node --check admin/static/events.js
           node --check admin/static/operations.js
+          node --check admin/static/foundation.js
           node tests/test_homepage.js
           node tests/test_operations_ui.js
+          node tests/test_foundation_ui.js
           bash -n install.sh
+      - name: Browser workflow checks
+        run: |
+          python3 -m venv "$RUNNER_TEMP/nixlab-browser"
+          "$RUNNER_TEMP/nixlab-browser/bin/python" -m pip install playwright==1.55.0
+          "$RUNNER_TEMP/nixlab-browser/bin/python" -m playwright install --with-deps chromium
+          "$RUNNER_TEMP/nixlab-browser/bin/python" tests/browser_foundation.py
       - name: Parse all Nix files
         run: find . -name '*.nix' -exec nix-instantiate --parse '{}' ';' >/dev/null
       - name: Evaluate configuration variants
         run: |
-          for target in validation-minimal validation-file-disk validation-recipes validation-host validation-coupled-apps validation-apps validation-services validation-demo validation-zfs validation-inherited validation-iso-firstboot validation-bootstrap validation-setup validation-setup-apps; do
+          for target in validation-minimal validation-file-disk validation-recipes validation-host validation-ethernet validation-ethernet-nm validation-ethernet-wifi validation-coupled-apps validation-apps validation-services validation-demo validation-zfs validation-inherited validation-iso-firstboot validation-bootstrap validation-setup validation-setup-apps; do
             nix eval ".#nixosConfigurations.$target.config.system.build.toplevel.drvPath"
           done
       - name: Verify lightweight defaults and declarative settings
@@ -35,14 +45,19 @@ jobs:
           nix eval --json .#nixlabDefaults > /tmp/nixlab-defaults.json
           python3 -c 'import json; from pathlib import Path; assert json.loads(Path("/tmp/nixlab-defaults.json").read_text()) == json.loads(Path("tests/fixtures/defaults.json").read_text())'
           test "$(nix eval --json .#nixosConfigurations.validation-minimal.config.services.prometheus.enable)" = "false"
+          test "$(nix eval --json .#nixosConfigurations.validation-minimal.config.services.prometheus.exporters.node.enable)" = "false"
+          test "$(nix eval --json '.#nixosConfigurations.validation-minimal.config.systemd.services' --apply 'services: builtins.hasAttr "nixlab-metrics" services')" = "false"
           test "$(nix eval --json .#nixosConfigurations.validation-minimal.config.services.nginx.enable)" = "false"
           test "$(nix eval --json .#nixosConfigurations.validation-minimal.config.virtualisation.docker.enable)" = "false"
           test "$(nix eval --json '.#nixosConfigurations.validation-minimal.config.systemd.services' --apply 'services: builtins.hasAttr "nixlab-apps-onboarding" services')" = "false"
           test "$(nix eval --json .#nixosConfigurations.validation-services.config.services.prometheus.enable)" = "true"
+          test "$(nix eval --json .#nixosConfigurations.validation-services.config.services.prometheus.exporters.node.enable)" = "true"
       - name: Verify typed inventory migration
         run: |
           nix eval --json .#nixlabMigrationChecks > /tmp/nixlab-migration.json
           python3 -c 'import json; checks=json.load(open("/tmp/nixlab-migration.json")); assert checks and all(checks.values()), checks'
+          nix eval --json .#nixlabFoundationChecks > /tmp/nixlab-foundation.json
+          python3 -c 'import json; checks=json.load(open("/tmp/nixlab-foundation.json")); assert checks and all(checks.values()), checks'
           test "$(nix eval --raw .#nixosConfigurations.validation-file-disk.config.time.timeZone)" = "UTC"
           test "$(nix eval --raw .#nixosConfigurations.validation-coupled-apps.config.time.timeZone)" = "UTC"
           test "$(nix eval --raw .#nixosConfigurations.validation-file-disk.config.nixlab.incus.instances.fixture.project)" = "lab"
@@ -77,6 +92,13 @@ jobs:
           nix build '.#nixosConfigurations.validation-recipes.config.systemd.units."nixlab-notify@.service".unit' --no-link
       - name: Boot portal and verify real NixOS permissions
         run: nix build .#checks.x86_64-linux.portal --no-link -L
+      - name: Boot real Incus containers and verify host integration and restore
+        run: nix build .#checks.x86_64-linux.foundation --no-link -L
+      - name: Build pinned upstream helper runner
+        run: |
+          nix build .#packages.x86_64-linux.helpers -o result-helpers
+          result-helpers/bin/nixlab-helpers list > /tmp/nixlab-helpers.json
+          python3 -c 'import json; d=json.load(open("/tmp/nixlab-helpers.json")); assert d["scripts"]; assert all(len(v["revision"]) == 40 for v in d["sources"].values())'
       - name: Validate Compose project
         run: nix develop --command docker-compose -f examples/demo/compose.yaml config --quiet
       - name: Build complete hypervisor and verify guest image artifacts
@@ -89,7 +111,7 @@ jobs:
           test -s "result-app-metadata/tarball/$metadata_name"
 
   installer-iso:
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/tryout/'))
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -108,14 +130,16 @@ jobs:
         run: |
           mkdir iso-artifact
           cp result-iso/iso/*.iso iso-artifact/
+          python3 -c 'import json,subprocess; from pathlib import Path; p=Path("iso-artifact"); json.dump({"version":Path("VERSION").read_text().strip(),"revision":subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip(),"helperSources":json.loads(Path("helpers/sources.json").read_text())},open(p/"manifest.json","w"),indent=2)'
+          cp docs/trial.md iso-artifact/TRIAL.md
           cd iso-artifact
-          sha256sum *.iso > SHA256SUMS
+          sha256sum *.iso manifest.json TRIAL.md > SHA256SUMS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: nixlab-installer-x86_64
           path: iso-artifact/
           compression-level: 0
-          retention-days: 7
+          retention-days: 90
           if-no-files-found: error
       - name: Publish ISO serial boot log
         if: always()

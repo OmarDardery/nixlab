@@ -64,7 +64,8 @@ def copy_embedded_checkout(source, target, repository, revision=None):
         raise ValueError('Bundled checkout needs flake.nix and flake.lock')
     shutil.copytree(source, target, symlinks=False)
     if revision and len(revision) == 40 and all(c in '0123456789abcdef' for c in revision):
-        rt.write_json(target / 'platform-release.json', {'version': '0.1.0-rc1', 'revision': revision, 'repository': repository})
+        import upgrades
+        rt.write_json(target / 'platform-release.json', {'version': upgrades.version(source), 'revision': revision, 'repository': repository})
     run(['git', '-C', str(target), 'init', '-q', '-b', 'nixlab-iso'])
     run(['git', '-C', str(target), 'add', '.'])
     run(['git', '-C', str(target), '-c', 'user.name=Nixlab ISO', '-c',

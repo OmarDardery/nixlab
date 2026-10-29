@@ -37,6 +37,11 @@ in {
   environment.systemPackages = [ stage guided nixlabInstaller ];
   environment.etc."nixlab-source".source = nixlabSource;
   environment.etc."nixlab-iso-revision".text = nixlabRevision + "\n";
+  environment.etc."nixlab-build.json".text = builtins.toJSON {
+    version = lib.removeSuffix "\n" (builtins.readFile ../VERSION);
+    revision = nixlabRevision;
+    helperSources = builtins.fromJSON (builtins.readFile ../helpers/sources.json);
+  };
   environment.etc."nixlab-installation.md".source = ../docs/iso.md;
   services.getty.helpLine = lib.mkForce ''
     Nixlab installation media — no disks are modified automatically.

@@ -4,6 +4,7 @@ let
   inherit (lib) mkOption types;
   defaults = import ../site-defaults.nix;
   strings = types.attrsOf types.str;
+  foundationTypes = import ./foundation-types.nix { inherit lib; };
   instance = types.submodule {
     options = {
       name = mkOption { type = types.strMatching "[A-Za-z0-9][A-Za-z0-9_.-]*"; };
@@ -30,7 +31,8 @@ let
     };
   };
   makeType = path: value:
-    if path == "instances" then types.listOf instance
+    if builtins.hasAttr path foundationTypes then foundationTypes.${path}
+    else if path == "instances" then types.listOf instance
     else if path == "mounts" then types.listOf mount
     else if path == "tunnel.ingress" then strings
     else if builtins.isAttrs value then types.submodule {

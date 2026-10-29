@@ -13,10 +13,11 @@ import time
 from urllib.parse import quote
 import runtime as rt
 from locking import open_lock
+import incus_client
 
 OWNER = 'user.nixlab.managed'
 LAST = 'user.nixlab.last-applied'
-ACTIONS = {'start', 'stop', 'restart', 'snapshot', 'snapshot-copy', 'export', 'restore', 'backup', 'release-restore'}
+ACTIONS = {'start', 'stop', 'restart', 'snapshot', 'snapshot-copy', 'export', 'restore', 'backup', 'backup-check', 'release-restore'}
 INCUS_LOCK = Path('/run/lock/nixlab-incus.lock')
 
 
@@ -27,10 +28,7 @@ def name(value):
 
 
 def incus(*args, timeout=60):
-    result = subprocess.run(['incus', '--force-local', *args], capture_output=True, text=True, timeout=timeout)
-    if result.returncode:
-        raise ValueError(result.stderr.strip()[-4096:] or 'Incus operation failed')
-    return result.stdout
+    return incus_client.run(args, timeout, ValueError, 'Incus operation failed', limit=4096)
 
 
 def guests(project='lab'):
@@ -83,9 +81,10 @@ class Operations:
         if not directory.is_dir(): raise ValueError('Unknown operation')
         return directory
 
-    def status(self):
+    def status(self, limit=30):
         records = []
-        for directory in sorted(self.directory.iterdir(), key=lambda d: d.stat().st_mtime, reverse=True)[:30]:
+        directories = sorted(self.directory.iterdir(), key=lambda d: d.stat().st_mtime, reverse=True)
+        for directory in directories if limit is None else directories[:limit]:
             if not directory.is_dir() or not re.fullmatch(r'[0-9a-f]{32}', directory.name): continue
             record = rt.read_json(directory / 'job.json', {})
             if record.get('status') in ('queued', 'running') and time.time() - record.get('created', 0) > 30:
@@ -98,7 +97,7 @@ class Operations:
 
     def archives(self):
         result = []
-        for job in self.status():
+        for job in self.status(limit=None):
             if job.get('action') == 'export' and job.get('status') == 'complete':
                 try:
                     path = self.archive_path(job)
@@ -107,6 +106,31 @@ class Operations:
                     available = False
                 result.append({'id': job['id'], 'name': job['name'], 'project': job['project'], 'available': available,
                                'size': job.get('size', 0), 'sha256': job.get('sha256'), 'created': job['created']})
+        for job in self.generation_archives():
+            try: available = self.archive_path(job).is_file()
+            except (OSError, ValueError): available = False
+            result.append({key: job.get(key) for key in ('id', 'name', 'project', 'sha256', 'created', 'generation')} | {'available': available})
+        return result
+
+    def generation_archives(self):
+        import backup
+        try: settings = self.archive_settings()
+        except (KeyError, TypeError): return []  # Legacy/test state before setup.
+        root = Path(settings['archiveRoot']).parent
+        result = []
+        for generation in backup.generations(root):
+            path = root / 'generations' / generation['id']
+            manifest = rt.read_json(path / 'inventory.json')
+            for guest in manifest.get('guests', []):
+                filename = guest.get('archive', '')
+                if not re.fullmatch(r'instance-[0-9a-f]{64}\.tar\.gz', filename): continue
+                if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,62}', guest.get('name', '')): continue
+                if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,62}', guest.get('project', '')): continue
+                job_id = hashlib.sha256((generation['id'] + '\0' + guest['project'] + '\0' + guest['name']).encode()).hexdigest()[:32]
+                result.append({'id': job_id, 'name': guest['name'], 'project': guest['project'],
+                               'generation': generation['id'], 'archiveFile': filename,
+                               'archiveRoot': str(root), 'archiveMount': settings['archiveMount'],
+                               'sha256': manifest['archiveSHA256'].get(filename), 'created': manifest['created']})
         return result
 
     def archive_path(self, job, create=False):
@@ -125,6 +149,12 @@ class Operations:
             parent.mkdir(parents=True, mode=0o700, exist_ok=True)
             if parent.stat().st_uid != os.geteuid() or parent.stat().st_mode & 0o022:
                 raise ValueError('Archive storage must be root-owned and not writable by other users')
+        if job.get('generation'):
+            if not re.fullmatch(r'[0-9]+-[0-9a-f]{32}', job['generation']) or not re.fullmatch(r'instance-[0-9a-f]{64}\.tar\.gz', job.get('archiveFile', '')):
+                raise ValueError('Invalid generation archive identity')
+            path = parent / 'generations' / job['generation'] / job['archiveFile']
+            if path.resolve() != path: raise ValueError('Generation archive cannot traverse symlinks')
+            return path
         return parent / (job['id'] + '.tar.gz')
 
     def archive_settings(self):
@@ -139,10 +169,10 @@ class Operations:
         action = request.get('action')
         if action not in ACTIONS: raise ValueError('Unsupported guest operation')
         project = name(request.get('project', 'lab'))
-        guest = name(request.get('name', 'all') if action == 'backup' else request.get('name'))
+        guest = name(request.get('name', 'all') if action in ('backup', 'backup-check') else request.get('name'))
         settings = rt.read_json(Path('/etc/nixlab/effective-settings.json'), rt.read_json(rt.machine_path(self.root, 'settings'), {}))
         if not settings.get('ready'): raise ValueError('Complete host setup before managing guests')
-        if action == 'backup' and not settings['backup']['enable']:
+        if action in ('backup', 'backup-check') and not settings['backup']['enable']:
             raise ValueError('Configure an independent backup destination first')
         if action in ('stop', 'restart', 'export', 'restore', 'snapshot-copy', 'release-restore', 'backup') and request.get('acknowledge') is not True:
             raise ValueError('Acknowledge downtime or isolated restore before running this operation')
@@ -158,9 +188,11 @@ class Operations:
             if not known or not known['available'] or known['project'] != project or known['name'] != guest:
                 raise ValueError('Choose an existing completed export for this project and instance')
             parameters['archive'] = archive_id
+            scheduled = next((a for a in self.generation_archives() if a['id'] == archive_id), None)
+            if scheduled: parameters['archiveRecord'] = scheduled
         with rt.locked(blocking=False):
             check_config_idle(self.state)
-            if any(j.get('status') in ('queued', 'running') for j in self.status()):
+            if any(j.get('status') in ('queued', 'running') for j in self.status(limit=None)):
                 raise ValueError('Finish the active guest operation first')
             job_id = secrets.token_hex(16)
             directory = self.directory / job_id
@@ -183,8 +215,9 @@ class Operations:
 
     def perform(self, job):
         action, project, guest = job['action'], name(job['project']), name(job['name'])
-        if action == 'backup':
-            subprocess.run(['systemctl', 'start', 'restic-backups-nixlab.service'], check=True, timeout=43200)
+        if action in ('backup', 'backup-check'):
+            unit = 'restic-backups-nixlab.service' if action == 'backup' else 'nixlab-backup-check.service'
+            subprocess.run(['systemctl', 'start', unit], check=True, timeout=43200)
             return {}
         if action == 'export':
             import backup
@@ -208,7 +241,7 @@ class Operations:
             if action == 'snapshot-copy':
                 incus('copy', guest + '/' + name(job['snapshot']), target, '--project', project, '--stateless', *overrides, timeout=43200)
             else:
-                archive_job = rt.read_json(self.path(job['archive']) / 'job.json')
+                archive_job = job.get('archiveRecord') or rt.read_json(self.path(job['archive']) / 'job.json')
                 archive = self.archive_path(archive_job)
                 if archive.is_symlink() or not archive.is_file() or file_hash(archive) != archive_job.get('sha256'):
                     raise ValueError('Export checksum changed; refusing import')
@@ -286,10 +319,10 @@ class Operations:
         job.update(status='running', started=time.time()); rt.write_json(directory / 'job.json', job)
         try:
             import contextlib
-            with (contextlib.nullcontext() if job['action'] == 'backup' else rt.locked()), open_lock(INCUS_LOCK) as lock:
+            with (contextlib.nullcontext() if job['action'] in ('backup', 'backup-check') else rt.locked()), open_lock(INCUS_LOCK) as lock:
                 # The scheduled backup takes this lock itself. Do not hold it
                 # while starting that unit, or it would wait on our own lock.
-                if job['action'] != 'backup': fcntl.flock(lock, fcntl.LOCK_EX)
+                if job['action'] not in ('backup', 'backup-check'): fcntl.flock(lock, fcntl.LOCK_EX)
                 result = self.perform(job)
             job.update(status='complete', completed=time.time(), **result)
         except Exception as exc:
@@ -304,7 +337,7 @@ class Operations:
         try:
             with rt.locked(blocking=False), open_lock(INCUS_LOCK) as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                for record in self.status():
+                for record in self.status(limit=None):
                     # Registration holds the configuration lock for its entire
                     # copy. An importing record observed here is interrupted.
                     if record.get('status') == 'importing':

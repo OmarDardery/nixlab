@@ -74,8 +74,13 @@ in {
     };
   };
   systemd.services.incus-preseed.preStart = lib.mkBefore ''
-    ${pkgs.python3}/bin/python ${../scripts/preflight.py} ${inventory}
+    PYTHONPATH=${../scripts} ${pkgs.python3}/bin/python ${../scripts/preflight.py} ${inventory}
+    ${pkgs.python3}/bin/python ${../scripts/infrastructure.py} check ${pkgs.writeText "nixlab-owned-infrastructure.json" (builtins.toJSON config.virtualisation.incus.preseed)}
   '';
+  systemd.services.incus-preseed.postStart = ''
+    ${pkgs.python3}/bin/python ${../scripts/infrastructure.py} record ${pkgs.writeText "nixlab-owned-infrastructure.json" (builtins.toJSON config.virtualisation.incus.preseed)}
+  '';
+  systemd.services.incus-preseed.path = [ pkgs.incus-lts.client ];
   systemd.services.nixlab-instances = {
     description = "Reconcile owned Incus instances without deleting guest data";
     wantedBy = [ "multi-user.target" ];

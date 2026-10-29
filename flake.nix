@@ -34,9 +34,10 @@
         metadata = "${vm.config.system.build.metadata}/tarball/${vm.config.image.fileName}";
         disk = "${vm.config.system.build.qemuImage}/nixos.qcow2";
       };
-      mkHost = inventory: vm: extra: nixpkgs.lib.nixosSystem {
+      mkHost = inventory: vm: extra: mkHostNetwork inventory vm extra installedNetworking;
+      mkHostNetwork = inventory: vm: extra: networking: nixpkgs.lib.nixosSystem {
         system = inventory.system;
-        specialArgs = { inventory = checkSettings inventory; appImage = if vm == null then null else artifacts vm; inherit installedNetworking; installedBase = null; };
+        specialArgs = { inventory = checkSettings inventory; appImage = if vm == null then null else artifacts vm; installedNetworking = networking; installedBase = null; };
         modules = [ sops-nix.nixosModules.sops ./configuration.nix ] ++ extra;
       };
       bundledSource = nixpkgs.lib.cleanSourceWith {
@@ -46,8 +47,8 @@
               top = builtins.head (nixpkgs.lib.splitString "/" relative);
           in type != "symlink" && builtins.baseNameOf path != "__pycache__" && (toString path == toString self.outPath || builtins.elem top [ "admin" "configuration.nix" "configuration-bootstrap.nix"
             "docs" "examples" "flake.lock" "flake.nix" "guests" "installer" "iso" "lib"
-            "modules" "platform-modules" "scripts" "site-defaults.nix" "site.nix" "tests"
-            "README.md" "install.sh" "platform-release.json" ".gitignore" ]);
+            "modules" "platform-modules" "scripts" "helpers" "site-defaults.nix" "site.nix" "tests"
+            "README.md" "VERSION" "install.sh" "platform-release.json" ".gitignore" ]);
       };
       isoInstaller = import ./installer/package.nix { inherit pkgs; };
       firstbootModule = import ./iso/firstboot.nix {
@@ -60,6 +61,17 @@
         modules = [ ./iso/live.nix ];
       };
       pkgs = import nixpkgs { system = "x86_64-linux"; };
+      ethernetSite = testSite // {
+        apps = testSite.apps // { enable = false; };
+        management = testSite.management // { interface = "br-lan"; configure = true; };
+        connectivity = testSite.connectivity // {
+          bridges = [ { name = "br-lan"; interfaces = [ "eth0" ]; } { name = "br-apps"; interfaces = [ "vlan20" ]; } ];
+          vlans = [ { name = "vlan20"; interface = "eth1"; id = 20; } ];
+          guestInterfaces = [ "incusbr0" "incus-private" ]; trustedLANAccess = true;
+          privateAccess = [ { cidr = "192.0.2.53/32"; protocol = "udp"; ports = [ 53 ]; } ];
+        };
+        hardware.serialAliases = [ { name = "example"; vendorId = "1234"; productId = "5678"; serial = "FIXTURE-ONLY"; } ];
+      };
     in {
       nixosModules = import ./lib/platform.nix { lib = nixpkgs.lib; };
       nixosConfigurations = {
@@ -79,6 +91,15 @@
             (path: builtins.toFile "nixlab-recipe.nix" (builtins.fromJSON (builtins.readFile path)).module)
             [ ./admin/recipes/laptop.json ./admin/recipes/disk-health.json ./admin/recipes/private-access.json ]);
         validation-host = mkHost testSite testApps [ ./tests/hardware.nix ];
+        validation-ethernet = mkHost ethernetSite null [ ./tests/hardware.nix ];
+        validation-ethernet-nm = mkHostNetwork ethernetSite null
+          [ ./tests/hardware.nix { networking.networkmanager.enable = true; } ] { networkManager = true; };
+        validation-ethernet-wifi = mkHostNetwork (ethernetSite // {
+          management = ethernetSite.management // { interface = "wlan0"; };
+          radios = ethernetSite.radios // { wifi = ethernetSite.radios.wifi // {
+            enable = true; interface = "wlan0"; ssid = "FIXTURE-ONLY"; manageProfile = true;
+          }; };
+        }) null [ ./tests/hardware.nix { networking.networkmanager.enable = true; } ] { networkManager = true; };
         validation-apps = testApps;
         validation-coupled-apps = coupledApps;
         validation-services = mkHost (testSite // {
@@ -121,10 +142,24 @@
         iso-setup = installerIso.config.system.build.nixlabGuidedInstaller;
         admin = import ./admin/package.nix { inherit pkgs; };
         homelab = import ./scripts/homelab.nix { inherit pkgs; };
+        helpers = import ./helpers/package.nix { inherit pkgs; };
         apps-image = apps.config.system.build.qemuImage;
       };
       apps.x86_64-linux.install = { type = "app"; program = "${self.packages.x86_64-linux.installer}/bin/nixlab-install"; };
       nixlabMigrationChecks = import ./tests/settings-checks.nix { lib = nixpkgs.lib; };
+      nixlabFoundationChecks = let
+        native = self.nixosConfigurations.validation-ethernet.config;
+        nm = self.nixosConfigurations.validation-ethernet-nm.config;
+        wifi = self.nixosConfigurations.validation-ethernet-wifi.config;
+      in {
+        nativeBridgePorts = native.networking.bridges.br-apps.interfaces == [ "vlan20" ];
+        nativePortAddressRemoved = native.networking.interfaces.eth0.ipv4.addresses == [ ];
+        vlanActivationName = nm.networking.networkmanager.ensureProfiles.profiles.nixlab-vlan-vlan20.connection.id == "nixlab-vlan-vlan20";
+        vlanBridgeMembership = nm.networking.networkmanager.ensureProfiles.profiles.nixlab-vlan-vlan20.connection.master == "br-apps";
+        guestNetworkOwnership = builtins.elem "interface-name:incus-private" nm.networking.networkmanager.unmanaged;
+        wifiManagementActivation = nixpkgs.lib.hasInfix "connection up nixlab-wifi" wifi.systemd.services.nixlab-connectivity.script;
+        noWiredManagementOnWifi = !(nixpkgs.lib.hasInfix "connection up nixlab-management" wifi.systemd.services.nixlab-connectivity.script);
+      };
       nixlabDefaults = import ./site-defaults.nix;
       nixlabDesiredSettings = site;
       nixlabSettings = self.nixosConfigurations.hypervisor.config.nixlab.settings;
@@ -137,6 +172,7 @@
       };
       checks.x86_64-linux = {
         portal = import ./tests/portal-vm.nix { inherit pkgs; };
+        foundation = import ./tests/foundation-vm.nix { inherit pkgs; };
         host = self.nixosConfigurations.validation-host.config.system.build.toplevel;
         apps = testApps.config.system.build.toplevel;
         helpers = self.packages.x86_64-linux.homelab;

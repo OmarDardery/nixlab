@@ -1,11 +1,41 @@
 # Validation evidence and acceptance procedure
 
-Validation updated: 2026-10-28. Pinned Nixpkgs:
+Validation updated: 2026-10-29. Pinned Nixpkgs:
 `718f670e845328e9c2cecdd832835712b2cbd065` (NixOS 26.05).
 Source work uses an Ubuntu container and GitHub Actions, not the target bare-metal
 host. No physical host activation, formatting or production network change was performed.
 
-## Results obtained in this workspace
+## Host foundation update
+
+The focused host implementation passed 133 Python tests, the homepage/operations/
+foundation JavaScript tests, and Chromium browser checks against a simulated API
+(Ethernet and serial edits, review payload, viewer restrictions and mobile layout).
+Backup tests cover per-group recovery, shared writable volumes, exclusions,
+cancellation, failed exports/recovery kits, generation retention and archive restore
+checksum validation. They also reproduce and fix legacy archive catalog truncation.
+
+All Nix files parse. All 17 configuration variants evaluate, including Ethernet,
+NetworkManager and preserved Wi-Fi. Defaults match the Python fixture; migration and
+network ownership/activation checks pass. The pinned helper dependency plan evaluates and both upstream
+source hashes were checked against downloaded archives. The packaged source catalog
+contains 644 container scripts, with no claimed Nixlab verification.
+
+The new `checks.x86_64-linux.foundation` derivation evaluates. It is a real Incus
+container integration test for mutable guest preservation, LAN reachability,
+management isolation, simulated character-device hotplug and backup/import data
+integrity. CI runs it and builds the helper package. Neither this new VM test nor a
+new full package/system build ran locally: this workspace has no `/dev/kvm` and its
+rootless Nix store cannot write the normal `/nix/store` build outputs. Source evaluation and
+simulated browser checks do not establish physical network or USB operation.
+
+No full disk-install/first-boot test or live helper qualification has been completed.
+The existing BIOS/UEFI ISO gate still tests boot and installer dry runs. Complete
+[commissioning](commissioning.md) on disposable hardware before production use.
+
+## Earlier evidence (before the host foundation update)
+
+The results and linked CI runs below describe earlier revisions. They do not
+establish that the changed foundation code passed a remote build or VM execution.
 
 | Check | Result |
 |---|---|
@@ -49,7 +79,7 @@ The follow-up installer/portal implementation additionally passed:
 - Real HTTPS handler tests for authentication, secure cookies, CA bootstrap, CSRF rejection,
   hostname/rebinding rejection and invalid-setting refusal; schema, snapshot, secret-isolation,
   recovery cleanup and timeout tests. Including configuration migration, module
-  transactions and ISO staging/live-media refusal, the full suite currently contains 106 tests.
+  transactions and ISO staging/live-media refusal, that revision contained 106 tests.
 - JavaScript syntax, installer Bash syntax/ShellCheck, and browser QA of the dashboard,
   storage selection/role enforcement and radio/preferences pages against simulated hardware.
 
@@ -177,7 +207,7 @@ physical-host activation remain separate target-machine checks.
 The release adds guided console disk installation and data-disk preparation, full-SHA
 platform publication/recovery, allowlisted guest operations and restore isolation,
 portal roles, off-host archive registration, recovery kits, local guides, recipes and
-runtime-credential failure notifications. The current Python suite has 106 tests;
+runtime-credential failure notifications. That revision had 106 Python tests;
 JavaScript checks cover operations roles, escaped metadata and source approval controls.
 
 CI additionally evaluates the packaged recipe modules, builds the notification unit,

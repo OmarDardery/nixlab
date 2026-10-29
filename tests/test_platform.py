@@ -248,7 +248,8 @@ class BackupTests(unittest.TestCase):
             if args[0] == 'query': return '{"config":{"core.https_address":"192.0.2.10:8443"}}'
             return '[]'
         with patch.object(backup,'incus',side_effect=fake),patch.dict(os.environ,{'NIXLAB_DEMO_BACKUP':'0'}):backup.backup()
-        data=json.loads((self.root/'inventory.json').read_text())
+        generation=json.loads((self.root/'latest.json').read_text())['generation']
+        data=json.loads((self.root/'generations'/generation/'inventory.json').read_text())
         self.assertEqual(data['profiles']['lab'][0]['name'],'custom')
         self.assertEqual(data['networks']['lab'][0]['name'],'custom-network')
         self.assertEqual(data['trustedCertificates'][0]['name'],'client-identity')

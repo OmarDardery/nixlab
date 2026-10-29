@@ -7,10 +7,39 @@ import re
 import subprocess
 import tarfile
 import tempfile
+import urllib.request
 import runtime as rt
 
 UPSTREAM = 'https://github.com/OmarDardery/nixlab.git'
 PROTECTED = {'machine', 'local', 'installed-system', 'site-modules', 'secrets', '.git'}
+
+
+def version(root):
+    path = Path(root) / 'VERSION'
+    if path.is_file():
+        value = path.read_text().strip()
+        if re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9.-]+)?', value): return value
+    return 'unknown'
+
+
+def releases():
+    request = urllib.request.Request('https://api.github.com/repos/OmarDardery/nixlab/releases?per_page=30',
+                                     headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'nixlab'})
+    with urllib.request.urlopen(request, timeout=15) as response:
+        data = json.load(response)
+    result = subprocess.run(['git', 'ls-remote', '--tags', UPSTREAM], capture_output=True, text=True, check=True, timeout=30)
+    tags, peeled = {}, {}
+    for line in result.stdout.splitlines():
+        sha, ref = line.split('\t', 1)
+        if not re.fullmatch(r'[0-9a-f]{40}', sha) or not ref.startswith('refs/tags/'): continue
+        tag = ref.removeprefix('refs/tags/')
+        if tag.endswith('^{}'): peeled[tag[:-3]] = sha
+        else: tags[tag] = sha
+    return [{'name': str(item.get('name') or item['tag_name'])[:120], 'tag': item['tag_name'],
+             'revision': peeled.get(item['tag_name'], tags[item['tag_name']])}
+            for item in data if not item.get('draft') and isinstance(item.get('tag_name'), str)
+            and re.fullmatch(r'v?[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9.-]+)?', item['tag_name'])
+            and item['tag_name'] in tags]
 
 
 def platform_path(name):
@@ -24,10 +53,13 @@ def metadata(root):
     root = Path(root)
     explicit = rt.read_json(root / 'platform-release.json', {})
     if explicit.get('revision') and re.fullmatch(r'[0-9a-f]{40}', explicit['revision']):
-        return explicit
-    result = subprocess.run(['git', '-C', str(root), 'rev-parse', 'HEAD'], capture_output=True, text=True)
-    revision = result.stdout.strip() if result.returncode == 0 else 'unversioned'
-    return {'version': '0.1.0-rc1', 'revision': revision, 'repository': UPSTREAM}
+        record = explicit
+    else:
+        result = subprocess.run(['git', '-C', str(root), 'rev-parse', 'HEAD'], capture_output=True, text=True)
+        revision = result.stdout.strip() if result.returncode == 0 else 'unversioned'
+        record = {'version': version(root), 'revision': revision, 'repository': UPSTREAM}
+    record['helperSources'] = rt.read_json(root / 'helpers/sources.json', rt.read_json(rt.SOURCE / 'helper-sources.json', {}))
+    return record
 
 
 def prepare(source, revision, log):
@@ -62,7 +94,7 @@ def prepare(source, revision, log):
         (source / name).unlink()
     for name, (data, mode) in incoming.items():
         rt.atomic(source / name, data, mode=mode)
-    rt.write_json(source / 'platform-release.json', {'version': '0.1.0-rc1', 'revision': revision, 'repository': UPSTREAM})
+    rt.write_json(source / 'platform-release.json', {'version': version(source), 'revision': revision, 'repository': UPSTREAM})
     incoming['platform-release.json'] = ((source / 'platform-release.json').read_bytes(), 0o644)
     names = {n for n, _ in rt.source_files(source) if not platform_path(n)} | set(incoming)
     rt.write_json(source / '.nixlab-files.json', sorted(names - {'.nixlab-files.json'}))

@@ -57,6 +57,28 @@ mode, CPU, NICs, disks, exact source revision, results and relevant redacted log
 - Verify offline guides, diagnostics exclusions, certificate renewal and configured
   failure notification delivery. Configure external receivers before relying on alerts.
 
+## Ethernet, serial devices and upstream helpers
+
+- With local console access, move management onto a bridge, apply/confirm, and reboot.
+  Repeat for a tagged VLAN on the actual switch. Test both the inherited networking
+  backend and NetworkManager where supported; interrupt activation to verify rollback.
+  Confirm no duplicate IP remains on a bridge port and existing Wi-Fi still works.
+- In Incus, attach a guest to the LAN bridge and another to an Incus-managed private
+  bridge. Register only the private bridge for host firewall integration. Verify DHCP,
+  DNS, egress, trusted-LAN routing, guest ACLs and blocked access to private management.
+  Test narrowly scoped private-access exceptions against the intended service.
+- Select a real USB serial identity, create a stable alias, then attach it using Incus.
+  Verify guest user/group permissions, disconnect/reconnect, host reboot and an actual
+  workload. Klipper is one possible workload; there is no default printer recipe.
+- Run `sudo nixlab-helpers doctor --project lab`, then qualify each selected helper
+  through create, application health, reboot, update, backup, independent restore and
+  cleanup. Record host generation, Incus version, source revisions, image/application
+  versions and project/storage/network choices. The shipped targets are unverified;
+  upstream support alone does not justify changing that label.
+- Back up two independent groups and one pair sharing a writable volume. Verify
+  immediate recovery per group, stopped guests staying stopped, cancellation recovery,
+  two retained complete generations, and that exclusions report partial coverage.
+
 Only call the selected hardware/network commissioned after these checks pass. Multi-host
 HA, fencing/shared-storage qualification and broad third-party helper compatibility are
 separate product scopes, not outcomes established by this checklist.

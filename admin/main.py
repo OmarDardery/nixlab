@@ -74,8 +74,18 @@ def backend():
                     result = manager.status()
                 elif self.path == '/inventory':
                     result = manager.host_inventory()
+                elif self.path == '/releases':
+                    import upgrades
+                    result = {'releases': upgrades.releases()}
                 elif self.path == '/operations':
-                    result = {'jobs': operations.status(), 'archives': operations.archives()}
+                    import backup
+                    settings = manager.effective_settings()
+                    unit = subprocess.run(['systemctl', 'show', 'restic-backups-nixlab.service',
+                                           '--property=ActiveState,SubState,Result'], capture_output=True, text=True, timeout=10)
+                    result = {'jobs': operations.status(), 'archives': operations.archives(),
+                              'generations': backup.generations(Path(settings['backup']['stagingDirectory'])),
+                              'backupService': dict(line.split('=', 1) for line in unit.stdout.splitlines() if '=' in line),
+                              'backupStatus': rt.read_json(Path('/var/lib/nixlab/backup-status.json'), {})}
                 elif self.path == '/guests':
                     result = {'guests': guests() if manager.settings()['ready'] else []}
                 elif self.path == '/users':
@@ -131,6 +141,9 @@ def backend():
                     result = manager.migrate_layout()
                 elif self.path == '/operation':
                     result = operations.submit(body, principal=actor)
+                elif self.path == '/cancel-backup':
+                    subprocess.run(['systemctl', 'stop', '--no-block', 'restic-backups-nixlab.service'], check=True, timeout=10)
+                    result = {'ok': True, 'message': 'Cancellation requested; restart recovery remains active'}
                 elif self.path == '/recovery-export':
                     import recovery
                     result = recovery.download(body.get('recipient'))
@@ -281,7 +294,10 @@ def web():
                 path = urlsplit(self.path).path
                 assets = {'/': ('index.html', 'text/html; charset=utf-8'),
                           '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
+                          '/api.js': ('api.js', 'text/javascript; charset=utf-8'),
+                          '/events.js': ('events.js', 'text/javascript; charset=utf-8'),
                           '/operations.js': ('operations.js', 'text/javascript; charset=utf-8'),
+                          '/foundation.js': ('foundation.js', 'text/javascript; charset=utf-8'),
                           '/style.css': ('style.css', 'text/css; charset=utf-8')}
                 if path in assets:
                     filename, mime = assets[path]
@@ -314,6 +330,9 @@ def web():
                 if path == '/api/users':
                     if session['role'] != 'admin': raise access_accounts.AuthorizationError('Administrator account required')
                     return reply(self, 200, broker_request('GET', '/users'))
+                if path == '/api/releases':
+                    if session['role'] != 'admin': raise access_accounts.AuthorizationError('Administrator account required')
+                    return reply(self, 200, broker_request('GET', '/releases'))
                 if path in ('/api/status', '/api/inventory', '/api/ca', '/api/operations', '/api/guests', '/api/health', '/api/recipes'):
                     result = broker_request('GET', path[4:])
                     if path == '/api/status' and session['role'] != 'admin' and result.get('job'):
@@ -360,7 +379,7 @@ def web():
                 if self.path in ('/api/recovery-export', '/api/users'):
                     if not accounts.matches(session['username'], body.pop('current', None)):
                         raise ValueError('Reauthenticate before exporting recovery material or changing accounts')
-                actions = {'/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/browser-certificate', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export'}
+                actions = {'/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/browser-certificate', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup'}
                 if self.path not in actions:
                     return reply(self, 404, {'error': 'Unknown action'})
                 body['_actor'] = session['username']
@@ -437,7 +456,7 @@ def renew():
 def guests_cli(argv):
     import argparse
     parser = argparse.ArgumentParser(prog='nixlab-admin guests')
-    parser.add_argument('action', choices=['list', 'status', 'register-export', 'start', 'stop', 'restart', 'snapshot', 'snapshot-copy', 'export', 'restore', 'backup', 'release-restore'])
+    parser.add_argument('action', choices=['list', 'status', 'register-export', 'start', 'stop', 'restart', 'snapshot', 'snapshot-copy', 'export', 'restore', 'backup', 'backup-check', 'release-restore'])
     parser.add_argument('--file', type=Path)
     parser.add_argument('--name'); parser.add_argument('--project', default='lab')
     parser.add_argument('--snapshot'); parser.add_argument('--target'); parser.add_argument('--archive')
@@ -487,6 +506,14 @@ if __name__ == '__main__':
         recovery.backup(Path(sys.argv[2]))
     elif action == 'config' and os.geteuid() == 0:
         config_cli(sys.argv[2:])
+    elif action == 'prune-jobs' and os.geteuid() == 0:
+        import argparse
+        from controller import Manager
+        parser = argparse.ArgumentParser(prog='nixlab-admin prune-jobs')
+        parser.add_argument('--apply', action='store_true')
+        parser.add_argument('--keep', type=int, default=20)
+        args = parser.parse_args(sys.argv[2:])
+        print(json.dumps(Manager().prune_jobs(args.apply, args.keep), indent=2))
     elif action == 'renew':
         renew()
     elif action == 'reset-password' and os.geteuid() == 0:
@@ -495,4 +522,4 @@ if __name__ == '__main__':
         rt.write_json(rt.STATE / 'auth.json', rt.password_record(value), mode=0o640, group='nixlab-ui')
         print('Password changed. Restart nixlab-ui to revoke existing sessions.')
     else:
-        sys.exit('Usage: nixlab-admin {backend|web|guard|renew|reset-password|config|guests|recovery|disk prepare}')
+        sys.exit('Usage: nixlab-admin {backend|web|guard|renew|reset-password|config|guests|recovery|prune-jobs|disk prepare}')

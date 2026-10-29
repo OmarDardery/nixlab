@@ -24,12 +24,15 @@ def inventory():
             return json.loads(command(args))
         except (OSError, ValueError, subprocess.TimeoutExpired):
             return fallback
-    links = read(['ip', '-j', 'address', 'show'], [])
+    links = read(['ip', '-j', '-d', 'address', 'show'], [])
     interfaces = []
     for link in links:
         if link['ifname'] == 'lo':
             continue
         interfaces.append({'name': link['ifname'], 'state': link.get('operstate', ''),
+            'kind': link.get('linkinfo', {}).get('info_kind', 'ethernet'),
+            'driver': (Path('/sys/class/net', link['ifname'], 'device/driver').resolve().name
+                       if Path('/sys/class/net', link['ifname'], 'device/driver').exists() else ''),
             'wireless': Path('/sys/class/net', link['ifname'], 'wireless').exists(),
             'addresses': [f"{a['local']}/{a['prefixlen']}" for a in link.get('addr_info', []) if a['family'] == 'inet']})
     disks = read(['lsblk', '--json', '--bytes', '--output', 'NAME,PATH,TYPE,SIZE,FSTYPE,UUID,LABEL,MOUNTPOINTS,ROTA,TRAN'], {'blockdevices': []})
@@ -37,7 +40,26 @@ def inventory():
     return {'interfaces': interfaces, 'routes': read(['ip', '-j', '-4', 'route', 'show'], []),
             'disks': disks['blockdevices'], 'cpuVendor': 'amd' if 'AuthenticAMD' in cpu else 'intel' if 'GenuineIntel' in cpu else '',
             'architecture': command(['uname', '-m']).strip(), 'kvm': Path('/dev/kvm').exists(),
-            'uefi': Path('/sys/firmware/efi').exists()}
+            'uefi': Path('/sys/firmware/efi').exists(), 'serialDevices': serial_inventory()}
+
+
+def serial_inventory(root=Path('/sys/class/tty'), dev=Path('/dev')):
+    result = []
+    for entry in sorted(root.glob('*')):
+        device = entry / 'device'
+        if not device.exists(): continue
+        try:
+            chain = [device.resolve(), *device.resolve().parents]
+            usb = next((p for p in chain if (p / 'idVendor').is_file() and (p / 'idProduct').is_file()), None)
+            if usb is None: continue
+            def read(name): return (usb / name).read_text().strip() if (usb / name).is_file() else ''
+            path = dev / entry.name
+            stable = [str(p) for folder in ('serial/by-id', 'nixlab') for p in (dev / folder).glob('*') if p.resolve() == path.resolve()]
+            result.append({'path': str(path), 'vendorId': read('idVendor'), 'productId': read('idProduct'),
+                           'serial': read('serial'), 'product': read('product'), 'stablePaths': stable,
+                           'driver': next((str((p / 'driver').resolve().name) for p in chain if (p / 'driver').exists()), '')})
+        except (OSError, StopIteration): continue
+    return result
 
 
 def flatten_disks(devices):
@@ -88,8 +110,10 @@ def validate_settings(candidate, current, host, require_devices=True):
     if not keys or any(not isinstance(k, str) or '\n' in k or not re.fullmatch(r'(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(?:256|384|521)|sk-ssh-ed25519@openssh.com) [A-Za-z0-9+/=]+(?: [^\r\n]*)?', k) for k in keys):
         raise ValueError('Supply at least one valid administrator SSH public key')
     interfaces = {i['name']: i for i in host['interfaces']}
+    from foundation import validate as validate_foundation
+    declared_interfaces = validate_foundation(candidate, host if require_devices else None)
     m, w = candidate['management'], candidate['radios']['wifi']
-    if require_devices and m['interface'] not in interfaces:
+    if require_devices and m['interface'] not in interfaces and m['interface'] not in declared_interfaces:
         raise ValueError('Management interface was not discovered on this host')
     if not isinstance(m['prefixLength'], int) or isinstance(m['prefixLength'], bool) or not 1 <= m['prefixLength'] <= 30:
         raise ValueError('Management IPv4 prefix must be between 1 and 30')
@@ -185,6 +209,8 @@ def validate_settings(candidate, current, host, require_devices=True):
     if candidate['backup']['enable']:
         if not candidate['backup']['repository'] or '\n' in candidate['backup']['repository']:
             raise ValueError('Provide an independent restic repository')
+        if require_devices:
+            command(['systemd-analyze', 'calendar', '--iterations=1', candidate['backup']['schedule']], timeout=10)
     if candidate['tunnel']['enable']:
         if not re.fullmatch(r'[0-9a-fA-F-]{36}', candidate['tunnel']['uuid']) or not candidate['tunnel']['ingress']:
             raise ValueError('Provide the existing tunnel UUID and application hostnames')

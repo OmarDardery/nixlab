@@ -2,6 +2,12 @@
 
 Research date: 2026-10-27.
 
+The host foundation update (2026-10-29) narrows the portal to host installation,
+maintenance, physical networking, hardware prerequisites and independent recovery.
+Incus owns guest lifecycle, resources, devices, networks and volumes; see the
+[ownership contract](ownership.md). Community Scripts use the pinned upstream
+Incus backend through a local CLI, with no portal script execution.
+
 The [installer/portal architecture](setup.md) adds a preserved-installation bootstrap, typed JSON
 Nix input, separate unprivileged HTTPS process/local root broker, reviewed rebuild transactions,
 UUID-backed mounts, modular radios and a persistent rollback guard. In installer mode the
@@ -105,7 +111,7 @@ explicitly describe the FORWARD-policy conflict. Neither firewall nor Docker's r
 | State | Owner and behavior |
 |---|---|
 | Host/guest services, packages, firewall, helper programs | NixOS modules; pinned inputs, OS generations |
-| Projects, profiles, pools, bridge and server bind address | Native `virtualisation.incus.preseed`; reapplies changed declarations; never removes omitted resources |
+| Reserved projects, profiles, pools, bridge and server bind address | Native `virtualisation.incus.preseed`; source-named infrastructure is checked for native drift before applying; omitted resources are never removed |
 | Named instance desired state | Ownership-aware reconciler; compares before updating; refuses unowned name collisions or type changes; never deletes |
 | Instance image creation | Nix-built apps VM image imported automatically; image alias updates do not replace disks |
 | Config/device overlays | Declared keys overwrite matching keys; other keys survive. Removing an overlay key does not remove its previous Incus value; remove explicitly after review |
@@ -133,7 +139,8 @@ Offline scheduled backups impose downtime and need staging space. Registry-provi
 PostgreSQL, Redis and Portainer require reviewed digest pinning for byte-level reproducibility.
 Default guest IPv6 is disabled until a real routed prefix/firewall plan exists.
 
-No live migration, GPU/USB passthrough, TPM enrollment, public admin UIs or Proxmox Backup
+Generic USB/serial prerequisites and stable aliases are provided; assignment stays in Incus.
+No live migration, GPU/PCI qualification, TPM enrollment, public admin UIs or Proxmox Backup
 Server-compatible backup format is claimed. Guest image import is initialization, not guest
 configuration deployment. Update an existing NixOS VM through `nixos-rebuild` over SSH/Incus.
 

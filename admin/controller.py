@@ -23,7 +23,10 @@ class Manager:
 
     def settings(self):
         defaults = rt.read_json(rt.SOURCE / 'default-settings.json', {})
-        return merge(defaults, rt.read_json(rt.machine_path(self.root, 'settings')))
+        saved = rt.read_json(rt.machine_path(self.root, 'settings')) or {}
+        if saved.get('ready') and 'collection' not in saved.get('monitoring', {}):
+            saved.setdefault('monitoring', {})['collection'] = True
+        return merge(defaults, saved)
 
     def effective_settings(self):
         return rt.read_json(Path('/etc/nixlab/effective-settings.json'), self.settings())
@@ -42,9 +45,33 @@ class Manager:
     def job(self, job_id):
         job = rt.read_json(self.job_path(job_id) / 'job.json')
         log = self.job_path(job_id) / 'build.log'
-        job['log'] = log.read_text(errors='replace')[-65536:] if log.exists() else ''
+        if log.exists():
+            with log.open('rb') as stream:
+                stream.seek(max(0, log.stat().st_size - 65536))
+                job['log'] = stream.read(65536).decode(errors='replace')
+        else: job['log'] = ''
         # Credentials never enter this metadata or its log.
         return job
+
+    def prune_jobs(self, apply=False, keep=20):
+        """Preview or remove old terminal configuration jobs, retaining recovery references."""
+        if not isinstance(keep, int) or not 1 <= keep <= 1000:
+            raise ValueError('Keep between 1 and 1000 recent jobs')
+        with rt.locked(blocking=False):
+            protected = {rt.read_json(self.state / name, {}).get('id')
+                         for name in ('active.json', 'pending.json', 'last-confirmed.json')}
+            jobs = []
+            for directory in (self.state / 'jobs').iterdir():
+                if directory.is_symlink() or not directory.is_dir() or not re.fullmatch(r'[0-9a-f]{32}', directory.name): continue
+                job = rt.read_json(directory / 'job.json', {})
+                if job.get('status') in ('confirmed', 'rolled-back', 'failed', 'cancelled'):
+                    jobs.append((directory.stat().st_mtime, directory))
+            jobs.sort(key=lambda item: item[0], reverse=True)
+            candidates = [path for _, path in jobs[keep:] if path.name not in protected]
+            if apply:
+                for path in candidates: shutil.rmtree(path)
+                rt.audit('configuration-history-pruned', count=len(candidates))
+            return {'applied': apply, 'keep': keep, 'jobs': [path.name for path in candidates]}
 
     def status(self):
         import upgrades
@@ -61,11 +88,16 @@ class Manager:
         if last and rt.read_json(self.job_path(last['id']) / 'job.json')['status'] != 'confirmed':
             last = None
         effective = self.effective_settings()
-        return {'release': upgrades.metadata(self.root), 'effectiveSettings': effective, 'codeOverrides': differences(self.settings(), effective), 'settings': self.settings(), 'job': job, 'lastConfirmed': last, 'pending': rt.read_json(self.state / 'pending.json'),
+        booted, active = Path('/run/booted-system/kernel'), Path('/run/current-system/kernel')
+        reboot = booted.exists() and active.exists() and booted.resolve() != active.resolve()
+        return {'release': upgrades.metadata(self.root), 'rebootRequired': reboot, 'effectiveSettings': effective, 'codeOverrides': differences(self.settings(), effective), 'settings': self.settings(), 'job': job, 'lastConfirmed': last, 'pending': rt.read_json(self.state / 'pending.json'),
                 'moduleDirectory': str(rt.machine_path(self.root, 'modules')), 'layoutVersion': 1 if rt.modern_layout(self.root) else 0, 'currentSystem': current, 'setupComplete': self.settings()['ready']}
 
     def host_inventory(self):
         data = inventory()
+        helper_base = rt.SOURCE if (rt.SOURCE / 'helper-sources.json').is_file() else rt.SOURCE.parent / 'helpers'
+        data['helpers'] = {'sources': rt.read_json(helper_base / ('helper-sources.json' if helper_base == rt.SOURCE else 'sources.json'), {}),
+                           'applications': list(rt.read_json(helper_base / ('helper-compatibility.json' if helper_base == rt.SOURCE else 'compatibility.json'), {}).values())}
         try:
             data['evaluated'] = json.loads(command(['nix', '--extra-experimental-features', 'nix-command flakes',
                                                   'eval', '--json', 'path:' + str(self.root) + '#nixlabOverview'], timeout=120))

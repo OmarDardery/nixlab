@@ -7,6 +7,8 @@ import sys
 
 
 def validate(site):
+    from foundation import validate as validate_foundation
+    validate_foundation(site)
     m, g = site['management'], site['guests']
     interface = m['interface']
     if not re.fullmatch(r'[a-zA-Z0-9_.:-]{1,15}', interface):

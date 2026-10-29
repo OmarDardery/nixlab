@@ -1,0 +1,12 @@
+{
+  "core": {
+    "repository": "community-scripts/core",
+    "revision": "a14f2d451d1b358673b5f89e170f66bd6631e249",
+    "hash": "sha256-redtmsqju89J12Y9fAQJx4bVBg8RfR7AdIfluI2Lzq0="
+  },
+  "scripts": {
+    "repository": "community-scripts/Incus",
+    "revision": "9f600434535c666f809f3e3cabbc7accd3d5f5cd",
+    "hash": "sha256-7+MgkwKJ3Tl6HXz4tgMJzVFS8qdJ+Q5qKwwlsMidQ6U="
+  }
+}

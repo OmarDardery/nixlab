@@ -37,6 +37,17 @@ def health():
         if value.isdigit(): result['lastBackupSuccess'] = int(value)
     pending = rt.read_json(Path('/var/lib/nixlab/restart-pending.json'), [])
     result['guestsAwaitingRestart'] = len(pending)
+    try:
+        filesystem = os.statvfs('/')
+        result['rootStorage'] = {'totalBytes': filesystem.f_blocks * filesystem.f_frsize,
+                                 'availableBytes': filesystem.f_bavail * filesystem.f_frsize}
+    except OSError:
+        result['rootStorage'] = None
+    status = rt.read_json(Path('/var/lib/nixlab/backup-status.json'), {})
+    result['backup'] = {key: status[key] for key in ('phase', 'updated', 'generation', 'group', 'groups', 'members', 'excluded') if key in status}
+    import backup_health
+    settings = rt.read_json(Path('/etc/nixlab/effective-settings.json'), rt.read_json(rt.machine_path(rt.ROOT, 'settings'), {}))
+    result['backup']['health'] = backup_health.status(settings.get('backup', {}).get('enable', False))
     # No arbitrary journal or command output is collected: either can contain
     # bootstrap passwords, URLs with tokens, application data or private material.
     return result

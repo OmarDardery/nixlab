@@ -88,7 +88,7 @@ The portal is at `https://HOST_IP:9440` by default. Sign in with the initial pas
   duplicate UUIDs, mismatched filesystem types and mount paths that hide files are rejected.
 - **Access:** paste an SSH public key for the `operator` account. Existing local accounts remain
   in the imported installation. The host's managed SSH policy requires key authentication.
-- **Applications:** optionally enable Docker/Portainer (off by default), then choose VM CPU/RAM/disk and initial Portainer password. CPU/RAM suggestions use
+- **Applications:** optionally enable Docker/Portainer (off by default) and set the initial Portainer password. VM CPU/RAM defaults use
   detected hardware. The optional demo also needs a database initialization password.
 - **Radios:** choose Wi-Fi/Bluetooth on or off. Wi-Fi uses NetworkManager with the iwd backend.
   Existing NetworkManager profiles can remain; an old Nix wpa_supplicant profile requires entering
@@ -244,7 +244,7 @@ starting allocation, not a promise that every application fits it. Increase it f
 Wi-Fi, Bluetooth, the demo, Cloudflare and backups also remain opt-in. Backup protection still
 requires configuring an independent destination; the lightweight preset is not a backup policy.
 
-Local Prometheus history is **opt-in** on Host preferences. With it disabled, host node metrics,
+Local metrics collection and Prometheus history are **opt-in** on Host preferences. With both disabled,
 Incus live resource views, persistent journal and systemd service health remain available; there
 is no local historical database or Prometheus alert evaluation. The apps VM node exporter is
 started only with history enabled. Enable history for trend graphs/alert rules, with a default
@@ -283,3 +283,17 @@ compatibility. See the [quality-of-life roadmap](roadmap.md) for the proposed cu
 
 For guided ISO installation, guest jobs, account roles, recipes, reviewed platform updates,
 local documentation and recovery exports, see [operations](operations.md).
+
+## Focused host portal
+
+The current navigation centers on Host, Connectivity, Hardware & Disks, Backups &
+Recovery, Integrations and reviewed Changes. Guest lifecycle, consoles, snapshots,
+resources and native guest networking stay in Incus. The legacy guest CLI/API is
+retained; it is not a second guest dashboard.
+
+Configure Ethernet host prerequisites in Connectivity and attach guest NICs in
+Incus. Hardware & Disks can declare an exact USB serial alias but does not assign
+it or install a workload. Backups has schedule/coverage/group controls and
+independent recovery. Integrations supplies Incus/Portainer links and a packaged
+upstream helper wizard; those page links never execute installers. See
+[ownership](ownership.md), [helpers](helpers.md) and [hardware](hardware.md).
