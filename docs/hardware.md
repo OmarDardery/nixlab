@@ -35,7 +35,7 @@ device. Native Incus `usb` assignment is the VM workflow and needs its own tests
 
 Test access as the application account, disconnect/reconnect, host reboot and
 rejection of unrelated devices. Verify stable-path reconnect with the actual
-adapter/kernel. Simulated character-device hotplug does not certify physical USB
+adapter/kernel. Simulated character-device attachment does not certify physical USB
 latency or printer operation.
 
 Drivers/firmware use reviewed native NixOS modules through Configuration files.

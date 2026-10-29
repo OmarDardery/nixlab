@@ -80,16 +80,23 @@ in pkgs.testers.runNixOSTest {
     assert host.succeed("incus config get native limits.cpu --project lab").strip() == "1"
     assert host.succeed("incus profile get native-profile user.example --project lab").strip() == "native"
 
-    # Simulated character-device hotplug verifies Incus behavior, not USB hardware.
+    # Synthetic mknod does not produce a USB uevent. Exercise explicit Incus
+    # attachment/removal across restarts; physical hotplug is a hardware trial.
     host.succeed("mkdir -p /dev/nixlab")
-    host.succeed("incus config device add native serial unix-char source=/dev/nixlab/example path=/dev/example required=false gid=20 mode=0660 --project lab")
     host.succeed("mknod /dev/nixlab/example c 1 3")
-    host.wait_until_succeeds("incus exec native --project lab -- /bin/test -c /dev/example")
-    host.succeed("incus exec native --project lab --user 1000 --group 20 -- /bin/sh -c 'echo allowed >/dev/example'")
-    host.succeed("rm /dev/nixlab/example")
-    host.wait_until_fails("incus exec native --project lab -- /bin/test -c /dev/example")
-    host.succeed("mknod /dev/nixlab/example c 1 3")
-    host.wait_until_succeeds("incus exec native --project lab -- /bin/test -c /dev/example")
+    host.succeed("timeout 180 incus stop native --project lab --timeout 120", timeout=200)
+    host.succeed("timeout 30 incus config device add native serial unix-char source=/dev/nixlab/example path=/dev/example required=false gid=20 mode=0660 --project lab", timeout=45)
+    host.succeed("timeout 120 incus start native --project lab", timeout=140)
+    host.succeed("timeout 30 incus exec native --project lab -- /bin/test -c /dev/example", timeout=45)
+    host.succeed("timeout 30 incus exec native --project lab --user 1000 --group 20 -- /bin/sh -c 'echo allowed >/dev/example'", timeout=45)
+    host.succeed("timeout 180 incus stop native --project lab --timeout 120", timeout=200)
+    host.succeed("timeout 30 incus config device remove native serial --project lab", timeout=45)
+    host.succeed("timeout 120 incus start native --project lab", timeout=140)
+    host.succeed("sh -c 'timeout 30 incus exec native --project lab -- /bin/test -c /dev/example; code=$?; test \"$code\" -eq 1'", timeout=45)
+    host.succeed("timeout 180 incus stop native --project lab --timeout 120", timeout=200)
+    host.succeed("timeout 30 incus config device add native serial unix-char source=/dev/nixlab/example path=/dev/example required=false gid=20 mode=0660 --project lab", timeout=45)
+    host.succeed("timeout 120 incus start native --project lab", timeout=140)
+    host.succeed("timeout 30 incus exec native --project lab -- /bin/test -c /dev/example", timeout=45)
 
     host.succeed("PYTHONPATH=${../scripts} NIXLAB_EXPORT_DIRECTORY=/var/lib/nixlab/test-exports python3 ${../scripts/backup.py}", timeout=300)
     assert json.loads(host.succeed("incus query '/1.0/instances/native/state?project=lab'"))["status"] == "Running"

@@ -22,7 +22,7 @@ contains 644 container scripts, with no claimed Nixlab verification.
 
 The new `checks.x86_64-linux.foundation` derivation evaluates. It is a real Incus
 container integration test for mutable guest preservation, LAN reachability,
-management isolation, simulated character-device hotplug and backup/import data
+management isolation, simulated character-device attachment and backup/import data
 integrity. CI runs it and builds the helper package. Neither this new VM test nor a
 new full package/system build ran locally: this workspace has no `/dev/kvm` and its
 rootless Nix store cannot write the normal `/nix/store` build outputs. Source evaluation and

@@ -18,7 +18,7 @@ Docker and metrics history stay optional. Klipper is an example, not a default
 recipe or product focus.
 
 Source checks/Nix evaluation are distinct from live evidence. CI includes a real
-container/firewall/device-hotplug/restore test and builds the helper runner.
+container/firewall/device-attachment/restore test and builds the helper runner.
 Simulated character devices do not certify physical USB. Community Scripts
 qualification targets remain unverified until live install/restore evidence exists.
 
