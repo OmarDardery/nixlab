@@ -448,6 +448,8 @@ def renew():
         services = ['nixlab-ui.service']
         if settings['ready']:
             services += ['incus.service']
+            if settings.get('cockpit', {}).get('enable'):
+                services += ['cockpit.service']
             if settings['apps']['enable']:
                 services += ['nginx.service', 'nixlab-apps-onboarding.service']
         subprocess.run(['systemctl', 'try-restart', *services], check=True)

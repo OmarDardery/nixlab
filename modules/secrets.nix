@@ -5,7 +5,9 @@
   sops = lib.mkIf site.secrets.enable {
     defaultSopsFile = ../. + "/${site.secrets.hostFile}";
     age.keyFile = site.secrets.ageKeyFile;
-    secrets = (lib.optionalAttrs site.tunnel.enable {
+    secrets = (lib.optionalAttrs site.cockpit.managePassword {
+      cockpit-operator-password.neededForUsers = true;
+    }) // (lib.optionalAttrs site.tunnel.enable {
       cloudflared = { key = "cloudflared"; path = site.tunnel.credentialsFile;
         restartUnits = [ "cloudflared-tunnel-${site.tunnel.uuid}.service" ]; };
     }) // (lib.optionalAttrs site.backup.enable {

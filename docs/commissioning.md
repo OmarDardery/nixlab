@@ -36,6 +36,12 @@ mode, CPU, NICs, disks, exact source revision, results and relevant redacted log
 
 ## Upgrade, roles and recovery
 
+- Enable the management stack and enroll the Linux operator password separately
+  from portal accounts. Test Cockpit host terminal/sudo, Incus guest consoles and
+  Portainer stack consoles. Verify private source restrictions, custom ports, TLS
+  renewal and access after Docker restart. Exercise guarded password rollback
+  with console access available. See [homelab management](homelab.md).
+
 - Exercise a module upload, settings-only change, package refresh and exact-SHA source
   upgrade. Review input/file changes and activation output; verify preserved `machine/`.
 - Interrupt publication/activation with console recovery available. Confirm timeout

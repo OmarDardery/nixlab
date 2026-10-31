@@ -39,7 +39,7 @@ in {
     backend = "docker";
     containers.portainer = {
       image = site.apps.portainerImage;
-      ports = [ "${if site.setup.enable then "0.0.0.0" else "127.0.0.1"}:9443:9443" ];
+      ports = [ "${if site.setup.enable then site.guests.appsAddress else "127.0.0.1"}:9443:9443" ];
       volumes = [ "/var/run/docker.sock:/var/run/docker.sock" "/srv/portainer:/data"
         "/var/lib/nixlab-secrets/portainer-admin-password:/run/secrets/admin-password:ro" ]
         ++ lib.optionals site.setup.enable [
@@ -51,6 +51,28 @@ in {
   };
   systemd.services.docker-portainer.unitConfig.ConditionPathExists = [ "/var/lib/nixlab-secrets/portainer-admin-password" ]
     ++ lib.optionals site.setup.enable [ "/var/lib/nixlab-secrets/tls.crt" "/var/lib/nixlab-secrets/tls.key" ];
+  # Published Docker ports traverse FORWARD, not the host INPUT firewall.
+  # Gate the actual DNAT flow before starting Portainer, including after Docker restarts.
+  systemd.services.nixlab-portainer-firewall = lib.mkIf site.setup.enable {
+    description = "Allow only the hypervisor proxy to reach published Portainer";
+    requires = [ "docker.service" ]; after = [ "docker.service" ];
+    before = [ "docker-portainer.service" ]; requiredBy = [ "docker-portainer.service" ];
+    partOf = [ "docker.service" ];
+    path = [ pkgs.iptables ];
+    serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+    script = ''
+      iptables -w -nL DOCKER-USER >/dev/null
+      if ! iptables -w -nL NIXLAB-PORTAINER >/dev/null 2>&1; then
+        iptables -w -N NIXLAB-PORTAINER
+      fi
+      iptables -w -F NIXLAB-PORTAINER
+      iptables -w -A NIXLAB-PORTAINER -s ${lib.escapeShellArg (builtins.head (lib.splitString "/" site.guests.gatewayCIDR))} -j RETURN
+      iptables -w -A NIXLAB-PORTAINER -j DROP
+      if ! iptables -w -C DOCKER-USER -p tcp -m conntrack --ctdir ORIGINAL --ctorigdst ${lib.escapeShellArg site.guests.appsAddress} --ctorigdstport 9443 -j NIXLAB-PORTAINER 2>/dev/null; then
+        iptables -w -I DOCKER-USER 1 -p tcp -m conntrack --ctdir ORIGINAL --ctorigdst ${lib.escapeShellArg site.guests.appsAddress} --ctorigdstport 9443 -j NIXLAB-PORTAINER
+      fi
+    '';
+  };
   systemd.services.nixlab-demo = lib.mkIf site.apps.enableDemo {
     description = "Deploy version-controlled demo Compose project";
     wantedBy = [ "multi-user.target" ];

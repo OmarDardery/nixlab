@@ -42,7 +42,7 @@ in {
       appendConfig = "worker_processes 1;";
       eventsConfig = "worker_connections 256;";
       virtualHosts.nixlab-portainer = {
-        listen = [ { addr = site.management.address; port = 9441; ssl = true; } ];
+        listen = [ { addr = site.management.address; port = site.apps.portainerPort; ssl = true; } ];
         sslCertificate = "/run/credentials/nginx.service/nixlab-tls.crt";
         sslCertificateKey = "/run/credentials/nginx.service/nixlab-tls.key";
         locations."/" = {
@@ -60,6 +60,8 @@ in {
         };
       };
     };
-    networking.firewall.interfaces."${site.management.interface}".allowedTCPPorts = [ 9441 ];
+    networking.firewall.extraInputRules = ''
+      iifname ${builtins.toJSON site.management.interface} ip saddr { ${lib.concatStringsSep ", " site.management.trustedCIDRs} } tcp dport ${toString site.apps.portainerPort} accept
+    '';
   };
 }

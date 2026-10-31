@@ -26,7 +26,7 @@ actual workloads, network-loss recovery and a restore drill remain commissioning
 | Virtualization UI | Packaged `incus-ui-canonical` | Established Incus-compatible fork; uses the authenticated Incus API |
 | Applications (opt-in) | Docker/Compose in the `apps` NixOS VM | Separate kernel and Docker firewall from the hypervisor |
 | Application UI | Portainer CE 2.45.3 LTS | Compose stacks, Git deployment, editor, logs, console, resource views |
-| Administration | SSH, native Incus remote CLI, packaged `homelab` | Real command/API calls with output and exit codes |
+| Host administration | Cockpit (opt-in), SSH, native Incus CLI, packaged `homelab` | Host terminal, services and journal; guest consoles stay in Incus |
 | Network | Private Incus bridge + NixOS nftables/NAT | Per-guest IPs, DHCP/reservations, controlled LAN reachability |
 | Storage | Non-formatting directory pool baseline; existing ZFS dataset option | Safe initial deployment; ZFS preferred for enforced container quotas and efficient snapshots |
 | Public ingress | Native NixOS cloudflared module | Application hostnames only; no management ports published |
@@ -64,6 +64,11 @@ docs/                        # research, commissioning, operation and recovery
 ```
 
 ## Start here
+
+For the Cockpit + Incus + Portainer laptop setup, use the **Integrations** management
+stack preset and [homelab guide](docs/homelab.md). It stages Cockpit on 9090,
+Portainer on 9443 and lid-closed operation without remapping existing disks or guests.
+Existing hosts retain Portainer port 9441 until explicitly changed.
 
 For the installer and browser-first workflow, start with [the quick start](docs/start.md).
 The following guides also cover the advanced/manual deployment path.

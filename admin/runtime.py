@@ -20,6 +20,7 @@ ROOT = Path(os.environ.get('NIXLAB_ROOT', '/var/lib/nixlab/config'))
 STATE = Path(os.environ.get('NIXLAB_STATE', '/var/lib/nixlab-admin'))
 SOURCE = Path(__file__).resolve().parent
 SECRET_PATHS = {
+    'cockpitPassword': Path('/var/lib/nixlab-secrets/cockpit-operator-password'),
     'wifiPassword': Path('/var/lib/nixlab-secrets/wifi.env'),
     'portainerPassword': Path('/var/lib/nixlab-secrets/apps-portainer-password'),
     'demoPassword': Path('/var/lib/nixlab-secrets/apps-demo-password'),
@@ -283,6 +284,16 @@ def encode_secrets(values, settings):
             if '\n' in value or '\r' in value or not (8 <= len(value) <= 63 or (len(value) == 64 and all(c in '0123456789abcdefABCDEF' for c in value))):
                 raise ValueError('Wi-Fi WPA password must contain 8–63 characters, or 64 hex digits')
             value = 'NIXLAB_WIFI_PSK=' + shlex.quote(value.replace('\\', '\\\\')) + '\n'
+        elif field == 'cockpitPassword':
+            if not settings['cockpit']['enable'] or not settings['cockpit']['managePassword']:
+                raise ValueError('Enable Cockpit before enrolling the operator password')
+            if not 16 <= len(value) <= 256 or '\n' in value or '\r' in value:
+                raise ValueError('Cockpit passwords must contain 16–256 characters and no newline')
+            hashed = subprocess.run(['openssl', 'passwd', '-6', '-stdin'], input=value + '\n',
+                                    text=True, capture_output=True, check=True, timeout=30)
+            value = hashed.stdout.strip() + '\n'
+            if not value.startswith('$6$'):
+                raise ValueError('Failed to encode the local account password')
         elif field == 'resticEnvironment':
             credentials = json.loads(value)
             if not isinstance(credentials, dict) or set(credentials) - ENV_KEYS:

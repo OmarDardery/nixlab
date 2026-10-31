@@ -4,21 +4,25 @@ let
   settings = defaults // {
     hostName = "nixlab-test"; cpuVendor = "intel";
     setup = defaults.setup // { enable = true; };
+    cockpit = defaults.cockpit // { enable = true; };
     management = defaults.management // { interface = "eth0"; address = "127.0.0.1"; trustedCIDRs = [ "127.0.0.0/8" ]; };
   };
 in pkgs.testers.runNixOSTest {
+  globalTimeout = 600;
   name = "nixlab-portal";
   node.specialArgs = {
     inventory = settings;
     installedBase = { ... }: { system.stateVersion = "26.05"; };
   };
   nodes.machine = { lib, pkgs, ... }: {
-    imports = [ ../configuration-bootstrap.nix ];
+    imports = [ ../configuration-bootstrap.nix ../modules/cockpit.nix ../modules/security.nix ];
     virtualisation.memorySize = 2048;
     boot.kernelModules = lib.mkForce [ ];
-    environment.systemPackages = [ pkgs.python3 pkgs.age ];
+    environment.systemPackages = [ (pkgs.python3.withPackages (ps: [ ps.websocket-client ])) pkgs.age ];
     environment.etc."nixlab-test-settings.json".text = builtins.toJSON settings;
     environment.etc."nixlab-test-client.py".source = ./portal-client.py;
+    environment.etc."nixlab-test-cockpit.py".source = ./cockpit-client.py;
+    users.users.operator.initialPassword = "vm-cockpit-password"; # disposable test VM only
     users.users.outsider.isNormalUser = true;
     systemd.services.nixlab-test-fixture = {
       wantedBy = [ "multi-user.target" ]; after = [ "systemd-tmpfiles-setup.service" ];
@@ -39,5 +43,8 @@ in pkgs.testers.runNixOSTest {
     machine.fail("runuser -u outsider -- python3 -c 'import socket; s=socket.socket(socket.AF_UNIX); s.connect(\"/run/nixlab-admin/backend.sock\")'")
     machine.fail("runuser -u nixlab-ui -- cat /var/lib/nixlab-admin/ca.key")
     machine.succeed("python3 /etc/nixlab-test-client.py")
+    machine.wait_for_unit("cockpit.socket")
+    machine.succeed("python3 /etc/nixlab-test-cockpit.py")
+    assert "passwordauthentication no" in machine.succeed("sshd -T")
   '';
 }

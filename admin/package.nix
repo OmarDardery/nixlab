@@ -20,6 +20,6 @@ let
   '';
 in pkgs.writeShellApplication {
   name = "nixlab-admin";
-  runtimeInputs = with pkgs; [ (python3.withPackages (ps: [ ps.markdown ])) nix nixos-rebuild git iproute2 util-linux openssl openssh coreutils systemd networkmanager incus-lts.client age parted e2fsprogs ];
+  runtimeInputs = with pkgs; [ (python3.withPackages (ps: [ ps.markdown ])) nix nixos-rebuild git iproute2 util-linux openssl openssh shadow coreutils systemd networkmanager incus-lts.client age parted e2fsprogs ];
   text = ''exec python3 ${source}/main.py "$@"'';
 }

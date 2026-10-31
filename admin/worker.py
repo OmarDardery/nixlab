@@ -9,6 +9,34 @@ import time
 import runtime as rt
 
 
+def save_operator_password(recovery):
+    account = subprocess.run(['getent', 'shadow', 'operator'], capture_output=True, text=True, timeout=10)
+    if account.returncode:
+        exists = subprocess.run(['getent', 'passwd', 'operator'], capture_output=True, text=True, timeout=10)
+        if exists.returncode == 0 or account.returncode != 2:
+            raise ValueError('Cannot preserve the local operator credential')
+        value = '!'
+    else:
+        fields = account.stdout.strip().split(':')
+        if len(fields) != 9 or fields[0] != 'operator':
+            raise ValueError('Cannot preserve the local operator credential')
+        value = fields[1]
+    rt.atomic(recovery / 'operator-password', value + '\n')
+
+
+def restore_operator_password(recovery):
+    password = recovery / 'operator-password'
+    if not password.exists(): return
+    account = subprocess.run(['getent', 'passwd', 'operator'], capture_output=True, text=True, timeout=10)
+    if account.returncode == 2: return
+    if account.returncode:
+        raise ValueError('Cannot inspect the local operator account for recovery')
+    restored = subprocess.run(['chpasswd', '--encrypted'], input='operator:' + password.read_text().strip() + '\n',
+                              text=True, capture_output=True, timeout=30)
+    if restored.returncode:
+        raise ValueError('Could not restore the local operator credential; use the host console')
+
+
 def run(args, log, timeout=7200, check=True):
     log.write('\n$ ' + ' '.join(args) + '\n'); log.flush()
     process = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -66,6 +94,8 @@ def build(directory):
         check=True, capture_output=True, text=True, timeout=120)
     projection = json.loads(result.stdout)
     effective, disks = projection['settings'], projection['disks']
+    if 'cockpitPassword' in rt.read_json(directory / 'secrets.json', {}) and not (effective['cockpit']['enable'] and effective['cockpit']['managePassword']):
+        raise ValueError('Cockpit password enrollment conflicts with file-owned effective settings')
     from model import inventory, validate_settings
     validation = json.loads(json.dumps(effective))
     validation['mounts'] += list(disks.values())
@@ -87,6 +117,10 @@ def build(directory):
 def save_recovery(directory):
     recovery = directory / 'recovery'
     recovery.mkdir(mode=0o700, exist_ok=True)
+    record = rt.read_json(directory / 'job.json', {})
+    candidate = record.get('effectiveSettings', record.get('settings', {}))
+    if candidate.get('cockpit', {}).get('managePassword'):
+        save_operator_password(recovery)
     platform = bool(rt.read_json(directory / 'job.json', {}).get('platformRevision'))
     if platform:
         rt.snapshot(recovery / 'platform', rt.ROOT)
@@ -161,6 +195,7 @@ def rollback(directory, reason='requested'):
         manifest = restore_files(directory)
         run(['nix-env', '--profile', '/nix/var/nix/profiles/system', '--set', previous], log, timeout=120)
         run([previous + '/bin/switch-to-configuration', 'switch'], log, timeout=900)
+        restore_operator_password(directory / 'recovery')
         if shutil.which('rfkill'):
             for radio in manifest.get('radios', []):
                 if str(radio.get('id', '')).isdigit():
@@ -170,7 +205,7 @@ def rollback(directory, reason='requested'):
             for uuid in manifest.get('nmConnections', []):
                 # Values come from nmcli before activation, never from a browser command string.
                 run(['nmcli', '--wait', '30', 'connection', 'up', 'uuid', uuid], log, timeout=40, check=False)
-        run(['systemctl', 'try-restart', 'nixlab-admin-backend.service', 'nixlab-ui.service', 'nginx.service'], log, timeout=45, check=False)
+        run(['systemctl', 'try-restart', 'nixlab-admin-backend.service', 'nixlab-ui.service', 'nginx.service', 'cockpit.service'], log, timeout=45, check=False)
     update(directory, status='rolled-back', rolledBackAt=time.time())
     pending = rt.read_json(rt.STATE / 'pending.json')
     if pending and pending['id'] == directory.name:
@@ -213,6 +248,9 @@ def apply(directory):
             run(['nix-env', '--profile', '/nix/var/nix/profiles/system', '--set', system], log, timeout=120)
             run([system + '/bin/switch-to-configuration', 'switch'], log, timeout=900)
             run(['systemctl', 'is-active', 'incus.service', 'nixlab-instances.service'], log, timeout=30)
+            if effective['cockpit']['enable']:
+                run(['systemctl', 'is-active', 'cockpit.socket'], log, timeout=30)
+                run(['systemctl', 'try-restart', 'cockpit.service'], log, timeout=45)
             if effective['apps']['enable']:
                 run(['systemctl', 'is-active', 'nixlab-apps-onboarding.service', 'nginx.service'], log, timeout=30)
             if before['address'] != after['address'] or old_settings['hostName'] != effective['hostName']:

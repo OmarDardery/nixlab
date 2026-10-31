@@ -14,6 +14,7 @@ import runtime as rt
 import upgrades
 
 UNITS = ['incus.service', 'incus-preseed.service', 'nixlab-kvm-check.service', 'nixlab-instances.service',
+         'cockpit.socket', 'cockpit.service', 'nginx.service',
          'nixlab-admin-backend.service', 'nixlab-ui.service', 'nixlab-apps-onboarding.service',
          'restic-backups-nixlab.service', 'nixlab-storage.target', 'nixlab-rollback-guard.service', 'smartd.service']
 

@@ -92,6 +92,10 @@ jobs:
           nix build '.#nixosConfigurations.validation-recipes.config.systemd.units."nixlab-notify@.service".unit' --no-link
       - name: Boot portal and verify real NixOS permissions
         run: nix build .#checks.x86_64-linux.portal --no-link -L
+      - name: Verify management services and Docker forwarding boundary
+        run: |
+          nix eval .#nixosConfigurations.validation-management.config.system.build.toplevel.drvPath
+          nix build .#checks.x86_64-linux.management --no-link -L
       - name: Boot real Incus containers and verify host integration and restore
         run: nix build .#checks.x86_64-linux.foundation --no-link -L
       - name: Build pinned upstream helper runner

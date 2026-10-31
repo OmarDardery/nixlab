@@ -27,6 +27,7 @@
     confirmedExistingZfsDataset = false;
     hostId = ""; # eight hexadecimal characters, required for ZFS
   };
+  cockpit = { enable = false; port = 9090; managePassword = false; };
   apps = {
     enable = false; # opt in to Docker/Portainer; no idle VM on a hypervisor-only host
     cpu = "2";
@@ -35,6 +36,7 @@
     # Version verified against upstream LTS releases 2026-10-27.
     # For immutable registry content replace with image@sha256:digest.
     portainerImage = "portainer/portainer-ce:2.45.3";
+    portainerPort = 9441; # retained for existing hosts; homelab recipe selects 9443
     enableDemo = false; # requires /var/lib/nixlab-secrets/demo-db-password in the VM
   };
   # Additional instances: { name; project = "lab"; image = "images:<fingerprint>";
@@ -55,7 +57,7 @@
     bluetooth.enable = false;
   };
   monitoring = { collection = false; history = false; retentionDays = 14; scrapeSeconds = 60; };
-  maintenance = { trim = true; optimiseStore = true; timeZone = "UTC"; };
+  maintenance = { trim = true; optimiseStore = true; timeZone = "UTC"; laptopMode = false; };
   setup = { enable = false; port = 9440; confirmationSeconds = 600; };
   secrets = {
     enable = false; # enable sops-nix after adding encrypted files

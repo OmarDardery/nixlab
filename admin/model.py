@@ -1,6 +1,7 @@
 """Typed settings and read-only host inventory. No evaluation of user supplied code."""
 import copy
 import ipaddress
+from urllib.parse import urlsplit
 import json
 import re
 import subprocess
@@ -141,8 +142,14 @@ def validate_settings(candidate, current, host, require_devices=True):
     zone = Path('/etc/zoneinfo', candidate['maintenance']['timeZone'])
     if require_devices and not zone.exists() and not Path('/usr/share/zoneinfo', candidate['maintenance']['timeZone']).exists():
         raise ValueError('Time zone is not installed on this host')
-    if not 1024 <= candidate['setup']['port'] <= 65535 or candidate['setup']['port'] in (8080, 8443, 9090, 9100, 9441):
-        raise ValueError('Choose an unused setup port (default 9440)')
+    listeners = [('setup', candidate['setup']['port'])]
+    if candidate['cockpit']['enable']: listeners.append(('Cockpit', candidate['cockpit']['port']))
+    if candidate['apps']['enable']: listeners.append(('Portainer', candidate['apps']['portainerPort']))
+    used = {22, 53, 67, 8080, 8443, 9100}
+    for name, port in listeners:
+        if type(port) is not int or not 1024 <= port <= 65535 or port in used:
+            raise ValueError('Choose distinct, unused management ports: ' + name)
+        used.add(port)
     if not 300 <= candidate['setup']['confirmationSeconds'] <= 1800:
         raise ValueError('Activation confirmation must allow 5–30 minutes')
     if not candidate['setup']['enable']:
@@ -217,7 +224,9 @@ def validate_settings(candidate, current, host, require_devices=True):
         for hostname, target in candidate['tunnel']['ingress'].items():
             if not re.fullmatch(r'[A-Za-z0-9*.-]+', hostname) or not isinstance(target, str) or not target.startswith(('http://', 'https://')):
                 raise ValueError('Tunnel ingress must map hostnames to HTTP application endpoints')
-            if re.search(r':(?:22|8443|9090|9100|9440|9441|'+str(candidate['setup']['port'])+r')(?:/|$)', target):
+            blocked_ports = {22, 8443, 9090, 9100, 9440, 9441, 9443, candidate['setup']['port'], candidate['cockpit']['port'], candidate['apps']['portainerPort']}
+            origin = urlsplit(target)
+            if origin.username or origin.password or not origin.hostname or origin.port in blocked_ports:
                 raise ValueError('Management endpoints cannot be public tunnel origins')
     candidate['ready'] = True
     validate_network(candidate)

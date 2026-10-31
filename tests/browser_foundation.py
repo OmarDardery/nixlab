@@ -65,6 +65,13 @@ def main():
             page.get_by_role('button', name='Declare stable alias').click()
             assert page.locator('[data-record="hardware.serialAliases"][data-key="serial"]').input_value() == 'EXAMPLE'
             page.locator('nav [data-go="integrations"]').click()
+            page.locator('[data-action="management-stack"]').click()
+            assert page.locator('[data-path="cockpit.enable"]').is_checked()
+            assert page.locator('[data-path="apps.portainerPort"]').input_value() == '9443'
+            page.locator('[data-secret="cockpitPassword"]').fill('test-linux-account-password')
+            page.locator('[data-secret="portainerPassword"]').fill('test-portainer-password')
+            # Active links must not advertise an unapplied draft.
+            assert page.locator('a[href="https://192.0.2.10:9443"]').count() == 0
             assert page.get_by_text('Upstream-supported; unverified here', exact=True).count() == 3
             page.locator('nav [data-go="operations"]').click()
             page.get_by_role('heading', name='Scheduled off-host backup').wait_for()
@@ -73,6 +80,10 @@ def main():
             page.get_by_role('button', name='Build & review configuration', exact=True).click()
             page.wait_for_function("state.status.job?.status === 'building'")
             request = next(body for action, body in submitted if action == 'review')
+            assert request['settings']['cockpit']['enable']
+            assert request['settings']['maintenance']['laptopMode']
+            assert request['secrets']['cockpitPassword'] == 'test-linux-account-password'
+            assert request['secrets']['portainerPassword'] == 'test-portainer-password'
             assert request['settings']['connectivity']['bridges'][0]['interfaces'] == ['eth0']
             assert request['settings']['hardware']['serialAliases'][0]['serial'] == 'EXAMPLE'
             page.evaluate("state.principal.role='viewer';state.page='hardware';shell()")

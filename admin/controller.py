@@ -134,7 +134,10 @@ class Manager:
                     raise ValueError('Finish the active transaction first')
             if not isinstance(changes, dict):
                 raise ValueError('Settings must be an object')
-            candidate = validate_settings(merge(current, changes), current, inventory())
+            requested = merge(current, changes)
+            if (secret_values or {}).get('cockpitPassword'):
+                requested['cockpit']['managePassword'] = True
+            candidate = validate_settings(requested, current, inventory())
             for section, key in [('backup', 'passwordFile'), ('backup', 'environmentFile'), ('tunnel', 'credentialsFile')]:
                 if candidate[section][key] != current[section][key]:
                     raise ValueError('Secret file paths are source-managed')
@@ -147,6 +150,9 @@ class Manager:
             if install.get('legacyWpaProfiles') and wifi['enable'] and not wifi['manageProfile']:
                 raise ValueError('This host used Nix wpa_supplicant profiles. Declare its SSID/password when moving Wi-Fi to NetworkManager/iwd')
             encoded = rt.encode_secrets(secret_values or {}, candidate)
+            if candidate['cockpit']['enable'] and candidate['cockpit']['managePassword'] and not candidate['secrets']['enable']:
+                if 'cockpitPassword' not in encoded and not rt.SECRET_PATHS['cockpitPassword'].exists():
+                    raise ValueError('Set the Cockpit operator password, or retain existing local-account authentication')
             if candidate['radios']['wifi']['manageProfile'] and candidate['radios']['wifi']['enable']:
                 if 'wifiPassword' not in encoded and not rt.SECRET_PATHS['wifiPassword'].exists():
                     raise ValueError('Provide the WPA password for the managed Wi-Fi profile')

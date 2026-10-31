@@ -43,6 +43,7 @@ let
   '';
 in pkgs.testers.runNixOSTest {
   name = "nixlab-host-foundation";
+  globalTimeout = 900;
   node.specialArgs = { inherit site; appImage = null; installedNetworking.networkManager = false; };
   nodes.host = { ... }: {
     imports = [ ../modules/storage.nix ../modules/networking.nix ../modules/incus.nix ../modules/instance-schema.nix ];
@@ -67,11 +68,11 @@ in pkgs.testers.runNixOSTest {
     host.succeed("incus image import ${image}/image.tar.xz --alias fixture")
     host.succeed("incus init fixture native --project lab --profile base --config limits.cpu=1")
     host.succeed("incus start native --project lab")
-    host.succeed("incus exec native --project lab -- /bin/sh -c 'ip link set eth0 up; ip addr add 10.77.0.20/24 dev eth0; ip route add default via 10.77.0.1'")
-    host.succeed("incus exec native --project lab -- /bin/sh -c 'echo preserved > /var/lib/test/index.html'")
-    host.succeed("incus exec native --project lab -- /bin/httpd -p 8080 -h /var/lib/test")
+    host.succeed("incus exec native --project lab --disable-stdin -- /bin/sh -c 'ip link set eth0 up; ip addr add 10.77.0.20/24 dev eth0; ip route add default via 10.77.0.1'")
+    host.succeed("incus exec native --project lab --disable-stdin -- /bin/sh -c 'echo preserved > /var/lib/test/index.html'")
+    host.succeed("incus exec native --project lab --disable-stdin -- /bin/httpd -p 8080 -h /var/lib/test")
     client.wait_until_succeeds("curl --fail --max-time 3 http://10.77.0.20:8080 | grep preserved")
-    host.fail("incus exec native --project lab -- /bin/sh -c 'nc -w 2 192.0.2.10 22 </dev/null'")
+    host.fail("incus exec native --project lab --disable-stdin -- /bin/sh -c 'nc -w 2 192.0.2.10 22 </dev/null'")
 
     # Incus-owned instances/profiles remain mutable across platform reconciliation.
     host.succeed("incus profile create native-profile --project lab")
@@ -84,19 +85,19 @@ in pkgs.testers.runNixOSTest {
     # attachment/removal across restarts; physical hotplug is a hardware trial.
     host.succeed("mkdir -p /dev/nixlab")
     host.succeed("mknod /dev/nixlab/example c 1 3")
-    host.succeed("timeout 180 incus stop native --project lab --timeout 120", timeout=200)
-    host.succeed("timeout 30 incus config device add native serial unix-char source=/dev/nixlab/example path=/dev/example required=false gid=20 mode=0660 --project lab", timeout=45)
-    host.succeed("timeout 120 incus start native --project lab", timeout=140)
-    host.succeed("timeout 30 incus exec native --project lab -- /bin/test -c /dev/example", timeout=45)
-    host.succeed("timeout 30 incus exec native --project lab --user 1000 --group 20 -- /bin/sh -c 'echo allowed >/dev/example'", timeout=45)
-    host.succeed("timeout 180 incus stop native --project lab --timeout 120", timeout=200)
-    host.succeed("timeout 30 incus config device remove native serial --project lab", timeout=45)
-    host.succeed("timeout 120 incus start native --project lab", timeout=140)
-    host.succeed("sh -c 'timeout 30 incus exec native --project lab -- /bin/test -c /dev/example; code=$?; test \"$code\" -eq 1'", timeout=45)
-    host.succeed("timeout 180 incus stop native --project lab --timeout 120", timeout=200)
-    host.succeed("timeout 30 incus config device add native serial unix-char source=/dev/nixlab/example path=/dev/example required=false gid=20 mode=0660 --project lab", timeout=45)
-    host.succeed("timeout 120 incus start native --project lab", timeout=140)
-    host.succeed("timeout 30 incus exec native --project lab -- /bin/test -c /dev/example", timeout=45)
+    host.succeed("timeout --kill-after=5s 180 incus stop native --project lab --timeout 120", timeout=200)
+    host.succeed("timeout --kill-after=5s 30 incus config device add native serial unix-char source=/dev/nixlab/example path=/dev/example required=false gid=20 mode=0660 --project lab", timeout=45)
+    host.succeed("timeout --kill-after=5s 120 incus start native --project lab", timeout=140)
+    host.succeed("timeout --kill-after=5s 30 incus exec native --project lab --disable-stdin -- /bin/test -c /dev/example", timeout=45)
+    host.succeed("timeout --kill-after=5s 30 incus exec native --project lab --disable-stdin --user 1000 --group 20 -- /bin/sh -c 'echo allowed >/dev/example'", timeout=45)
+    host.succeed("timeout --kill-after=5s 180 incus stop native --project lab --timeout 120", timeout=200)
+    host.succeed("timeout --kill-after=5s 30 incus config device remove native serial --project lab", timeout=45)
+    host.succeed("timeout --kill-after=5s 120 incus start native --project lab", timeout=140)
+    host.succeed("sh -c 'timeout --kill-after=5s 30 incus exec native --project lab --disable-stdin -- /bin/test -c /dev/example; code=$?; test \"$code\" -eq 1'", timeout=45)
+    host.succeed("timeout --kill-after=5s 180 incus stop native --project lab --timeout 120", timeout=200)
+    host.succeed("timeout --kill-after=5s 30 incus config device add native serial unix-char source=/dev/nixlab/example path=/dev/example required=false gid=20 mode=0660 --project lab", timeout=45)
+    host.succeed("timeout --kill-after=5s 120 incus start native --project lab", timeout=140)
+    host.succeed("timeout --kill-after=5s 30 incus exec native --project lab --disable-stdin -- /bin/test -c /dev/example", timeout=45)
 
     host.succeed("PYTHONPATH=${../scripts} NIXLAB_EXPORT_DIRECTORY=/var/lib/nixlab/test-exports python3 ${../scripts/backup.py}", timeout=300)
     assert json.loads(host.succeed("incus query '/1.0/instances/native/state?project=lab'"))["status"] == "Running"
@@ -106,6 +107,6 @@ in pkgs.testers.runNixOSTest {
     archive = directory + "/" + manifest["guests"][0]["archive"]
     host.succeed("incus import " + archive + " restored --project lab --config boot.autostart=false")
     host.succeed("incus start restored --project lab")
-    assert host.succeed("incus exec restored --project lab -- /bin/cat /var/lib/test/index.html").strip() == "preserved"
+    assert host.succeed("incus exec restored --project lab --disable-stdin -- /bin/cat /var/lib/test/index.html").strip() == "preserved"
   '';
 }

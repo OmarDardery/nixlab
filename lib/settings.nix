@@ -32,6 +32,7 @@ let
   };
   makeType = path: value:
     if builtins.hasAttr path foundationTypes then foundationTypes.${path}
+    else if builtins.elem path [ "cockpit.port" "apps.portainerPort" "setup.port" ] then types.port
     else if path == "instances" then types.listOf instance
     else if path == "mounts" then types.listOf mount
     else if path == "tunnel.ingress" then strings

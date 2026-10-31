@@ -10,19 +10,21 @@ const context = vm.createContext({document:{querySelector:()=>({})},setInterval:
 vm.runInContext(source.slice(0,bootstrap), context);
 vm.runInContext(`
 state.status = {setupComplete:true, settings:{
-  management:{address:'192.0.2.10'}, apps:{enable:true}, monitoring:{history:false},
+  management:{address:'192.0.2.10'}, apps:{enable:true,portainerPort:9443}, cockpit:{enable:true,port:9090}, monitoring:{history:false},
   tunnel:{enable:true,ingress:{'photos.example.com':'http://10.77.0.10:8080','*.example.com':'http://10.77.0.10:8080'}}
 }};
 state.draft = {management:{address:'198.51.100.20'}, apps:{enable:false}};
 `, context);
 let tools = vm.runInContext('homepageTools()', context);
 assert.ok(tools.includes('href="https://192.0.2.10:8443"'));
-assert.ok(tools.includes('href="https://192.0.2.10:9441"'));
+assert.ok(tools.includes('href="https://192.0.2.10:9443"'));
+assert.ok(tools.includes('href="https://192.0.2.10:9090"'));
 assert.ok(!tools.includes('198.51.100.20'), 'Unsaved addresses must not become management links');
 assert.ok(!tools.includes('href="http://192.0.2.10:9090"'), 'Loopback monitoring must not get a misleading LAN link');
-vm.runInContext('state.status.settings.apps.enable=false', context);
+vm.runInContext('state.status.settings.apps.enable=false;state.status.settings.cockpit.enable=false', context);
 tools = vm.runInContext('homepageTools()', context);
-assert.ok(!tools.includes(':9441"'));
+assert.ok(!tools.includes(':9443"'));
+assert.ok(!tools.includes(':9090"'));
 assert.ok(tools.includes('Enable apps'));
 vm.runInContext('state.status.setupComplete=false', context);
 tools = vm.runInContext('homepageTools()', context);

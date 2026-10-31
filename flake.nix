@@ -91,6 +91,12 @@
             (path: builtins.toFile "nixlab-recipe.nix" (builtins.fromJSON (builtins.readFile path)).module)
             [ ./admin/recipes/laptop.json ./admin/recipes/disk-health.json ./admin/recipes/private-access.json ]);
         validation-host = mkHost testSite testApps [ ./tests/hardware.nix ];
+        validation-management = mkHost (testSite // {
+          cockpit = testSite.cockpit // { enable = true; };
+          apps = testSite.apps // { portainerPort = 9443; };
+          setup = testSite.setup // { enable = true; };
+          maintenance = testSite.maintenance // { laptopMode = true; };
+        }) testApps [ ./tests/hardware.nix ];
         validation-ethernet = mkHost ethernetSite null [ ./tests/hardware.nix ];
         validation-ethernet-nm = mkHostNetwork ethernetSite null
           [ ./tests/hardware.nix { networking.networkmanager.enable = true; } ] { networkManager = true; };
@@ -171,6 +177,7 @@
         fileSystems = builtins.mapAttrs (_: fs: { inherit (fs) device fsType options; }) bootstrap.config.fileSystems;
       };
       checks.x86_64-linux = {
+        management = import ./tests/management-vm.nix { inherit pkgs; };
         portal = import ./tests/portal-vm.nix { inherit pkgs; };
         foundation = import ./tests/foundation-vm.nix { inherit pkgs; };
         host = self.nixosConfigurations.validation-host.config.system.build.toplevel;

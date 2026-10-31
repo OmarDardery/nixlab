@@ -118,6 +118,14 @@ function bind() {
 async function action(name, el) {
   el.disabled = true;
   try {
+    if (name === "management-stack") {
+      for (const [path, value] of Object.entries({"cockpit.enable": true, "apps.enable": true, "apps.portainerPort": 9443, "maintenance.laptopMode": true})) {
+        if (!(state.status.codeOverrides || []).some(c => c.setting === path || path.startsWith(c.setting + "."))) put(state.draft, path, value);
+      }
+      shell();
+      toast("Management stack staged. Add credentials and review before activation; file-owned settings are preserved.");
+      return;
+    }
     if (name === "migrate-layout") {
       await api("migrate-layout", {
         current: document.querySelector("#layout-password").value,
