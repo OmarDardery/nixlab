@@ -45,6 +45,7 @@ in pkgs.testers.runNixOSTest {
     machine.succeed("python3 /etc/nixlab-test-client.py")
     machine.wait_for_unit("cockpit.socket")
     machine.succeed("python3 /etc/nixlab-test-cockpit.py")
-    assert "passwordauthentication no" in machine.succeed("sshd -T")
+    sshd = machine.succeed("sshd -T -f /etc/ssh/sshd_config")
+    assert "passwordauthentication no" in sshd, sshd
   '';
 }
