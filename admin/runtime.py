@@ -285,8 +285,10 @@ def encode_secrets(values, settings):
                 raise ValueError('Wi-Fi WPA password must contain 8–63 characters, or 64 hex digits')
             value = 'NIXLAB_WIFI_PSK=' + shlex.quote(value.replace('\\', '\\\\')) + '\n'
         elif field == 'cockpitPassword':
-            if not settings['cockpit']['enable'] or not settings['cockpit']['managePassword']:
-                raise ValueError('Enable Cockpit before enrolling the operator password')
+            # A staged file module may enable Cockpit without changing the JSON
+            # overlay. The build worker checks the evaluated enable/ownership flags.
+            if not settings['cockpit']['managePassword']:
+                raise ValueError('Cockpit password enrollment must manage the operator password')
             if not 16 <= len(value) <= 256 or '\n' in value or '\r' in value:
                 raise ValueError('Cockpit passwords must contain 16–256 characters and no newline')
             hashed = subprocess.run(['openssl', 'passwd', '-6', '-stdin'], input=value + '\n',

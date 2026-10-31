@@ -165,7 +165,7 @@
         hostDockerDisabled = !c.virtualisation.docker.enable;
         selectedPort = (builtins.head proxy.listen).port == 9443;
         legacyPortPreserved = (builtins.head legacy.services.nginx.virtualHosts.nixlab-portainer.listen).port == 9441;
-        proxyPreservesOrigin = nixpkgs.lib.hasInfix "proxy_set_header Host $http_host;" proxy.locations."/".extraConfig;
+        proxyPreservesOrigin = nixpkgs.lib.hasInfix "proxy_set_header Host $host:$server_port;" proxy.locations."/".extraConfig;
         lidClosedOperation = c.services.logind.settings.Login.HandleLidSwitch == "ignore";
       };
       nixlabFoundationChecks = let

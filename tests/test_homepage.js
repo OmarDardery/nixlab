@@ -53,3 +53,6 @@ vm.runInContext("state.status.setupComplete=true; state.status.effectiveSettings
 const effectiveTools=vm.runInContext('homepageTools()',context);
 assert.ok(effectiveTools.includes('https://198.51.100.30:8443'));
 assert.ok(!effectiveTools.includes('https://192.0.2.10:8443'));
+vm.runInContext("state.status.codeOverrides=[{setting:'cockpit.enable'}];state.draft.cockpit={enable:false};state.status.effectiveSettings.cockpit.enable=true;", context);
+assert.ok(vm.runInContext("toggle('Cockpit','cockpit.enable')", context).includes('checked'));
+assert.equal(vm.runInContext('state.draft.cockpit.enable', context), false, 'Displaying file-owned values must not change the JSON overlay');

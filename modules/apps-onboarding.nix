@@ -42,6 +42,7 @@ in {
       appendConfig = "worker_processes 1;";
       eventsConfig = "worker_connections 256;";
       virtualHosts.nixlab-portainer = {
+        serverName = site.management.address;
         listen = [ { addr = site.management.address; port = site.apps.portainerPort; ssl = true; } ];
         sslCertificate = "/run/credentials/nginx.service/nixlab-tls.crt";
         sslCertificateKey = "/run/credentials/nginx.service/nixlab-tls.key";
@@ -52,8 +53,8 @@ in {
             ${cidrs}
             deny all;
             # Preserve the public host *and port* for Portainer's origin checks.
-            proxy_set_header Host $http_host;
-            proxy_set_header X-Forwarded-Host $http_host;
+            proxy_set_header Host $host:$server_port;
+            proxy_set_header X-Forwarded-Host $host:$server_port;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_set_header X-Forwarded-Port $server_port;
             proxy_set_header X-Forwarded-For $remote_addr;

@@ -35,6 +35,12 @@ jobs:
           "$RUNNER_TEMP/nixlab-browser/bin/python" tests/browser_foundation.py
       - name: Parse all Nix files
         run: find . -name '*.nix' -exec nix-instantiate --parse '{}' ';' >/dev/null
+      - name: Boot portal and verify real NixOS permissions
+        run: nix build .#checks.x86_64-linux.portal --no-link -L
+      - name: Verify management services and Docker forwarding boundary
+        run: |
+          nix eval .#nixosConfigurations.validation-management.config.system.build.toplevel.drvPath
+          nix build .#checks.x86_64-linux.management --no-link -L
       - name: Evaluate configuration variants
         run: |
           for target in validation-minimal validation-file-disk validation-recipes validation-host validation-ethernet validation-ethernet-nm validation-ethernet-wifi validation-coupled-apps validation-apps validation-services validation-demo validation-zfs validation-inherited validation-iso-firstboot validation-bootstrap validation-setup validation-setup-apps; do
@@ -92,12 +98,6 @@ jobs:
         run: |
           nix build '.#nixosConfigurations.validation-services.config.systemd.units."restic-backups-nixlab.service".unit' '.#nixosConfigurations.validation-services.config.systemd.units."nixlab-metrics.service".unit' --no-link
           nix build '.#nixosConfigurations.validation-recipes.config.systemd.units."nixlab-notify@.service".unit' --no-link
-      - name: Boot portal and verify real NixOS permissions
-        run: nix build .#checks.x86_64-linux.portal --no-link -L
-      - name: Verify management services and Docker forwarding boundary
-        run: |
-          nix eval .#nixosConfigurations.validation-management.config.system.build.toplevel.drvPath
-          nix build .#checks.x86_64-linux.management --no-link -L
       - name: Boot real Incus containers and verify host integration and restore
         run: nix build .#checks.x86_64-linux.foundation --no-link -L
       - name: Build pinned upstream helper runner

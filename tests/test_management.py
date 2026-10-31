@@ -42,6 +42,9 @@ class ManagementTests(unittest.TestCase):
         for value in ('short', 'long-enough-but\nnewline', 'a' * 257):
             with self.assertRaises(ValueError): rt.encode_secrets({'cockpitPassword': value}, cfg)
         cfg['cockpit']['enable'] = False
+        # A Nix module can own enable=true; the worker checks evaluated settings.
+        self.assertTrue(rt.encode_secrets({'cockpitPassword': password}, cfg)['cockpitPassword'].startswith('$6$'))
+        cfg['cockpit']['managePassword'] = False
         with self.assertRaises(ValueError): rt.encode_secrets({'cockpitPassword': password}, cfg)
 
     def test_operator_credential_recovery_does_not_restore_other_accounts(self):

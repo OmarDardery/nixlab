@@ -52,6 +52,10 @@ function put(obj, path, value) {
   target[key] = value;
 }
 const copy = (v) => JSON.parse(JSON.stringify(v));
+function displayedSetting(path) {
+  const owned = (state.status?.codeOverrides || []).some(c => c.setting === path || path.startsWith(c.setting + "."));
+  return at(owned && state.status?.effectiveSettings ? state.status.effectiveSettings : state.draft, path);
+}
 function toast(message) {
   const el = document.querySelector("#toast");
   el.textContent = message;
@@ -71,7 +75,7 @@ function field(
     options = null,
   } = {},
 ) {
-  let value = at(state.draft, path);
+  let value = displayedSetting(path);
   if (list) value = (value || []).join("\n");
   const attrs = `data-path="${esc(path)}" ${list ? 'data-kind="list"' : ""} ${disabled ? "disabled" : ""}`;
   let control;
@@ -84,7 +88,7 @@ function field(
   return `<label class="field ${full ? "full" : ""}"><span>${esc(label)}</span>${control}${hint ? `<small>${esc(hint)}</small>` : ""}</label>`;
 }
 function toggle(label, path, hint = "") {
-  return `<label class="toggle"><input type="checkbox" data-path="${esc(path)}" ${at(state.draft, path) ? "checked" : ""}><span>${esc(label)}${hint ? `<br><small class="muted">${esc(hint)}</small>` : ""}</span></label>`;
+  return `<label class="toggle"><input type="checkbox" data-path="${esc(path)}" ${displayedSetting(path) ? "checked" : ""}><span>${esc(label)}${hint ? `<br><small class="muted">${esc(hint)}</small>` : ""}</span></label>`;
 }
 function secret(label, key, hint = "", textarea = false) {
   return `<label class="field full"><span>${esc(label)} ${state.host?.secretPresent?.[key] ? '<span class="tag">Already provisioned</span>' : ""}</span>${textarea ? `<textarea data-secret="${key}" spellcheck="false" placeholder="Leave empty to keep the current value">${esc(state.secrets[key] || "")}</textarea>` : `<input data-secret="${key}" type="password" autocomplete="new-password" value="${esc(state.secrets[key] || "")}" placeholder="${state.host?.secretPresent?.[key] ? "Leave empty to keep current" : "Enter an initial password"}">`}${hint ? `<small>${esc(hint)}</small>` : ""}</label>`;
