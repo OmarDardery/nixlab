@@ -51,6 +51,12 @@ in {
           extraConfig = ''
             ${cidrs}
             deny all;
+            # Preserve the public host *and port* for Portainer's origin checks.
+            proxy_set_header Host $http_host;
+            proxy_set_header X-Forwarded-Host $http_host;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Port $server_port;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_ssl_verify on;
             proxy_ssl_server_name on;
             proxy_ssl_name apps.internal;

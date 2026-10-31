@@ -13,7 +13,7 @@ token = base64.b64encode(b'operator:vm-cockpit-password').decode()
 request = urllib.request.Request(origin + '/cockpit/login', headers={'Authorization': 'Basic ' + token, 'Origin': origin})
 with urllib.request.urlopen(request, context=context, timeout=30) as response:
     identity = json.load(response)
-    assert identity['user'] == 'operator', identity
+    assert isinstance(identity, dict), identity
     cookies = '; '.join(value.split(';', 1)[0] for value in response.headers.get_all('Set-Cookie', []))
 assert cookies
 ws = websocket.create_connection('wss://127.0.0.1:9090/cockpit/socket', origin=origin,
@@ -23,7 +23,7 @@ try:
     assert json.loads(initial.split('\n', 1)[1])['command'] == 'init', initial
     ws.send('\n' + json.dumps({'command': 'init', 'version': 1}))
     ws.send('\n' + json.dumps({'command': 'open', 'channel': 'terminal-test', 'payload': 'stream',
-                              'spawn': ['/run/current-system/sw/bin/sh', '-c', 'printf NIXLAB_COCKPIT_TERMINAL_OK'],
+                              'spawn': ['/bin/sh', '-c', 'test "$(id -un)" = operator && printf NIXLAB_COCKPIT_TERMINAL_OK'],
                               'pty': True}))
     output = ''
     for _ in range(100):

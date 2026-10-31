@@ -153,6 +153,21 @@
       };
       apps.x86_64-linux.install = { type = "app"; program = "${self.packages.x86_64-linux.installer}/bin/nixlab-install"; };
       nixlabMigrationChecks = import ./tests/settings-checks.nix { lib = nixpkgs.lib; };
+      nixlabManagementChecks = let
+        c = self.nixosConfigurations.validation-management.config;
+        legacy = self.nixosConfigurations.validation-setup.config;
+        proxy = c.services.nginx.virtualHosts.nixlab-portainer;
+      in {
+        cockpitEnabled = c.services.cockpit.enable;
+        cockpitLocalOnly = !c.services.cockpit.settings.WebService.LoginTo;
+        cockpitAddress = c.systemd.sockets.cockpit.listenStreams == [ "" "192.0.2.10:9090" ];
+        cockpitPAM = c.security.pam.services ? cockpit;
+        hostDockerDisabled = !c.virtualisation.docker.enable;
+        selectedPort = (builtins.head proxy.listen).port == 9443;
+        legacyPortPreserved = (builtins.head legacy.services.nginx.virtualHosts.nixlab-portainer.listen).port == 9441;
+        proxyPreservesOrigin = nixpkgs.lib.hasInfix "proxy_set_header Host $http_host;" proxy.locations."/".extraConfig;
+        lidClosedOperation = c.services.logind.settings.Login.HandleLidSwitch == "ignore";
+      };
       nixlabFoundationChecks = let
         native = self.nixosConfigurations.validation-ethernet.config;
         nm = self.nixosConfigurations.validation-ethernet-nm.config;
