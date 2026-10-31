@@ -275,7 +275,10 @@ class GuestOperationTests(unittest.TestCase):
             archive=directory/'guest.tar.gz';archive.write_bytes(b'export-content')
             rt.write_json(directory/'job.json',{'id':archive_id,'sha256':operations.file_hash(archive)})
             job={'action':'restore','project':'lab','name':'lost-original','target':'restored','archive':archive_id}
-            with patch.object(operations,'instance',side_effect=AssertionError('Original must not be queried')), \
+            def lookup(project, guest):
+                self.assertEqual(guest, 'restored', 'Original must not be queried')
+                return {'status': 'Stopped', 'config': {}}
+            with patch.object(operations,'instance',side_effect=lookup), \
                     patch.object(operations,'guests',return_value=[]),patch.object(operations,'incus') as incus:
                 result=ops.perform(job)
             self.assertEqual(result['restoredInstance'],'restored')
@@ -334,7 +337,7 @@ class GuestOperationTests(unittest.TestCase):
             with patch.object(operations, 'instance', return_value={}), patch.object(operations, 'guests', return_value=[{'name': 'new'}]), patch.object(operations, 'incus') as incus:
                 with self.assertRaisesRegex(ValueError, 'already exists'): ops.perform(job)
                 incus.assert_not_called()
-            with patch.object(operations, 'instance', return_value={}), patch.object(operations, 'guests', return_value=[]), patch.object(operations, 'incus') as incus:
+            with patch.object(operations, 'instance', return_value={'status': 'Stopped', 'config': {}}), patch.object(operations, 'guests', return_value=[]), patch.object(operations, 'incus') as incus:
                 result = ops.perform(job)
                 self.assertTrue(result['requiresReview'])
                 args = incus.call_args.args

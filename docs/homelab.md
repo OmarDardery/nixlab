@@ -119,6 +119,11 @@ console; rejection from an untrusted client; and access after Docker restart and
 host reboot. Confirm lid-closed operation. Test application data and an off-host
 restore before retiring the previous system. See [commissioning](commissioning.md).
 
+New-name archive/snapshot restores reset generated NIC MAC addresses while stopped,
+so they can coexist with the original. Explicit NIC MACs and fixed addresses are
+retained for administrator review; conflicting identities block release from
+quarantine. The original guest and backup archive remain unchanged.
+
 Automated VM checks exercise real Cockpit PAM/TLS and a host shell channel, plus
 real Docker forwarding with a disposable HTTP fixture before/after Docker restart.
 The fixture tests the Portainer port's access boundary; it does not claim to boot

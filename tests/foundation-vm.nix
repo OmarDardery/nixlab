@@ -106,7 +106,9 @@ in pkgs.testers.runNixOSTest {
     manifest = json.loads(host.succeed("cat " + directory + "/inventory.json"))
     archive = directory + "/" + manifest["guests"][0]["archive"]
     host.succeed("incus import " + archive + " restored --project lab --config boot.autostart=false")
+    host.succeed("PYTHONPATH=${../admin}:${../scripts} python3 -c 'import operations; operations.reset_restore_macs(\"lab\", \"restored\")'")
     host.succeed("incus start restored --project lab")
+    assert host.succeed("incus config get native volatile.eth0.hwaddr --project lab").strip() != host.succeed("incus config get restored volatile.eth0.hwaddr --project lab").strip()
     assert host.succeed("incus exec restored --project lab --disable-stdin -- /bin/cat /var/lib/test/index.html").strip() == "preserved"
   '';
 }

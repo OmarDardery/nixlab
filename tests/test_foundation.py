@@ -211,7 +211,7 @@ class ArchiveTests(unittest.TestCase):
                 record = ops.generation_archives()[0]
                 self.assertTrue(ops.archives()[0]['available'])
                 self.assertEqual(ops.archive_path(record), archive)
-                with patch.object(operations, 'guests', return_value=[]), patch.object(operations, 'incus') as incus:
+                with patch.object(operations, 'instance', return_value={'status': 'Stopped', 'config': {}}), patch.object(operations, 'guests', return_value=[]), patch.object(operations, 'incus') as incus:
                     result = ops.perform({'action': 'restore', 'project': 'lab', 'name': 'guest', 'target': 'copy',
                                           'archive': record['id'], 'archiveRecord': record})
                     self.assertTrue(result['requiresReview']); self.assertIn(str(archive), incus.call_args.args)

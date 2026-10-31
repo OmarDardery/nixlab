@@ -13,10 +13,33 @@ sys.path[:0] = [str(BASE / 'admin'), str(BASE / 'scripts'), str(BASE / 'tests')]
 import model
 import runtime as rt
 import worker
+import operations
 from test_setup import settings, HOST
 
 
 class ManagementTests(unittest.TestCase):
+    def test_restore_resets_only_generated_mac_on_stopped_target(self):
+        current = {'status': 'Stopped', 'config': {'volatile.eth0.hwaddr': '00:16:3e:00:00:01', 'user.keep': 'value'},
+                   'expanded_devices': {'eth1': {'type': 'nic', 'hwaddr': '00:16:3e:00:00:02'}}}
+        with patch.object(operations, 'instance', return_value=current), patch.object(operations, 'incus') as incus:
+            operations.reset_restore_macs('lab', 'restored')
+            incus.assert_called_once_with('config', 'unset', 'restored', 'volatile.eth0.hwaddr', '--project', 'lab')
+        self.assertEqual(current['expanded_devices']['eth1']['hwaddr'], '00:16:3e:00:00:02')
+        current['status'] = 'Running'
+        with patch.object(operations, 'instance', return_value=current), patch.object(operations, 'incus') as incus:
+            with self.assertRaises(ValueError): operations.reset_restore_macs('lab', 'restored')
+            incus.assert_not_called()
+
+    def test_explicit_mac_collision_blocks_restore_release(self):
+        with tempfile.TemporaryDirectory() as folder:
+            ops = operations.Operations(Path(folder)/'root', Path(folder)/'state')
+            current = {'expanded_devices': {'eth0': {'type': 'nic', 'hwaddr': '00:16:3E:AA:BB:CC'}}}
+            other = {'name': 'original', 'config': {'volatile.eth0.hwaddr': '00:16:3e:aa:bb:cc'}}
+            with patch.object(operations, 'instance', return_value=current), patch.object(operations, 'incus', return_value=json.dumps([other])) as incus:
+                with self.assertRaisesRegex(ValueError, 'MAC address conflicts'):
+                    ops.perform({'action': 'release-restore', 'project': 'lab', 'name': 'restored'})
+                self.assertEqual(incus.call_count, 1)
+
     def test_listener_collisions_and_custom_private_ports(self):
         cfg = settings(); cfg['cockpit']['enable'] = True; cfg['apps']['enable'] = True
         cfg['apps']['portainerPort'] = 9443

@@ -61,6 +61,23 @@ def instance(project, guest):
     return json.loads(incus('query', '/1.0/instances/' + quote(name(guest), safe='') + '?project=' + quote(name(project), safe='')))
 
 
+def reset_restore_macs(project, guest):
+    """New-name restores get new generated NIC identities; declared MACs need review."""
+    current = instance(project, guest)
+    if current.get('status') != 'Stopped':
+        raise ValueError('The restored instance must remain stopped while resetting generated NIC identities')
+    for key in sorted(current.get('config', {})):
+        if re.fullmatch(r'volatile\.[A-Za-z0-9_.-]+\.hwaddr', key):
+            incus('config', 'unset', guest, key, '--project', project)
+
+
+def mac_addresses(current):
+    config = current.get('expanded_config', current.get('config', {}))
+    values = [v for k, v in config.items() if re.fullmatch(r'volatile\.[A-Za-z0-9_.-]+\.hwaddr', k)]
+    values += [d['hwaddr'] for d in current.get('expanded_devices', {}).values() if d.get('type') == 'nic' and d.get('hwaddr')]
+    return {v.lower() for v in values if isinstance(v, str) and v}
+
+
 def check_config_idle(state):
     active = rt.read_json(state / 'active.json', {})
     job = rt.read_json(state / 'jobs' / active.get('id', '-') / 'job.json', {})
@@ -246,6 +263,7 @@ class Operations:
                 if archive.is_symlink() or not archive.is_file() or file_hash(archive) != archive_job.get('sha256'):
                     raise ValueError('Export checksum changed; refusing import')
                 incus('import', str(archive), target, '--project', project, *overrides, timeout=43200)
+            reset_restore_macs(project, target)
             return {'restoredInstance': target, 'requiresReview': True}
         elif action == 'release-restore':
             # A restored copy remains stopped and autostart-disabled. Fixed IPs
@@ -255,6 +273,8 @@ class Operations:
                         if d.get('type') == 'disk' and d.get('path') != '/' and d.get('source') and d.get('readonly') != 'true'}
             all_instances = json.loads(incus('list', '--project', project, '--format=json'))
             for other in all_instances:
+                if other['name'] != guest and mac_addresses(current) & mac_addresses(other):
+                    raise ValueError('A restored MAC address conflicts with another instance; change the explicit NIC identity before release')
                 if other['name'] != guest and addresses & {d['ipv4.address'] for d in other.get('expanded_devices', {}).values() if d.get('ipv4.address')}:
                     raise ValueError('A restored fixed address conflicts with another instance; change its NIC configuration first')
                 volumes = {(d.get('pool', ''), d['source']) for d in other.get('expanded_devices', {}).values()
