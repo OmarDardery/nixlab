@@ -1,3 +1,16 @@
 result*
-__pycache__/
+*.qcow2
+*.tar.gz
+*.dump
 .env
+/secrets/*
+!/secrets/*.yaml
+!/secrets/README.md
+__pycache__/
+
+/local/
+/installed-system/
+.nixlab-files.json
+
+/machine/
+/.machine-*/
