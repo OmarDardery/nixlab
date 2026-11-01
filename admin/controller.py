@@ -77,11 +77,15 @@ class Manager:
         import upgrades
         active = rt.read_json(self.state / 'active.json', {})
         job = self.job(active['id']) if active.get('id') else None
-        if job and job['status'] == 'building' and time.time() - job['created'] > 30:
-            active_unit = subprocess.run(['systemctl', 'is-active', '--quiet', 'nixlab-build-' + job['id']], capture_output=True)
+        if job and job['status'] in ('building', 'applying') and time.time() - job.get('appliedAt', job['created']) > 30:
+            phase = 'build' if job['status'] == 'building' else 'apply'
+            active_unit = subprocess.run(['systemctl', 'is-active', '--quiet', 'nixlab-' + phase + '-' + job['id']], capture_output=True)
             if active_unit.returncode:
-                job.pop('log', None); job.update(status='failed', error='Build worker stopped; inspect its log and start a new review')
-                rt.write_json(self.job_path(job['id']) / 'job.json', job)
+                latest = self.job(job['id'])
+                if latest['status'] == job['status']:
+                    latest.pop('log', None)
+                    latest.update(status='failed', error=phase.capitalize() + ' worker stopped; rerun the installer to recover and retry')
+                    rt.write_json(self.job_path(job['id']) / 'job.json', latest)
                 job = self.job(job['id'])
         current = str(Path('/run/current-system').resolve())
         last = rt.read_json(self.state / 'last-confirmed.json')

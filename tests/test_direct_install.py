@@ -63,6 +63,18 @@ class DirectPlanningTests(unittest.TestCase):
         self.assertFalse(value['apps']['enable'])
         self.assertEqual(value['guests']['cidr'], '10.78.0.0/24')
 
+    def test_completed_install_retains_static_address_and_custom_ports(self):
+        current = initial()
+        current['ready'] = True
+        current['management']['configure'] = True
+        current['management']['dns'] = ['192.0.2.1']
+        current['apps'].update(enable=True, portainerPort=19443)
+        current['cockpit']['enable'] = True
+        current['guests'].update(direct.guest_network([]))
+        value = direct.prepare(current, {'adminKeys': [KEY]}, inventory(), previous_guests=current['guests'])
+        self.assertTrue(value['management']['configure'])
+        self.assertEqual(value['apps']['portainerPort'], 19443)
+
     def test_local_console_needs_no_key_but_remote_access_must_be_explicit(self):
         self.assertEqual(direct.prepare(initial(), {}, inventory())['adminKeys'], [])
         with self.assertRaisesRegex(ValueError, 'client SSH public key'):
@@ -128,6 +140,14 @@ class DirectActivationTests(unittest.TestCase):
             password, _ = direct.activate(self.candidate, self.manager)
         self.assertIsNone(password)
         self.assertEqual(self.manager.review.call_args.kwargs['secret_values'], {})
+
+    def test_file_owned_apps_receive_credentials_without_overwriting_json(self):
+        self.candidate['apps']['enable'] = False
+        effective = copy.deepcopy(self.candidate); effective['apps']['enable'] = True
+        with patch('direct.wait_for', return_value={'status': 'awaiting-confirmation'}), patch('builtins.print'):
+            password, _ = direct.activate(self.candidate, self.manager, effective=effective)
+        self.assertTrue(password)
+        self.assertFalse(self.manager.review.call_args.args[0]['apps']['enable'])
 
     def test_failed_worker_status_is_reported_with_log_path(self):
         self.manager.job.return_value = {'status': 'failed', 'error': 'fixture build failure'}

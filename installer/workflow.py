@@ -36,6 +36,20 @@ def hashes(root):
             for name, path in rt.source_files(root) if upgrades.platform_path(name)}
 
 
+def finish_interrupted_recovery(manager, record):
+    pending = rt.read_json(rt.STATE / 'pending.json', {})
+    if record.get('status') != 'failed' or pending.get('id') != record.get('id'):
+        return record
+    print('Completing interrupted activation recovery: ' + record['id'], flush=True)
+    from worker import rollback
+    with rt.locked(blocking=False):
+        try:
+            rollback(manager.job_path(record['id']), 'installer retry after interrupted activation')
+        except Exception as exc:
+            raise ValueError(record.get('error', 'Previous activation failed') + '; recovery also failed: ' + str(exc)) from exc
+    return manager.job(record['id'])
+
+
 def incoming_files(root):
     if (root / '.git').exists() or (root / '.nixlab-files.json').is_file():
         return list(rt.source_files(root))

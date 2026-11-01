@@ -46,11 +46,13 @@ def prepare(settings, overview, host, key_files=(), subnet=None, apps=True, prev
         candidate['guests'].update(copy.deepcopy(previous_guests))
     else:
         candidate['guests'].update(guest_network(host['routes'], subnet))
-    candidate['cockpit']['enable'] = True
-    candidate['apps'].update(enable=apps, portainerPort=9443)
-    candidate['maintenance']['laptopMode'] = True
+    if not settings['ready']:
+        candidate['cockpit']['enable'] = True
+        candidate['apps'].update(enable=apps, portainerPort=9443)
+        candidate['maintenance']['laptopMode'] = True
     # Preserve current addressing, accounts and mounts. No disk/bridge migration.
-    candidate['management']['configure'] = False
+    if not settings['ready']:
+        candidate['management']['configure'] = False
     from model import validate_settings
     return validate_settings(candidate, settings, host)
 
@@ -67,6 +69,7 @@ def wait_for(manager, job_id, statuses, timeout=10800):
                 position = log.tell()
             if output:
                 print(output, end='', flush=True)
+        manager.status()  # Detect stopped durable workers, including before first activation.
         record = manager.job(job_id)
         if record['status'] in statuses:
             return record
@@ -78,14 +81,15 @@ def wait_for(manager, job_id, statuses, timeout=10800):
     raise ValueError('Conversion timed out; inspect ' + str(log_path) + ' and the transaction status before retrying')
 
 
-def activate(candidate, manager=None):
+def activate(candidate, manager=None, effective=None):
     from controller import Manager
     manager = manager or Manager()
-    if candidate['cockpit']['managePassword']:
+    effective = effective or candidate
+    if effective['cockpit']['enable'] and effective['cockpit']['managePassword']:
         import local_access
         local_access.ensure_operator_password()
     initial = None
-    if candidate['apps']['enable'] and not rt.SECRET_PATHS['portainerPassword'].exists():
+    if effective['apps']['enable'] and not rt.SECRET_PATHS['portainerPassword'].exists():
         initial = secrets.token_urlsafe(24)
         # Created once outside the rollback manifest: failed activation must not
         # rotate the credential after Portainer has initialized its database.
@@ -106,7 +110,7 @@ def resume(manager, record):
     """Reconnect to an existing durable worker without starting a competing job."""
     job_id = record['id']
     if record['status'] == 'rolling-back':
-        wait_for(manager, job_id, set())
+        return wait_for(manager, job_id, {'rolled-back'})
     if record['status'] == 'building':
         record = wait_for(manager, job_id, {'ready'})
     if record['status'] == 'ready':

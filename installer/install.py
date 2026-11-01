@@ -212,15 +212,17 @@ def main():
     if TARGET.exists():
         manager = Manager()
         current = manager.status().get('job') or {}
+        current = workflow.finish_interrupted_recovery(manager, current)
         if current.get('status') in ('building', 'ready', 'applying', 'awaiting-confirmation', 'rolling-back'):
             if not args.switch:
                 parser.error('A full installation transaction is active; rerun without --wizard to resume it')
             print('Resuming transaction ' + current['id'], flush=True)
-            direct.resume(manager, current)
-            settings = manager.settings()
-            publish_etc()
-            summarize(settings, setup_password(), current)
-            return
+            resumed = direct.resume(manager, current)
+            if resumed['status'] != 'rolled-back':
+                settings = manager.effective_settings()
+                publish_etc()
+                summarize(settings, setup_password(), resumed)
+                return
     interface, address, prefix, gateway = choose_network(args.interface, args.address)
     trusted = args.trusted_cidr or [str(ipaddress.ip_interface(f'{address}/{prefix}').network)]
     if os.environ.get('SSH_CONNECTION'):
@@ -299,6 +301,7 @@ def main():
             prior = rt.read_json(rt.STATE / 'jobs' / active.get('id', '-') / 'job.json', {})
         previous_guests = default['guests'] if default['ready'] else prior.get('settings', {}).get('guests') if prior.get('previousSystem') else None
         candidate = None
+        effective_candidate = None
         if args.switch:
             candidate = direct.prepare(default, overview, host, args.ssh_key, args.guest_subnet,
                 not args.no_apps if not default['ready'] else default['apps']['enable'], previous_guests=previous_guests,
@@ -309,7 +312,18 @@ def main():
             if not local_access.cockpit_accounts():
                 candidate['cockpit']['managePassword'] = True
                 print('No usable local administrator password was found; a stable operator login will be provisioned for Cockpit.')
-            print('SSH policy after activation: ' + ('password login retained for existing non-root accounts' if candidate['access']['sshPasswordLogin'] else 'password login disabled; keys/console remain available'))
+            # File-owned settings can enable services or select another port.
+            # Provision and report the evaluated stack, while the transaction
+            # continues to store the administrator's original JSON overlay.
+            rt.write_json(rt.machine_path(stage, 'settings'), candidate)
+            effective_candidate = evaluate(stage, 'nixlabSettings')
+            rt.write_json(rt.machine_path(stage, 'settings'), default)
+            validate_keys(effective_candidate['adminKeys'])
+            if remote and not effective_candidate['adminKeys'] and not effective_candidate['access']['sshPasswordLogin']:
+                raise ValueError('File-owned SSH settings remove remote login access; enroll a client key before activation')
+            if effective_candidate['cockpit']['enable'] and not local_access.cockpit_accounts() and not effective_candidate['cockpit']['managePassword']:
+                raise ValueError('File-owned Cockpit settings require an existing usable Linux password or managePassword=true')
+            print('SSH policy after activation: ' + ('password login retained for existing non-root accounts' if effective_candidate['access']['sshPasswordLogin'] else 'password login disabled; keys/console remain available'))
         installation.update(interface=interface, trustedCIDRs=trusted, legacyWpaProfiles=overview['wpaProfiles'])
         if not existing:
             installation.update(installedAt=time.time(), originalSystem=str(Path('/run/current-system').resolve()), repository=args.repo, ref=args.ref)
@@ -358,9 +372,9 @@ def main():
     if args.switch and existing and prior.get('status') == 'confirmed' and candidate == Manager().settings() \
             and rt.digest_source(TARGET) == prior.get('candidateDigest'):
         import diagnostics
-        diagnostics.wait_ready(candidate)
+        diagnostics.wait_ready(Manager().effective_settings())
         publish_etc()
-        summarize(candidate, password, prior)
+        summarize(Manager().effective_settings(), password, prior)
         return
     if not (rt.STATE / 'tls.key').exists():
         rt.issue_tls(address, default['hostName'])
@@ -368,8 +382,8 @@ def main():
     try:
         record = None
         if args.switch:
-            _, record = direct.activate(candidate)
-            settings = rt.read_json(rt.machine_path(TARGET, 'settings'))
+            _, record = direct.activate(candidate, effective=effective_candidate)
+            settings = Manager().effective_settings()
         else:
             run(['nixos-rebuild', 'build', '--flake', 'path:' + str(TARGET) + '#bootstrap'])
             run(['nixos-rebuild', 'switch', '--flake', 'path:' + str(TARGET) + '#bootstrap'])

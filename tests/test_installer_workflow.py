@@ -48,8 +48,9 @@ class SourceTests(unittest.TestCase):
                 if args[0] == 'git': return real_run(args, check=True, **kwargs)
                 return subprocess.CompletedProcess(args, 0, '')
             def evaluate(config, attribute):
+                if attribute == 'nixlabSettings': return rt.read_json(rt.machine_path(config, 'settings'))
                 return copy.deepcopy(initial()) if attribute == 'nixlabDefaults' else {'adminKeys': [], 'wpaProfiles': False}
-            def activate(candidate):
+            def activate(candidate, **kwargs):
                 rt.write_json(rt.machine_path(target, 'settings'), candidate)
                 return None, {}
             patches = [
@@ -137,6 +138,17 @@ class SourceTests(unittest.TestCase):
                 with self.assertRaises(subprocess.CalledProcessError):
                     workflow.backup_incus(data, destination)
             self.assertFalse((destination / 'complete.json').exists())
+
+    def test_failed_pending_activation_finishes_recovery_before_retry(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder)
+            record = {'id': 'a' * 32, 'status': 'failed', 'error': 'worker stopped'}
+            rt.write_json(state / 'pending.json', {'id': record['id']})
+            manager = Mock(); manager.job.return_value = dict(record, status='rolled-back')
+            with patch.object(rt, 'STATE', state), patch('worker.rollback') as rollback:
+                restored = workflow.finish_interrupted_recovery(manager, record)
+            rollback.assert_called_once()
+            self.assertEqual(restored['status'], 'rolled-back')
 
 
 class ReadinessTests(unittest.TestCase):
