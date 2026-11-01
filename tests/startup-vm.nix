@@ -61,8 +61,7 @@ in pkgs.testers.runNixOSTest {
     };
     networking.nftables.enable = true;
     networking.firewall.allowedTCPPorts = [ 8443 ];
-    networking.dummyInterfaces = [ "apps-test" ];
-    networking.interfaces.apps-test.ipv4.addresses = [ { address = "10.77.0.10"; prefixLength = 24; } ];
+    networking.interfaces.lo.ipv4.addresses = [ { address = "10.77.0.10"; prefixLength = 32; } ];
     environment.systemPackages = [ pkgs.curl pkgs.python3 ];
     environment.etc."nixlab-test-settings.json".text = builtins.toJSON settings;
     environment.etc."nixlab/effective-settings.json".text = builtins.toJSON settings;
