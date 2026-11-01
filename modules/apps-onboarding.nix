@@ -42,6 +42,8 @@ in {
       appendConfig = "worker_processes 1;";
       eventsConfig = "worker_connections 256;";
       virtualHosts.nixlab-portainer = {
+        # Explicit listen.ssl alone does not enable NixOS certificate directives.
+        onlySSL = true;
         serverName = site.management.address;
         listen = [ { addr = site.management.address; port = site.apps.portainerPort; ssl = true; } ];
         sslCertificate = "/run/credentials/nginx.service/nixlab-tls.crt";
