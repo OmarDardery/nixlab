@@ -164,7 +164,7 @@ def summarize(settings, password=None, record=None):
     else:
         print('Use your existing setup password; recover with sudo nixlab-admin reset-password.')
     if settings['ready']:
-        print('Incus: https://' + address + ':8443 (enroll your browser certificate in the Incus UI)')
+        print('Incus: https://' + address + ':8443 (create/import a browser certificate from the Nixlab portal)')
         if settings['cockpit']['enable']:
             print('Cockpit: https://' + address + ':' + str(settings['cockpit']['port']) + ' (existing non-root Linux account/password)')
             import local_access

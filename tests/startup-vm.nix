@@ -63,6 +63,7 @@ in pkgs.testers.runNixOSTest {
     networking.firewall.allowedTCPPorts = [ 8443 ];
     networking.interfaces.lo.ipv4.addresses = [ { address = "10.77.0.10"; prefixLength = 32; } ];
     environment.systemPackages = [ pkgs.curl pkgs.python3 ];
+    users.users.operator.isNormalUser = true;
     environment.etc."nixlab-test-settings.json".text = builtins.toJSON settings;
     environment.etc."nixlab/effective-settings.json".text = builtins.toJSON settings;
     systemd.services.nixlab-test-fixture = {
