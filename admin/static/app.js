@@ -141,13 +141,14 @@ function linkRow(icon, heading, detail, url, label = "Open ↗") {
 }
 function homepageTools() {
   const active = state.status.effectiveSettings || state.status.settings,
+    address = state.status.managementAddress || active.management.address,
     ready = state.status.setupComplete;
   const incus = ready
     ? linkRow(
         "▦",
         "Incus",
         "Virtual machines, containers, networks, storage & snapshots",
-        `https://${active.management.address}:8443`,
+        `https://${address}:8443`,
       )
     : '<div class="service-row"><div class="service-copy"><h3>Incus</h3><small>Available after the first activation.</small></div><button data-go="review">Finish setup →</button></div>';
   const portainer =
@@ -156,11 +157,11 @@ function homepageTools() {
           "▱",
           "Portainer",
           "Compose projects, logs & service configuration",
-          `https://${active.management.address}:${active.apps.portainerPort ?? 9441}`,
+          `https://${address}:${active.apps.portainerPort ?? 9441}`,
         )
       : `<div class="service-row"><div class="service-copy"><h3>Portainer</h3><small>${active.apps.enable ? "Available after the first activation." : "Applications VM is disabled; no dashboard is running."}</small></div><button data-go="apps">${active.apps.enable ? "Configure →" : "Enable apps →"}</button></div>`;
   const cockpit = ready && active.cockpit?.enable
-    ? linkRow("⌘", "Cockpit", "Host terminal, systemd services, journal & resource usage", `https://${active.management.address}:${active.cockpit.port}`)
+    ? linkRow("⌘", "Cockpit", "Host terminal, systemd services, journal & resource usage", `https://${address}:${active.cockpit.port}`)
     : '<div class="service-row"><div class="service-copy"><h3>Cockpit</h3><small>Host web terminal uses a local Linux account; separate from portal accounts.</small></div><button data-go="integrations">Configure host access →</button></div>';
   return card(
     "Management tools",
@@ -496,3 +497,4 @@ setInterval(countdown, 1000);
     login();
   }
 })();
+

@@ -49,6 +49,7 @@ jobs:
         run: |
           nix eval .#nixosConfigurations.validation-management.config.system.build.toplevel.drvPath
           nix build .#checks.x86_64-linux.management --no-link -L
+          nix build .#checks.x86_64-linux.startup --no-link -L
       - name: Boot real Incus containers and verify host integration and restore
         run: nix build .#checks.x86_64-linux.foundation --no-link -L
       - name: Evaluate configuration variants
@@ -188,3 +189,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/publish-release.sh iso-artifact
+

@@ -63,12 +63,17 @@ def validate(site, host=None):
             raise ValueError('Review management addressing before moving an addressed Ethernet port into a bridge')
     guests = c.get('guestInterfaces', ['incusbr0'])
     if (not isinstance(guests, list) or len(guests) > 64 or any(not interface(name) for name in guests)
-            or len(set(guests)) != len(guests) or 'incusbr0' not in guests):
-        raise ValueError('Register distinct private guest bridges, including incusbr0')
+            or len(set(guests)) != len(guests) or site.get('guests', {}).get('bridge', 'incusbr0') not in guests):
+        raise ValueError('Register distinct private guest bridges, including the Nixlab bridge')
     if any(not interface(name) or name == m['interface'] or name in names or name in ports for name in guests):
         raise ValueError('Guest firewall interfaces must be separate from host Ethernet/LAN interfaces')
     if host is not None and any(physical.get(name, {}).get('kind') not in (None, 'bridge') for name in guests):
         raise ValueError('Guest firewall integration accepts bridges only')
+    for name in c.get('preservedIncusBridges', []):
+        if not interface(name) or name == m['interface'] or name in guests or name in names or name in ports:
+            raise ValueError('Preserved Incus bridges must be separate private bridges')
+        if host is not None and physical.get(name, {}).get('kind') != 'bridge':
+            raise ValueError('Preserved Incus bridge is absent or is not a bridge')
     for rule in records(c.get('privateAccess', []), {'cidr', 'protocol', 'ports'}, 'private access rules'):
         network = ipaddress.ip_network(rule['cidr'], strict=True)
         if network.version != 4 or rule['protocol'] not in ('tcp', 'udp'):
@@ -102,3 +107,4 @@ def validate(site, host=None):
 def guest_identity(value):
     if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,62}/[A-Za-z0-9][A-Za-z0-9_.-]{0,62}', value):
         raise ValueError('Use project/guest identities for backup selection')
+

@@ -4,7 +4,6 @@
     ++ (import ./lib/site-modules.nix (import ./lib/machine.nix ./.).modules);
   assertions = [
     { assertion = site.ready; message = "Complete site.nix from real hardware/network inventory and set ready=true."; }
-    { assertion = site.adminKeys != [ ]; message = "At least one administrator SSH public key is required."; }
     { assertion = builtins.elem site.cpuVendor [ "intel" "amd" ]; message = "Set cpuVendor from the bare-metal host."; }
     { assertion = site.management.interface != "" && site.management.address != "" && site.management.trustedCIDRs != [ ];
       message = "Management interface, address and trusted source CIDRs must be explicit."; }
@@ -24,3 +23,4 @@
   };
   system.stateVersion = lib.mkDefault "26.05";
 }
+

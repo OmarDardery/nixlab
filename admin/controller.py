@@ -29,7 +29,7 @@ class Manager:
         return merge(defaults, saved)
 
     def effective_settings(self):
-        return rt.read_json(Path('/etc/nixlab/effective-settings.json'), self.settings())
+        return merge(self.settings(), rt.read_json(Path('/etc/nixlab/effective-settings.json'), {}))
 
     def migrate_layout(self):
         return rt.migrate_idle_layout(self.root, self.state)
@@ -88,9 +88,14 @@ class Manager:
         if last and rt.read_json(self.job_path(last['id']) / 'job.json')['status'] != 'confirmed':
             last = None
         effective = self.effective_settings()
+        try:
+            import diagnostics
+            observed_address = diagnostics.management_address(effective)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            observed_address = None
         booted, active = Path('/run/booted-system/kernel'), Path('/run/current-system/kernel')
         reboot = booted.exists() and active.exists() and booted.resolve() != active.resolve()
-        return {'release': upgrades.metadata(self.root), 'rebootRequired': reboot, 'effectiveSettings': effective, 'codeOverrides': differences(self.settings(), effective), 'settings': self.settings(), 'job': job, 'lastConfirmed': last, 'pending': rt.read_json(self.state / 'pending.json'),
+        return {'release': upgrades.metadata(self.root), 'managementAddress': observed_address, 'rebootRequired': reboot, 'effectiveSettings': effective, 'codeOverrides': differences(self.settings(), effective), 'settings': self.settings(), 'job': job, 'lastConfirmed': last, 'pending': rt.read_json(self.state / 'pending.json'),
                 'moduleDirectory': str(rt.machine_path(self.root, 'modules')), 'layoutVersion': 1 if rt.modern_layout(self.root) else 0, 'currentSystem': current, 'setupComplete': self.settings()['ready']}
 
     def host_inventory(self):
@@ -170,9 +175,10 @@ class Manager:
                 raise ValueError('Provide the tunnel-specific credentials JSON')
             initialized = Path('/var/lib/incus/database').exists()
             runtime_settings = previous['settings'] if initialized and not current['ready'] and active.get('id') and previous.get('previousSystem') else current
-            if initialized and candidate['storage'] != runtime_settings['storage']:
+            owned = current['ready'] or (active.get('id') and previous.get('previousSystem'))
+            if initialized and owned and candidate['storage'] != runtime_settings['storage']:
                 raise ValueError('Incus storage is initialized; migrate pools before changing their source/driver')
-            if initialized and (candidate['guests'] != runtime_settings['guests']):
+            if initialized and owned and (candidate['guests'] != runtime_settings['guests']):
                 raise ValueError('Existing guest address space requires an explicit migration, not a live setup edit')
             if initialized:
                 old = {m['name']: m for m in runtime_settings['mounts'] if m['role'] in ('guests', 'pool')}
@@ -182,7 +188,7 @@ class Manager:
             # Detect overlaps with real host routes, ignoring the bridge we own and the default route.
             guest_net = __import__('ipaddress').ip_network(candidate['guests']['cidr'])
             for route in inventory()['routes']:
-                if route.get('dst', 'default') == 'default' or route.get('dev') == 'incusbr0':
+                if route.get('dst', 'default') == 'default' or route.get('dev') == candidate['guests'].get('bridge', 'incusbr0'):
                     continue
                 if guest_net.overlaps(__import__('ipaddress').ip_network(route['dst'], strict=False)):
                     raise ValueError('Guest address space overlaps an existing host/LAN/VPN route')
@@ -323,3 +329,4 @@ class Manager:
             data = base64.b64encode((p / 'client.p12').read_bytes()).decode()
         rt.audit('browser-certificate-issued', name=name)
         return {'name': name, 'password': password, 'pkcs12': data}
+

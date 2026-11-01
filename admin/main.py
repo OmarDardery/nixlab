@@ -479,7 +479,61 @@ def guests_cli(argv):
 if __name__ == '__main__':
     os.umask(0o027)
     action = sys.argv[1] if len(sys.argv) > 1 else ''
-    if action == 'backend':
+    if action in ('doctor', 'identity', 'enroll-key', 'portainer') and os.geteuid() == 0:
+        from controller import Manager
+        import diagnostics
+        try:
+            manager = Manager()
+            settings = manager.effective_settings()
+            if action == 'doctor':
+                result = diagnostics.doctor(settings)
+                print(json.dumps(result, indent=2))
+                sys.exit(0 if result['ok'] else 1)
+            elif action == 'identity':
+                # network-online may be reached before a DHCP lease is usable.
+                deadline = time.monotonic() + 90
+                while True:
+                    try:
+                        diagnostics.identity(settings)
+                        break
+                    except (ValueError, OSError, subprocess.SubprocessError):
+                        if time.monotonic() >= deadline: raise
+                        time.sleep(2)
+            elif action == 'enroll-key':
+                if len(sys.argv) != 3: raise ValueError('Usage: sudo nixlab enroll-key laptop.pub')
+                keys = [line.strip() for line in Path(sys.argv[2]).read_text().splitlines()
+                        if line.strip() and not line.lstrip().startswith('#')]
+                if not keys: raise ValueError('The public key file is empty')
+                candidate = manager.settings()
+                candidate['adminKeys'] = sorted(set(candidate['adminKeys'] + keys))
+                # Use the same reviewed transaction and health checks as setup.
+                job_id = manager.review(candidate, principal='root-key-enrollment')['id']
+                print('Building key enrollment transaction: ' + job_id, flush=True)
+                # Poll locally; workers survive this CLI being disconnected.
+                while True:
+                    record = manager.status()['job']
+                    if record['status'] != 'building': break
+                    time.sleep(1)
+                if record['status'] != 'ready': raise ValueError(record.get('error', record['status']))
+                manager.apply(job_id)
+                while True:
+                    record = manager.job(job_id)
+                    if record['status'] != 'applying': break
+                    time.sleep(1)
+                if record['status'] != 'awaiting-confirmation': raise ValueError(record.get('error', record['status']))
+                diagnostics.wait_ready(record.get('effectiveSettings', candidate))
+                manager.confirm(job_id)
+                print('Client key enrolled for operator. Connect with ssh operator@' + diagnostics.management_address(settings))
+            else:
+                if sys.argv[2:] != ['reset-password']: raise ValueError('Usage: sudo nixlab portainer reset-password')
+                import portainer
+                with rt.locked(blocking=False): result = portainer.reset(settings)
+                print('Portainer recovered: ' + result['url'])
+                print('Username: ' + result['username'] + '; password: ' + result['password'])
+                print('Backup in applications VM: ' + result['backup'])
+        except (ValueError, OSError, subprocess.SubprocessError) as exc:
+            sys.exit(str(exc))
+    elif action == 'backend':
         backend()
     elif action == 'web':
         web()
@@ -522,6 +576,8 @@ if __name__ == '__main__':
         import getpass
         value = getpass.getpass('New Nixlab administrator password: ')
         rt.write_json(rt.STATE / 'auth.json', rt.password_record(value), mode=0o640, group='nixlab-ui')
+        rt.durable_unlink(rt.STATE / 'setup-password')
         print('Password changed. Restart nixlab-ui to revoke existing sessions.')
     else:
-        sys.exit('Usage: nixlab-admin {backend|web|guard|renew|reset-password|config|guests|recovery|prune-jobs|disk prepare}')
+        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|portainer reset-password|backend|web|guard|renew|reset-password|config|guests|recovery|prune-jobs|disk prepare}')
+

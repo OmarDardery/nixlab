@@ -160,7 +160,7 @@
       in {
         cockpitEnabled = c.services.cockpit.enable;
         cockpitLocalOnly = !c.services.cockpit.settings.WebService.LoginTo;
-        cockpitAddress = c.systemd.sockets.cockpit.listenStreams == [ "" "192.0.2.10:9090" ];
+        cockpitAddress = c.systemd.sockets.cockpit.listenStreams == [ "" "0.0.0.0:9090" ];
         cockpitPAM = c.security.pam.services ? cockpit;
         hostDockerDisabled = !c.virtualisation.docker.enable;
         selectedPort = (builtins.head proxy.listen).port == 9443;
@@ -195,6 +195,7 @@
             (builtins.attrValues bootstrap.config.users.users)));
       };
       checks.x86_64-linux = {
+        startup = import ./tests/startup-vm.nix { inherit pkgs; };
         management = import ./tests/management-vm.nix { inherit pkgs; };
         portal = import ./tests/portal-vm.nix { inherit pkgs; };
         foundation = import ./tests/foundation-vm.nix { inherit pkgs; };
@@ -215,3 +216,4 @@
       };
     };
 }
+

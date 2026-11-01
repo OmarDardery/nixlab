@@ -9,10 +9,11 @@ in {
       inherit (c) port;
       openFirewall = false;
       showBanner = false;
-      allowed-origins = [ "https://${site.management.address}:${toString c.port}" ];
+      # With DHCP, Cockpit's normal same-origin check follows the actual address.
+      allowed-origins = lib.optional site.management.configure "https://${site.management.address}:${toString c.port}";
       settings.WebService = { LoginTo = false; AllowMultiHost = false; AllowUnencrypted = false; };
     };
-    systemd.sockets.cockpit.listenStreams = lib.mkForce [ "" "${site.management.address}:${toString c.port}" ];
+    systemd.sockets.cockpit.listenStreams = lib.mkForce [ "" "0.0.0.0:${toString c.port}" ];
     networking.firewall.extraInputRules = ''
       iifname ${builtins.toJSON site.management.interface} ip saddr { ${trusted} } tcp dport ${toString c.port} accept
     '';
@@ -31,3 +32,4 @@ in {
     ];
   };
 }
+

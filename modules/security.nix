@@ -4,7 +4,7 @@
   services.openssh = {
     enable = true;
     openFirewall = lib.mkForce false;
-    settings = { PasswordAuthentication = lib.mkForce false; KbdInteractiveAuthentication = lib.mkForce false;
+    settings = { PasswordAuthentication = lib.mkForce site.access.sshPasswordLogin; KbdInteractiveAuthentication = lib.mkForce false;
       PermitRootLogin = lib.mkForce "no"; X11Forwarding = false; };
   };
   users.users.operator = {
@@ -22,3 +22,4 @@
   '';
   system.autoUpgrade.enable = false; # review pinned-input updates and reboot maintenance explicitly
 }
+

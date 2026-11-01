@@ -122,7 +122,7 @@ class ModuleUploadTests(unittest.TestCase):
             def fake_run(args, **kwargs):
                 if args[0] == 'git': return original_run(args, **kwargs)
                 return subprocess.CompletedProcess(args,0,stdout='{}')
-            with patch.object(rt,'ROOT',root),patch.object(rt,'STATE',state),patch.object(rt,'SECRET_PATHS',{}),patch('worker.subprocess.run',side_effect=fake_run),patch('worker.run') as run:
+            with patch.object(rt,'ROOT',root),patch.object(rt,'STATE',state),patch.object(rt,'SECRET_PATHS',{}),patch('worker.subprocess.run',side_effect=fake_run),patch('diagnostics.wait_ready', return_value={'ok': True}),patch('worker.run') as run:
                 worker.apply(directory)
             self.assertTrue((root/'site-modules/archive.nix').exists())
             commands=[call.args[0] for call in run.call_args_list]
@@ -529,3 +529,4 @@ main.backend()
         self.assertEqual(status,200);self.assertIn(b'BEGIN CERTIFICATE',data)
 
 if __name__=='__main__':unittest.main()
+

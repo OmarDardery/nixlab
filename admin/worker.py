@@ -62,6 +62,9 @@ def update(directory, **fields):
 
 
 def validate_effective_transition(effective, disks, active_settings, previous_disks, initialized):
+    if active_settings:
+        from model import merge
+        active_settings = merge(rt.read_json(rt.SOURCE / 'default-settings.json', {}), active_settings)
     for name, previous in previous_disks.items():
         if name not in disks or any(disks[name][key] != previous[key] for key in ('uuid', 'path', 'fsType', 'role')):
             raise ValueError('Migrate active disk before removing/remapping: ' + name)
@@ -202,10 +205,16 @@ def rollback(directory, reason='requested'):
                     run(['rfkill', 'block' if radio.get('soft') in ('blocked', True) else 'unblock', str(radio['id'])], log, timeout=10, check=False)
         if shutil.which('nmcli'):
             run(['nmcli', 'connection', 'reload'], log, timeout=30, check=False)
+            available = subprocess.run(['nmcli', '--get-values', 'UUID', 'connection', 'show'],
+                                       capture_output=True, text=True, timeout=10)
+            existing = set(available.stdout.splitlines()) if available.returncode == 0 else set()
             for uuid in manifest.get('nmConnections', []):
                 # Values come from nmcli before activation, never from a browser command string.
-                run(['nmcli', '--wait', '30', 'connection', 'up', 'uuid', uuid], log, timeout=40, check=False)
-        run(['systemctl', 'try-restart', 'nixlab-admin-backend.service', 'nixlab-ui.service', 'nginx.service', 'cockpit.service'], log, timeout=45, check=False)
+                if uuid in existing:
+                    run(['nmcli', '--wait', '30', 'connection', 'up', 'uuid', uuid], log, timeout=40, check=False)
+                else:
+                    log.write('Skipped connection no longer present: ' + uuid + '\n')
+        restart_loaded(['nixlab-admin-backend.service', 'nixlab-ui.service', 'nginx.service', 'cockpit.service'], log)
     update(directory, status='rolled-back', rolledBackAt=time.time())
     pending = rt.read_json(rt.STATE / 'pending.json')
     if pending and pending['id'] == directory.name:
@@ -214,6 +223,24 @@ def rollback(directory, reason='requested'):
     rt.durable_unlink(directory / 'system')
     rt.durable_unlink(directory / 'previous-system')
     rt.audit('rolled-back', job=directory.name, reason=reason)
+
+
+def restart_loaded(units, log):
+    for unit in units:
+        result = subprocess.run(['systemctl', 'show', unit, '--property=LoadState', '--value'],
+                                capture_output=True, text=True, timeout=10)
+        if result.returncode == 0 and result.stdout.strip() == 'loaded':
+            run(['systemctl', 'try-restart', unit], log, timeout=45, check=False)
+
+
+def recover_activation(directory, original):
+    update(directory, error=str(original))
+    try:
+        rollback(directory, 'activation failed')
+    except Exception as recovery:
+        update(directory, status='failed', error=str(original), rollbackError=str(recovery))
+        with (directory / 'build.log').open('a') as log:
+            log.write('\nROLLBACK FAILED: ' + str(recovery) + '\n')
 
 
 def apply(directory):
@@ -261,12 +288,15 @@ def apply(directory):
             run(['systemctl', 'is-active', 'nixlab-admin-backend.service', 'nixlab-ui.service'], log, timeout=30)
             if effective['apps']['enable']:
                 run(['systemctl', 'try-restart', 'nginx.service'], log, timeout=45)
+        import diagnostics
+        report = diagnostics.wait_ready(effective)
+        rt.write_json(directory / 'health.json', report)
         deadline = time.time() + effective['setup']['confirmationSeconds']
         rt.write_json(rt.STATE / 'pending.json', {'id': directory.name, 'previousSystem': previous, 'deadline': deadline})
         update(directory, status='awaiting-confirmation', deadline=deadline)
         rt.audit('awaiting-confirmation', job=directory.name)
-    except Exception:
-        rollback(directory, 'activation failed')
+    except Exception as original:
+        recover_activation(directory, original)
         raise
 
 
@@ -292,7 +322,7 @@ def job(phase, job_id):
     except Exception as exc:
         current = rt.read_json(directory / 'job.json')
         if current.get('status') != 'rolled-back':
-            update(directory, status='failed', error=str(exc))
+            update(directory, status='failed', error=current.get('error') or str(exc))
         with (directory / 'build.log').open('a') as log:
             log.write('\nFAILED: ' + str(exc) + '\n')
         rt.audit('transaction-failed', job=job_id, phase=phase)
@@ -310,3 +340,4 @@ def guard():
                 rollback(rt.STATE / 'jobs' / pending['id'], 'confirmation timed out')
     from operations import Operations
     Operations().recover_interrupted()
+

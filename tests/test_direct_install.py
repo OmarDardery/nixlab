@@ -63,9 +63,11 @@ class DirectPlanningTests(unittest.TestCase):
         self.assertFalse(value['apps']['enable'])
         self.assertEqual(value['guests']['cidr'], '10.78.0.0/24')
 
-    def test_missing_key_and_legacy_wifi_fail_before_activation(self):
-        with self.assertRaisesRegex(ValueError, 'SSH public key'):
-            direct.prepare(initial(), {}, inventory())
+    def test_local_console_needs_no_key_but_remote_access_must_be_explicit(self):
+        self.assertEqual(direct.prepare(initial(), {}, inventory())['adminKeys'], [])
+        with self.assertRaisesRegex(ValueError, 'client SSH public key'):
+            direct.prepare(initial(), {}, inventory(), remote=True)
+        self.assertTrue(direct.prepare(initial(), {}, inventory(), remote=True, password_login=True)['access']['sshPasswordLogin'])
         current = initial()
         current['radios']['wifi'].update(enable=True, interface='eth0')
         with self.assertRaisesRegex(ValueError, 'wpa_supplicant'):
@@ -76,7 +78,7 @@ class DirectPlanningTests(unittest.TestCase):
         host['routes'].append({'dst': '10.90.90.0/24', 'dev': 'incusbr0'})
         prior = direct.guest_network([])
         value = direct.prepare(initial(), {'adminKeys': [KEY]}, host, previous_guests=prior)
-        self.assertEqual(value['guests'], prior)
+        self.assertEqual(value['guests'], dict(prior, bridge='incusbr0'))
         with self.assertRaisesRegex(ValueError, 'cannot change'):
             direct.prepare(initial(), {'adminKeys': [KEY]}, host,
                            subnet='10.78.0.0/24', previous_guests=prior)
@@ -102,7 +104,8 @@ class DirectActivationTests(unittest.TestCase):
         self.assertGreaterEqual(len(password), 24)
         args, kwargs = self.manager.review.call_args
         self.assertNotIn(password, json.dumps(args[0]))
-        self.assertEqual(kwargs['secret_values'], {'portainerPassword': password})
+        self.assertEqual(kwargs['secret_values'], {})
+        self.assertEqual(rt.SECRET_PATHS['portainerPassword'].read_text().strip(), password)
         self.assertEqual([call[0] for call in self.manager.method_calls], ['review', 'apply', 'confirm'])
 
     def test_build_failure_never_applies_or_confirms(self):
@@ -142,3 +145,4 @@ class DirectActivationTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

@@ -10,6 +10,18 @@ in {
     users.groups.nixlab-ui = { };
     users.users.nixlab-ui = { isSystemUser = true; group = "nixlab-ui"; };
     environment.systemPackages = [ tool ];
+    systemd.services.nixlab-management-identity = {
+      description = "Refresh management TLS identity from the assigned address";
+      wantedBy = [ "multi-user.target" ];
+      wants = [ "network-online.target" ]; after = [ "network-online.target" ];
+      before = [ "incus.service" "cockpit.socket" "nginx.service" "nixlab-ui.service" ];
+      path = [ pkgs.iproute2 ];
+      serviceConfig = {
+        Type = "oneshot"; RemainAfterExit = true;
+        ExecStart = "${tool}/bin/nixlab-admin identity";
+        Restart = "on-failure"; RestartSec = "3s"; TimeoutStartSec = "120s";
+      };
+    };
     systemd.tmpfiles.rules = [
       "d /var/lib/nixlab-admin 0710 root nixlab-ui -"
       "d /var/lib/nixlab-admin/jobs 0700 root root -"
@@ -34,7 +46,8 @@ in {
     systemd.services.nixlab-ui = {
       description = "Nixlab HTTPS first-run setup and host settings";
       wantedBy = [ "multi-user.target" ];
-      after = [ "nixlab-admin-backend.service" ]; requires = [ "nixlab-admin-backend.service" ];
+      after = [ "nixlab-admin-backend.service" "nixlab-management-identity.service" ];
+      requires = [ "nixlab-admin-backend.service" "nixlab-management-identity.service" ];
       environment = { NIXLAB_ROOT = "/var/lib/nixlab/config"; NIXLAB_PORT = toString site.setup.port; };
       serviceConfig = {
         ExecStart = "${tool}/bin/nixlab-admin web";
@@ -55,10 +68,20 @@ in {
       serviceConfig = { Type = "oneshot"; ExecStart = "${tool}/bin/nixlab-admin guard"; };
     };
     systemd.services.incus = lib.mkIf config.virtualisation.incus.enable {
+      requires = [ "nixlab-management-identity.service" ];
+      after = [ "nixlab-management-identity.service" ];
       serviceConfig.BindReadOnlyPaths = lib.mkIf (config.virtualisation.incus.useACMEHost == null) [
         "/var/lib/nixlab-admin/tls.crt:/var/lib/incus/server.crt"
         "/var/lib/nixlab-admin/tls.key:/var/lib/incus/server.key"
       ];
+    };
+    systemd.sockets.cockpit = lib.mkIf site.cockpit.enable {
+      requires = [ "nixlab-management-identity.service" ];
+      after = [ "nixlab-management-identity.service" ];
+    };
+    systemd.services.nginx = lib.mkIf site.apps.enable {
+      requires = [ "nixlab-management-identity.service" ];
+      after = [ "nixlab-management-identity.service" ];
     };
     systemd.services.nixlab-tls-renew = {
       environment.NIXLAB_ROOT = "/var/lib/nixlab/config";
@@ -74,3 +97,4 @@ in {
     };
   };
 }
+

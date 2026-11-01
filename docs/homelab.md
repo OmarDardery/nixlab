@@ -5,6 +5,9 @@ and system-container management and guest consoles. Portainer supplies Docker
 Compose stacks and application consoles inside the dedicated `apps` NixOS VM.
 Docker does not run on the hypervisor.
 
+For a plain NixOS server, use the [single-command workflow](plain-nixos.md).
+The steps below describe the optional portal preset.
+
 ## Enable and activate
 
 1. Upgrade to the reviewed source revision. Preserve the machine directory, Incus
@@ -29,7 +32,7 @@ Docker does not run on the hypervisor.
 
 The preset selects Portainer port 9443. Older settings retain **9441** until
 explicitly changed. Management ports are configurable and collision-checked.
-Homepage links use active settings, rather than an unapplied draft. Portainer's
+Homepage links use the observed management address, falling back to active settings. Portainer's
 internal port remains 9443 behind the host's TLS-verified proxy. Only the
 hypervisor may reach that published VM endpoint, including after Docker restarts.
 Other Docker applications retain their own exposure policies.
@@ -129,3 +132,4 @@ real Docker forwarding with a disposable HTTP fixture before/after Docker restar
 The fixture tests the Portainer port's access boundary; it does not claim to boot
 the external Portainer image or validate your application stacks. Those remain
 target-machine checks.
+
