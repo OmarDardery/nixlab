@@ -190,6 +190,9 @@
         networkManager = installedNetworking.networkManager;
         wpaProfiles = bootstrap.config.networking.wireless.networks != { };
         fileSystems = builtins.mapAttrs (_: fs: { inherit (fs) device fsType options; }) bootstrap.config.fileSystems;
+        adminKeys = nixpkgs.lib.unique (nixpkgs.lib.concatMap (user: user.openssh.authorizedKeys.keys)
+          (builtins.filter (user: user.name == "root" || builtins.elem "wheel" user.extraGroups)
+            (builtins.attrValues bootstrap.config.users.users)));
       };
       checks.x86_64-linux = {
         management = import ./tests/management-vm.nix { inherit pkgs; };

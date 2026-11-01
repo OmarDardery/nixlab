@@ -3,7 +3,19 @@
 A declarative NixOS bare-metal host using Incus for system containers and KVM VMs,
 with Docker Compose isolated inside a NixOS applications VM.
 
-**Recommended installation:** boot the [installer ISO](docs/iso.md), connect to the Internet,
+**Already running NixOS?** Use the [direct installer](docs/setup.md#direct-clone-build-and-switch):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/OmarDardery/nixlab/main/install.sh -o install-nixlab.sh
+sudo bash install-nixlab.sh --switch
+```
+
+It preserves the installed hardware/boot configuration, clones Nixlab and switches
+directly into Incus + Cockpit + the Portainer apps VM. Supply `--ssh-key /path/to/admin.pub`
+if no administrator key is already configured, or `--no-apps` to omit the apps VM.
+See the supported configuration scope and recovery behavior in the guide.
+
+**For a blank machine:** boot the [installer ISO](docs/iso.md), connect to the Internet,
 and run `sudo nixlab-setup`. The guided console installer reviews one selected disk,
 requires typed erase confirmation, installs NixOS and starts the private web setup on first boot.
 An [existing conventional NixOS installation](docs/setup.md) can use the conversion installer instead.
