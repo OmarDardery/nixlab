@@ -258,6 +258,7 @@ def apply(directory):
                 run(['systemctl', 'try-restart', 'incus.service'], log, timeout=120)
             # Load rotated TLS material/new port. This may require signing in again.
             run(['systemctl', 'try-restart', 'nixlab-admin-backend.service', 'nixlab-ui.service'], log, timeout=45)
+            run(['systemctl', 'is-active', 'nixlab-admin-backend.service', 'nixlab-ui.service'], log, timeout=30)
             if effective['apps']['enable']:
                 run(['systemctl', 'try-restart', 'nginx.service'], log, timeout=45)
         deadline = time.time() + effective['setup']['confirmationSeconds']

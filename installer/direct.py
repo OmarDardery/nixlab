@@ -15,7 +15,8 @@ def guest_network(routes, requested=None):
         '10.90.90.0/24', '10.77.0.0/24', '10.78.0.0/24', '172.30.77.0/24', '192.168.240.0/24']
     for choice in choices:
         net = ipaddress.ip_network(choice, strict=True)
-        if net.version != 4 or net.prefixlen != 24 or not net.is_private:
+        private = [ipaddress.ip_network(value) for value in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16')]
+        if net.version != 4 or net.prefixlen != 24 or not any(net.subnet_of(block) for block in private):
             raise ValueError('Guest network must be a private IPv4 /24')
         if any(net.overlaps(existing) for existing in occupied):
             continue

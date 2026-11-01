@@ -37,7 +37,8 @@ class DirectPlanningTests(unittest.TestCase):
         self.assertEqual(direct.guest_network(routes)['cidr'], '10.78.0.0/24')
         with self.assertRaisesRegex(ValueError, 'non-overlapping'):
             direct.guest_network(routes, '10.90.90.0/24')
-        for invalid in ['8.8.8.0/24', '10.77.0.0/16', '::/24', '10.77.0.1/24']:
+        for invalid in ['8.8.8.0/24', '10.77.0.0/16', '::/24', '10.77.0.1/24',
+                        '127.0.0.0/24', '169.254.1.0/24', '192.0.2.0/24']:
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 direct.guest_network([], invalid)
 
