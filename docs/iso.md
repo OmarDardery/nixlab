@@ -6,7 +6,13 @@ Build from a clean checkout of the reviewed branch:
 nix build .#packages.x86_64-linux.installer-iso -o result-iso
 ```
 
-The image is under `result-iso/iso/`. The CI build publishes an ISO and SHA256SUMS
+The image is under `result-iso/iso/`. Tagged versions are available from
+[Releases](https://github.com/OmarDardery/nixlab/releases), with the ISO,
+`SHA256SUMS`, `manifest.json` and `TRIAL.md` attached directly. Download all four
+into one directory and run `sha256sum -c SHA256SUMS`; write the `.iso`, not
+GitHub's automatically generated source archive, to your USB drive.
+
+The CI build also publishes an ISO and SHA256SUMS
 as the `nixlab-installer-x86_64` workflow artifact, retained for 90 days. The artifact
 also contains build metadata and the trial checklist. These
 are candidate installation images, not hardware-certified releases. The media
@@ -35,7 +41,7 @@ image provides both a local screen and a 115200-baud serial console.
 
 ## Guided installation
 
-1. Extract the CI artifact, verify `SHA256SUMS`, and write the `.iso` to a USB device.
+1. Download the release assets (or extract the CI artifact), verify `SHA256SUMS`, and write the `.iso` to a USB device.
 2. Boot the laptop/server in the firmware mode you want to install (UEFI or BIOS).
    This unsigned media does not provision Secure Boot keys.
 3. Connect to the Internet; use `nmtui` for Wi-Fi if needed.
@@ -130,3 +136,30 @@ is recorded independently in `platform-release.json`. Use the portal's reviewed 
 upgrade or `nixlab-admin config review --revision FULL_COMMIT_SHA` for later source updates;
 no manual upstream-branch setup is required. Plain `git pull` is not the managed update path.
 See [operations](operations.md) for upgrades, recovery and account boundaries.
+
+## Publishing a version
+
+After merging the release workflow and reviewed changes into `main`, make sure
+`VERSION` contains the intended version, then push its matching tag:
+
+```sh
+git switch main
+git pull --ff-only
+git tag -a "v$(cat VERSION)" -m "Nixlab $(cat VERSION)"
+git push origin "v$(cat VERSION)"
+```
+
+Actions validates the tagged commit, builds the ISO, boots it under BIOS and UEFI,
+and publishes those exact tested bytes as release assets. The publishing job alone
+has `contents: write`; it uses the built-in `GITHUB_TOKEN`, without a personal token.
+The tag must match `VERSION`, and the artifact manifest must match both the version
+and commit. Versions such as `0.1.0-rc1` become prereleases; plain versions become
+stable releases. Release assets are not subject to the CI artifact's 90-day retention.
+
+Publication first creates a draft with all assets, then makes it public only after
+the uploads succeed. If publication fails after creating that draft, inspect and
+delete the incomplete draft (keep the tag), then rerun the failed job. Existing
+releases are never overwritten. To retry a failed build, rerun the workflow; you can
+also run **Validate Nixlab** manually with the existing version tag selected. Manual
+branch runs build artifacts without publishing a release. Do not move a published
+tag; bump `VERSION` and create a new tag for changed source.

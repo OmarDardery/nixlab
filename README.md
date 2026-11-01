@@ -118,8 +118,11 @@ covered in `platform-modules/`; mutable guest data still needs independent backu
 
 ### Bootable installer ISO
 
-Build `nix build .#packages.x86_64-linux.installer-iso -o result-iso`, or download
-the `nixlab-installer-x86_64` CI artifact after its build completes. The guided installer prepares one explicitly confirmed boot disk and starts Nixlab's
+Download the ISO and `SHA256SUMS` from [Releases](https://github.com/OmarDardery/nixlab/releases),
+or use the `nixlab-installer-x86_64` CI artifact for an untagged candidate.
+You can also build `nix build .#packages.x86_64-linux.installer-iso -o result-iso`.
+Version tags publish release assets only after full validation and BIOS/UEFI boot checks pass.
+The guided installer prepares one explicitly confirmed boot disk and starts Nixlab's
 web setup on first boot. The standard NixOS manual installation path remains available. See [ISO installation](docs/iso.md) for exact steps and
 validation limits. No disks are formatted automatically.
 

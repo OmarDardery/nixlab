@@ -12,6 +12,11 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
+      - name: Check release tag version
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: test "$RELEASE_TAG" = "v$(cat VERSION)"
       - name: Python safety tests
         run: |
           python3 -m compileall -q admin iso scripts tests helpers installer
@@ -27,6 +32,7 @@ jobs:
           node tests/test_operations_ui.js
           node tests/test_foundation_ui.js
           bash -n install.sh
+          bash -n scripts/publish-release.sh
       - name: Browser workflow checks
         run: |
           python3 -m venv "$RUNNER_TEMP/nixlab-browser"
@@ -117,7 +123,7 @@ jobs:
           test -s "result-app-metadata/tarball/$metadata_name"
 
   installer-iso:
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/tryout/'))
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/tryout/'))
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -155,3 +161,28 @@ jobs:
           path: iso-boot*.log
           retention-days: 7
           if-no-files-found: ignore
+
+  release:
+    if: github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/v')
+    needs: [validate, installer-iso]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: write
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download this run's tested installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name nixlab-installer-x86_64 --dir iso-artifact
+      - name: Verify and publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/publish-release.sh iso-artifact
