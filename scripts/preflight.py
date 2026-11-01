@@ -38,7 +38,7 @@ def validate(site):
             raise ValueError('Duplicate declared instance name/project')
         identities.add(identity)
         for device in instance.get('devices', {}).values():
-            if device.get('network') != 'incusbr0' or not device.get('ipv4.address'):
+            if device.get('network') != g.get('bridge', 'incusbr0') or not device.get('ipv4.address'):
                 continue
             address = ipaddress.ip_address(device['ipv4.address'])
             if (address not in subnet or address in reservations or
@@ -68,3 +68,4 @@ def validate(site):
 
 if __name__ == '__main__':
     validate(json.loads(Path(sys.argv[1]).read_text()))
+

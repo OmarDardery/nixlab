@@ -6,6 +6,7 @@
   hostName = "nixlab";
   cpuVendor = ""; # intel or amd
   adminKeys = [ ];
+  access.sshPasswordLogin = false; # Explicit opt-in; local console installs need no key.
   management = {
     interface = "";
     address = "";
@@ -16,12 +17,14 @@
     configure = false; # preserve installer networking until explicitly enabled
   };
   guests = {
+    bridge = "incusbr0";
     cidr = "";
     gatewayCIDR = "";
     dhcpRange = ""; # e.g. 10.77.0.100-10.77.0.199 (not an actual LAN)
     appsAddress = "";
   };
   storage = {
+    pool = "guests";
     driver = "dir"; # dir is the non-formatting baseline; zfs requires an existing dataset
     source = "/var/lib/incus/storage-pools/guests";
     confirmedExistingZfsDataset = false;
@@ -44,6 +47,7 @@
   instances = [ ];
   mounts = [ ]; # existing UUID filesystems only, managed under /srv/nixlab
   connectivity = {
+    preservedIncusBridges = [ ]; # Native Incus bridges retained during adoption.
     bridges = [ ]; # { name = "br-lan"; interfaces = [ "enp2s0" ]; }
     vlans = [ ]; # { name = "vlan20"; interface = "enp2s0"; id = 20; }
     guestInterfaces = [ "incusbr0" ]; # Host firewall integration, not guest network definitions.
@@ -84,3 +88,4 @@
     reserveMiB = 1024;
   };
 }
+

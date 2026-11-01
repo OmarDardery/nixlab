@@ -70,10 +70,11 @@ class ModuleUploadTests(unittest.TestCase):
             host=copy.deepcopy(HOST)
             host['disks'].append({'uuid':'different-uuid','mountpoints':['/srv/nixlab/archive']})
             result=subprocess.CompletedProcess([],0,stdout=json.dumps(projection))
-            with patch('worker.run'),patch('worker.subprocess.run',return_value=result),patch('model.inventory',return_value=host):
+            with patch('worker.run') as run,patch('worker.subprocess.run',return_value=result),patch('model.inventory',return_value=host):
                 with self.assertRaisesRegex(ValueError,'different filesystem'):
                     worker.build(directory)
             self.assertNotEqual(rt.read_json(directory/'job.json').get('status'),'ready')
+            self.assertEqual(run.call_args.args[0], [str(directory/'system/bin/switch-to-configuration'), 'dry-activate'])
             self.assertFalse((root/'site-modules').exists())
 
     def test_root_cli_uses_same_review_transaction(self):
@@ -122,7 +123,7 @@ class ModuleUploadTests(unittest.TestCase):
             def fake_run(args, **kwargs):
                 if args[0] == 'git': return original_run(args, **kwargs)
                 return subprocess.CompletedProcess(args,0,stdout='{}')
-            with patch.object(rt,'ROOT',root),patch.object(rt,'STATE',state),patch.object(rt,'SECRET_PATHS',{}),patch('worker.subprocess.run',side_effect=fake_run),patch('worker.run') as run:
+            with patch.object(rt,'ROOT',root),patch.object(rt,'STATE',state),patch.object(rt,'SECRET_PATHS',{}),patch('worker.subprocess.run',side_effect=fake_run),patch('diagnostics.wait_ready', return_value={'ok': True}),patch('worker.run') as run:
                 worker.apply(directory)
             self.assertTrue((root/'site-modules/archive.nix').exists())
             commands=[call.args[0] for call in run.call_args_list]
@@ -529,3 +530,4 @@ main.backend()
         self.assertEqual(status,200);self.assertIn(b'BEGIN CERTIFICATE',data)
 
 if __name__=='__main__':unittest.main()
+

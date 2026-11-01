@@ -63,9 +63,23 @@ class DirectPlanningTests(unittest.TestCase):
         self.assertFalse(value['apps']['enable'])
         self.assertEqual(value['guests']['cidr'], '10.78.0.0/24')
 
-    def test_missing_key_and_legacy_wifi_fail_before_activation(self):
-        with self.assertRaisesRegex(ValueError, 'SSH public key'):
-            direct.prepare(initial(), {}, inventory())
+    def test_completed_install_retains_static_address_and_custom_ports(self):
+        current = initial()
+        current['ready'] = True
+        current['management']['configure'] = True
+        current['management']['dns'] = ['192.0.2.1']
+        current['apps'].update(enable=True, portainerPort=19443)
+        current['cockpit']['enable'] = True
+        current['guests'].update(direct.guest_network([]))
+        value = direct.prepare(current, {'adminKeys': [KEY]}, inventory(), previous_guests=current['guests'])
+        self.assertTrue(value['management']['configure'])
+        self.assertEqual(value['apps']['portainerPort'], 19443)
+
+    def test_local_console_needs_no_key_but_remote_access_must_be_explicit(self):
+        self.assertEqual(direct.prepare(initial(), {}, inventory())['adminKeys'], [])
+        with self.assertRaisesRegex(ValueError, 'client SSH public key'):
+            direct.prepare(initial(), {}, inventory(), remote=True)
+        self.assertTrue(direct.prepare(initial(), {}, inventory(), remote=True, password_login=True)['access']['sshPasswordLogin'])
         current = initial()
         current['radios']['wifi'].update(enable=True, interface='eth0')
         with self.assertRaisesRegex(ValueError, 'wpa_supplicant'):
@@ -76,7 +90,7 @@ class DirectPlanningTests(unittest.TestCase):
         host['routes'].append({'dst': '10.90.90.0/24', 'dev': 'incusbr0'})
         prior = direct.guest_network([])
         value = direct.prepare(initial(), {'adminKeys': [KEY]}, host, previous_guests=prior)
-        self.assertEqual(value['guests'], prior)
+        self.assertEqual(value['guests'], dict(prior, bridge='incusbr0'))
         with self.assertRaisesRegex(ValueError, 'cannot change'):
             direct.prepare(initial(), {'adminKeys': [KEY]}, host,
                            subnet='10.78.0.0/24', previous_guests=prior)
@@ -102,7 +116,8 @@ class DirectActivationTests(unittest.TestCase):
         self.assertGreaterEqual(len(password), 24)
         args, kwargs = self.manager.review.call_args
         self.assertNotIn(password, json.dumps(args[0]))
-        self.assertEqual(kwargs['secret_values'], {'portainerPassword': password})
+        self.assertEqual(kwargs['secret_values'], {})
+        self.assertEqual(rt.SECRET_PATHS['portainerPassword'].read_text().strip(), password)
         self.assertEqual([call[0] for call in self.manager.method_calls], ['review', 'apply', 'confirm'])
 
     def test_build_failure_never_applies_or_confirms(self):
@@ -126,6 +141,14 @@ class DirectActivationTests(unittest.TestCase):
         self.assertIsNone(password)
         self.assertEqual(self.manager.review.call_args.kwargs['secret_values'], {})
 
+    def test_file_owned_apps_receive_credentials_without_overwriting_json(self):
+        self.candidate['apps']['enable'] = False
+        effective = copy.deepcopy(self.candidate); effective['apps']['enable'] = True
+        with patch('direct.wait_for', return_value={'status': 'awaiting-confirmation'}), patch('builtins.print'):
+            password, _ = direct.activate(self.candidate, self.manager, effective=effective)
+        self.assertTrue(password)
+        self.assertFalse(self.manager.review.call_args.args[0]['apps']['enable'])
+
     def test_failed_worker_status_is_reported_with_log_path(self):
         self.manager.job.return_value = {'status': 'failed', 'error': 'fixture build failure'}
         with self.assertRaisesRegex(ValueError, 'fixture build failure.*build.log'):
@@ -142,3 +165,4 @@ class DirectActivationTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

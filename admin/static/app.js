@@ -111,7 +111,7 @@ function pendingBanner() {
 }
 function shell() {
   const settings = state.status.effectiveSettings || state.status.settings;
-  app.innerHTML = `<div class="layout"><aside class="sidebar"><div class="brand"><span class="mark">N</span><div>nixlab<small>HOMELAB CONTROL</small></div></div><div><div class="nav-label">WORKSPACE</div><nav class="nav">${pages.map(([id, icon, label]) => `<button data-go="${id}" class="${primaryPage() === id ? "active" : ""}"><span class="nav-icon">${icon}</span>${label}</button>`).join("")}</nav></div><div class="sidebar-bottom"><b><span class="dot"></span>${esc(settings.hostName)}</b>Declarative host · NixOS<br><span class="mono">${esc(settings.management.address)}</span><br><button class="small" data-action="logout">Sign out</button></div></aside><div class="content"><header class="topbar"><div class="breadcrumb">Workspace <span class="muted">/</span> <b>${esc(hostPages.find((p) => p[0] === state.page)?.[1] || pages.find((p) => p[0] === state.page)?.[2])}</b></div><div class="top-actions"><span class="pill"><span class="dot"></span>${settings.ready ? "Configured host" : "Initial setup"}</span><span class="mono muted">${esc(state.principal.username)} · ${esc(state.principal.role)}</span></div></header><main class="page">${pendingBanner()}${ownershipBanner()}${hostTabs()}${renderPage()}</main></div></div>`;
+  app.innerHTML = `<div class="layout"><aside class="sidebar"><div class="brand"><span class="mark">N</span><div>nixlab<small>HOMELAB CONTROL</small></div></div><div><div class="nav-label">WORKSPACE</div><nav class="nav">${pages.map(([id, icon, label]) => `<button data-go="${id}" class="${primaryPage() === id ? "active" : ""}"><span class="nav-icon">${icon}</span>${label}</button>`).join("")}</nav></div><div class="sidebar-bottom"><b><span class="dot"></span>${esc(settings.hostName)}</b>Declarative host · NixOS<br><span class="mono">${esc(state.status.managementAddress || settings.management.address)}</span><br><button class="small" data-action="logout">Sign out</button></div></aside><div class="content"><header class="topbar"><div class="breadcrumb">Workspace <span class="muted">/</span> <b>${esc(hostPages.find((p) => p[0] === state.page)?.[1] || pages.find((p) => p[0] === state.page)?.[2])}</b></div><div class="top-actions"><span class="pill"><span class="dot"></span>${settings.ready ? "Configured host" : "Initial setup"}</span><span class="mono muted">${esc(state.principal.username)} · ${esc(state.principal.role)}</span></div></header><main class="page">${pendingBanner()}${ownershipBanner()}${hostTabs()}${renderPage()}</main></div></div>`;
   bind();
   bindOperations();
   bindFoundation();
@@ -141,13 +141,14 @@ function linkRow(icon, heading, detail, url, label = "Open ↗") {
 }
 function homepageTools() {
   const active = state.status.effectiveSettings || state.status.settings,
+    address = state.status.managementAddress || active.management.address,
     ready = state.status.setupComplete;
   const incus = ready
     ? linkRow(
         "▦",
         "Incus",
         "Virtual machines, containers, networks, storage & snapshots",
-        `https://${active.management.address}:8443`,
+        `https://${address}:8443`,
       )
     : '<div class="service-row"><div class="service-copy"><h3>Incus</h3><small>Available after the first activation.</small></div><button data-go="review">Finish setup →</button></div>';
   const portainer =
@@ -156,11 +157,11 @@ function homepageTools() {
           "▱",
           "Portainer",
           "Compose projects, logs & service configuration",
-          `https://${active.management.address}:${active.apps.portainerPort ?? 9441}`,
+          `https://${address}:${active.apps.portainerPort ?? 9441}`,
         )
       : `<div class="service-row"><div class="service-copy"><h3>Portainer</h3><small>${active.apps.enable ? "Available after the first activation." : "Applications VM is disabled; no dashboard is running."}</small></div><button data-go="apps">${active.apps.enable ? "Configure →" : "Enable apps →"}</button></div>`;
   const cockpit = ready && active.cockpit?.enable
-    ? linkRow("⌘", "Cockpit", "Host terminal, systemd services, journal & resource usage", `https://${active.management.address}:${active.cockpit.port}`)
+    ? linkRow("⌘", "Cockpit", "Host terminal, systemd services, journal & resource usage", `https://${address}:${active.cockpit.port}`)
     : '<div class="service-row"><div class="service-copy"><h3>Cockpit</h3><small>Host web terminal uses a local Linux account; separate from portal accounts.</small></div><button data-go="integrations">Configure host access →</button></div>';
   return card(
     "Management tools",
@@ -496,3 +497,4 @@ setInterval(countdown, 1000);
     login();
   }
 })();
+

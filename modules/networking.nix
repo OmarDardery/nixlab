@@ -23,9 +23,16 @@ in {
       iifname ${iface} ip saddr { ${trusted} } tcp dport { 22, 8443 } accept
       iifname { ${guestIfaces} } udp dport { 53, 67 } accept
       iifname { ${guestIfaces} } tcp dport 53 accept
+      ${lib.concatMapStringsSep "\n" (bridge: ''
+        iifname ${builtins.toJSON bridge} udp dport { 53, 67 } accept
+        iifname ${builtins.toJSON bridge} tcp dport 53 accept
+      '') site.connectivity.preservedIncusBridges}
     '';
-    extraForwardRules = ''
-      iifname "incusbr0" ip saddr != ${site.guests.cidr} drop
+    extraForwardRules = lib.concatMapStringsSep "\n" (bridge: ''
+      iifname ${builtins.toJSON bridge} accept
+      oifname ${builtins.toJSON bridge} accept
+    '') site.connectivity.preservedIncusBridges + ''
+      iifname ${builtins.toJSON site.guests.bridge} ip saddr != ${site.guests.cidr} drop
       iifname { ${guestIfaces} } oifname { ${guestIfaces} } accept
       ${lib.concatMapStringsSep "\n" (rule: ''
         iifname { ${guestIfaces} } ip daddr ${rule.cidr} ${rule.protocol} dport { ${lib.concatMapStringsSep ", " toString rule.ports} } accept
@@ -40,7 +47,7 @@ in {
   networking.nat = {
     enable = true;
     externalInterface = m.interface;
-    internalInterfaces = [ "incusbr0" ];
+    internalInterfaces = [ site.guests.bridge ];
     internalIPs = [ site.guests.cidr ];
   };
   # Opt-in change: never enslave or rename an existing management NIC on rebuild.
@@ -63,3 +70,4 @@ in {
       // lib.optionalAttrs (vlan != null) { vlan = { id = vlan.id; parent = vlan.interface; }; };
   };
 }
+

@@ -75,4 +75,22 @@ with tempfile.TemporaryDirectory(prefix='nixlab-direct-eval-') as folder:
     assert set(actual['settings']['adminKeys']) == {key(1), key(3)}, actual
     # Evaluate the actual system derivation to force NixOS assertions too.
     evaluate(root, 'nixosConfigurations.hypervisor.config.system.build.toplevel.drvPath')
+    # A physical-console install is valid without a key. Adoption can use an
+    # independent bridge/pool without changing native Incus resources.
+    candidate['adminKeys'] = []
+    candidate['guests']['bridge'] = 'nixlabbr'
+    candidate['storage']['pool'] = 'nixlab-guests'
+    candidate['storage']['source'] = '/var/lib/incus/storage-pools/nixlab-guests'
+    candidate['connectivity']['guestInterfaces'] = ['nixlabbr']
+    candidate['connectivity']['preservedIncusBridges'] = ['incusbr0']
+    path.write_text(json.dumps(candidate))
+    adopted = evaluate(root, 'nixosConfigurations.hypervisor.config', '''c: {
+      pool = (builtins.head c.virtualisation.incus.preseed.storage_pools).name;
+      bridge = (builtins.head c.virtualisation.incus.preseed.networks).name;
+      nat = c.networking.nat.internalInterfaces;
+      passwordLogin = c.services.openssh.settings.PasswordAuthentication;
+    }''')
+    assert adopted == {'pool': 'nixlab-guests', 'bridge': 'nixlabbr', 'nat': ['nixlabbr'], 'passwordLogin': False}, adopted
+    evaluate(root, 'nixosConfigurations.hypervisor.config.system.build.toplevel.drvPath')
     print('Direct conversion: preserved machine inputs and full hypervisor evaluation passed.')
+

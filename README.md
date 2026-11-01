@@ -3,17 +3,21 @@
 A declarative NixOS bare-metal host using Incus for system containers and KVM VMs,
 with Docker Compose isolated inside a NixOS applications VM.
 
-**Already running NixOS?** Use the [direct installer](docs/setup.md#direct-clone-build-and-switch):
+**Start from a plain, installed NixOS server** (no desktop needed):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/OmarDardery/nixlab/main/install.sh -o install-nixlab.sh
-sudo bash install-nixlab.sh --switch
+sudo nix --extra-experimental-features 'nix-command flakes' \
+  run github:OmarDardery/nixlab#install
 ```
 
-It preserves the installed hardware/boot configuration, clones Nixlab and switches
-directly into Incus + Cockpit + the Portainer apps VM. Supply `--ssh-key /path/to/admin.pub`
-if no administrator key is already configured, or `--no-apps` to omit the apps VM.
-See the supported configuration scope and recovery behavior in the guide.
+It preserves installed users, filesystems, boot configuration and addressing, then
+builds Incus, Cockpit and the Portainer apps VM. Retries detect active work and
+resume automatically. Local console installation needs no SSH key; remote
+installation needs a client public key or an explicit password-login policy.
+Success includes endpoint checks, actual assigned URLs and verified credentials.
+Existing Incus requires explicit adoption and completed backups.
+See [plain NixOS installation and recovery](docs/plain-nixos.md) for options,
+supported adoption boundaries and the installation issue regression checklist.
 
 **For a blank machine:** boot the [installer ISO](docs/iso.md), connect to the Internet,
 and run `sudo nixlab-setup`. The guided console installer reviews one selected disk,
@@ -77,8 +81,8 @@ docs/                        # research, commissioning, operation and recovery
 
 ## Start here
 
-For the Cockpit + Incus + Portainer laptop setup, use the **Integrations** management
-stack preset and [homelab guide](docs/homelab.md). It stages Cockpit on 9090,
+The command above installs the Cockpit + Incus + Portainer stack. Existing portal
+users can also use **Integrations** and the [homelab guide](docs/homelab.md). It stages Cockpit on 9090,
 Portainer on 9443 and lid-closed operation without remapping existing disks or guests.
 Existing hosts retain Portainer port 9441 until explicitly changed.
 
@@ -93,6 +97,9 @@ The following guides also cover the advanced/manual deployment path.
 
 ```console
 sudo homelab list
+sudo nixlab doctor
+sudo nixlab enroll-key /path/to/laptop.pub
+sudo nixlab portainer reset-password
 sudo homelab exec apps -- uname -a
 sudo homelab exec 105 -- systemctl status klipper
 sudo homelab exec-many apps,adguard -- df -h
@@ -155,3 +162,4 @@ Backups publish complete generations, recover each stopped guest group immediate
 and preserve two complete local generations. Shared writable volumes join their
 consumers. Maintenance exclusions remain visible and do not refresh full-host
 backup freshness. Legacy archives and CLI/API commands remain supported.
+
