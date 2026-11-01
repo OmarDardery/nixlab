@@ -62,9 +62,13 @@ def copy_nix_modules(source, target):
 
 
 def copy_embedded_checkout(source, target, repository, revision=None):
-    """The ISO carries a filtered source tree, not a Git working copy."""
+    """Accept either the packaged source tree or a launcher's Git checkout."""
     if not (source / 'flake.nix').is_file() or not (source / 'flake.lock').is_file():
         raise ValueError('Bundled checkout needs flake.nix and flake.lock')
+    if (source / '.git').exists():
+        run(['git', 'clone', '--no-hardlinks', str(source), str(target)])
+        run(['git', '-C', str(target), 'remote', 'set-url', 'origin', repository])
+        return
     shutil.copytree(source, target, symlinks=False)
     if revision and len(revision) == 40 and all(c in '0123456789abcdef' for c in revision):
         import upgrades
@@ -344,6 +348,9 @@ def main():
                 rt.write_json(rt.machine_path(TARGET, 'installation'), installation)
                 rt.write_json(rt.machine_path(TARGET, 'settings'), default)
     password = setup_password()
+    pin = rt.STATE / 'original-system'
+    if not pin.exists() and installation.get('originalSystem'):
+        run(['nix-store', '--add-root', str(pin), '--indirect', '--realise', installation['originalSystem']])
     if args.switch and existing and prior.get('status') == 'confirmed' and candidate == Manager().settings() \
             and rt.digest_source(TARGET) == prior.get('candidateDigest'):
         import diagnostics
