@@ -90,7 +90,9 @@ def build(directory):
             run(['nix', '--extra-experimental-features', 'nix-command flakes', 'flake', 'update', 'nixpkgs', '--flake', 'path:' + str(source)], log)
         run(['nix', '--extra-experimental-features', 'nix-command flakes', 'build', 'path:' + str(source) + '#nixosConfigurations.hypervisor.config.system.build.toplevel',
              '--out-link', str(directory / 'system')], log)
-        run(['nixos-rebuild', 'dry-activate', '--flake', 'path:' + str(source) + '#hypervisor'], log)
+        # Inspect the exact closure already built above. This avoids a second
+        # evaluation/rebuild and works before flakes are enabled on the host.
+        run([str((directory / 'system').resolve()) + '/bin/switch-to-configuration', 'dry-activate'], log)
     result = subprocess.run(['nix', '--extra-experimental-features', 'nix-command flakes', 'eval', '--json',
         'path:' + str(source) + '#nixosConfigurations.hypervisor.config', '--apply',
         'c: { settings = c.nixlab.settings; disks = c.nixlab.storage.disks; }'],

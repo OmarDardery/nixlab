@@ -70,10 +70,11 @@ class ModuleUploadTests(unittest.TestCase):
             host=copy.deepcopy(HOST)
             host['disks'].append({'uuid':'different-uuid','mountpoints':['/srv/nixlab/archive']})
             result=subprocess.CompletedProcess([],0,stdout=json.dumps(projection))
-            with patch('worker.run'),patch('worker.subprocess.run',return_value=result),patch('model.inventory',return_value=host):
+            with patch('worker.run') as run,patch('worker.subprocess.run',return_value=result),patch('model.inventory',return_value=host):
                 with self.assertRaisesRegex(ValueError,'different filesystem'):
                     worker.build(directory)
             self.assertNotEqual(rt.read_json(directory/'job.json').get('status'),'ready')
+            self.assertEqual(run.call_args.args[0], [str(directory/'system/bin/switch-to-configuration'), 'dry-activate'])
             self.assertFalse((root/'site-modules').exists())
 
     def test_root_cli_uses_same_review_transaction(self):

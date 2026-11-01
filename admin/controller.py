@@ -136,6 +136,8 @@ class Manager:
                 raise ValueError('Specify the full reviewed platform commit SHA')
             modules = rt.validate_modules({} if modules is None else modules)
             current = self.settings()
+            if rt.read_json(self.state / 'pending.json'):
+                raise ValueError('Finish the pending activation or its recovery before starting another review')
             active = rt.read_json(self.state / 'active.json', {})
             if active.get('id'):
                 previous = self.job(active['id'])

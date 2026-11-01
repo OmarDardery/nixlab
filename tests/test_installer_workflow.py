@@ -26,6 +26,18 @@ spec.loader.exec_module(installer)
 
 
 class SourceTests(unittest.TestCase):
+    def test_pending_recovery_blocks_competing_review(self):
+        from controller import Manager
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / 'source'; state = Path(folder) / 'state'
+            rt.write_json(root / 'local/settings.json', initial())
+            rt.write_json(state / 'pending.json', {'id': 'a' * 32})
+            manager = Manager(root, state)
+            with patch.object(rt, 'STATE', state):
+                with self.assertRaisesRegex(ValueError, 'pending activation'):
+                    manager.review({})
+            self.assertEqual(list((state / 'jobs').iterdir()), [])
+
     def test_fresh_console_install_and_retry_from_bundled_source(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
