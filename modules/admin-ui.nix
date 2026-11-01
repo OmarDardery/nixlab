@@ -14,7 +14,7 @@ in {
       description = "Refresh management TLS identity from the assigned address";
       wantedBy = [ "multi-user.target" ];
       wants = [ "network-online.target" ]; after = [ "network-online.target" ];
-      before = [ "incus.service" "cockpit.socket" "nginx.service" "nixlab-ui.service" ];
+      before = [ "incus.service" "cockpit.service" "nginx.service" "nixlab-ui.service" ];
       path = [ pkgs.iproute2 ];
       serviceConfig = {
         Type = "oneshot"; RemainAfterExit = true;
@@ -75,7 +75,9 @@ in {
         "/var/lib/nixlab-admin/tls.key:/var/lib/incus/server.key"
       ];
     };
-    systemd.sockets.cockpit = lib.mkIf site.cockpit.enable {
+    # Sockets are ordered before basic.target; waiting for network-online there
+    # creates a boot cycle. The activated service consumes the certificate.
+    systemd.services.cockpit = lib.mkIf site.cockpit.enable {
       requires = [ "nixlab-management-identity.service" ];
       after = [ "nixlab-management-identity.service" ];
     };

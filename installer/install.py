@@ -1,6 +1,4 @@
-"""Convert a conventional fresh NixOS install into an authenticated setup appliance.
-The first switch preserves the installed configuration; the web wizard performs conversion.
-"""
+"""Install a verified Nixlab stack on conventional NixOS, preserving the installed machine."""
 import argparse
 import ipaddress
 import json
@@ -279,6 +277,13 @@ def main():
             workflow.adoption_settings(default, adoption)
         rt.write_json(rt.machine_path(stage, 'settings'), default)
         overview = evaluate(stage, 'nixlabOverview')
+        # Reuse client keys already authorized for the installer account. Server
+        # host keys and arbitrary public-key files are never enrollment sources.
+        for home in (Path('/root'), Path('/home') / os.environ.get('SUDO_USER', '')):
+            path = home / '.ssh/authorized_keys'
+            if path.is_file():
+                overview['adminKeys'] = overview.get('adminKeys', []) + [line.strip()
+                    for line in path.read_text().splitlines() if line.startswith(('ssh-ed25519 ', 'ssh-rsa ', 'ecdsa-sha2-'))]
         installation = rt.read_json(rt.machine_path(stage, 'installation'), {})
         prior = {}
         if existing:

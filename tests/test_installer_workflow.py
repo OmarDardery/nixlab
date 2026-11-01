@@ -1,5 +1,6 @@
 """Retry, source-preservation, health-gating and recovery regressions."""
 import copy
+import contextlib
 import importlib.util
 import json
 from pathlib import Path
@@ -19,8 +20,75 @@ import worker
 import workflow
 from test_direct_install import initial, inventory
 
+spec = importlib.util.spec_from_file_location('installed_nixos_workflow', BASE / 'installer/install.py')
+installer = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(installer)
+
 
 class SourceTests(unittest.TestCase):
+    def test_fresh_console_install_and_retry_from_bundled_source(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            original, target, source, state = [root / name for name in ('original', 'target', 'source', 'state')]
+            original.mkdir(); source.mkdir(); state.mkdir()
+            for name in ('configuration.nix', 'hardware-configuration.nix'):
+                (original / name).write_text('{ }')
+            for name in ('flake.nix', 'flake.lock', 'admin/main.py'):
+                rt.atomic(source / name, 'fixture')
+            flag = root / 'NIXOS'; flag.touch()
+            path_type = Path
+            def paths(value, *extra):
+                if str(value) == '/etc/NIXOS': return flag
+                if str(value) in ('/etc/nixlab-iso-revision', '/etc/nixos.pre-nixlab', '/var/lib/incus/database', '/etc/systemd/system/nixlab-firstboot.service'):
+                    return root / ('missing-' + path_type(value).name)
+                if str(value) in ('/root', '/home'): return root / 'homes'
+                return path_type(value, *extra)
+            real_run = subprocess.run
+            def run(args, **kwargs):
+                if args[0] == 'git': return real_run(args, check=True, **kwargs)
+                return subprocess.CompletedProcess(args, 0, '')
+            def evaluate(config, attribute):
+                return copy.deepcopy(initial()) if attribute == 'nixlabDefaults' else {'adminKeys': [], 'wpaProfiles': False}
+            def activate(candidate):
+                rt.write_json(rt.machine_path(target, 'settings'), candidate)
+                return None, {}
+            patches = [
+                patch.object(installer, 'TARGET', target), patch.object(installer, 'ORIGINAL', original),
+                 patch.object(installer, 'Path', side_effect=paths), patch.object(rt, 'ROOT', target), patch.object(rt, 'STATE', state),
+                 patch.object(installer, 'choose_network', return_value=('eth0', '192.0.2.10', 24, '192.0.2.1')),
+                 patch('model.inventory', return_value=inventory()), patch('workflow.remote_session', return_value=False),
+                 patch.object(installer, 'evaluate', side_effect=evaluate), patch.object(installer, 'run', side_effect=run),
+                 patch.object(installer, 'validate_kvm'), patch.object(installer, 'setup_password'),
+                 patch.object(installer, 'publish_etc'), patch.object(installer, 'summarize'),
+                 patch.object(rt, 'issue_tls'), patch.object(rt, 'prepare_state_access'),
+                 patch('local_access.cockpit_accounts', return_value=['existing']),
+                 patch('controller.Manager.status', return_value={'job': None}),
+                 patch('direct.activate', side_effect=activate), patch('builtins.print'),
+                 patch.object(sys, 'argv', ['nixlab-install', '--checkout', str(source)])
+            ]
+            with contextlib.ExitStack() as stack:
+                for mocked in patches: stack.enter_context(mocked)
+                installer.main()
+                self.assertTrue(rt.read_json(rt.machine_path(target, 'settings'))['ready'])
+                self.assertEqual(rt.read_json(rt.machine_path(target, 'settings'))['adminKeys'], [])
+                rt.atomic(target / 'machine/modules/mine.nix', '{ }')
+                (source / 'admin/main.py').write_text('updated')
+                installer.main()
+            self.assertEqual((target / 'admin/main.py').read_text(), 'updated')
+            self.assertTrue((target / 'machine/modules/mine.nix').exists())
+            self.assertEqual((target / 'machine/installed-system/configuration.nix').read_text(), '{ }')
+
+    def test_bundled_source_without_git_or_manifest_can_be_updated(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for name in ('flake.nix', 'flake.lock', 'admin/main.py'):
+                rt.atomic(root / name, 'fixture')
+            files = dict(workflow.incoming_files(root))
+            self.assertEqual(set(files), {'flake.nix', 'flake.lock', 'admin/main.py'})
+            (root / 'linked').symlink_to(root / 'flake.nix')
+            with self.assertRaisesRegex(ValueError, 'symlinks'):
+                workflow.incoming_files(root)
+
     def test_source_update_is_staged_and_retains_machine_state(self):
         with tempfile.TemporaryDirectory() as folder:
             base = Path(folder)

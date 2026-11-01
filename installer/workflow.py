@@ -36,6 +36,22 @@ def hashes(root):
             for name, path in rt.source_files(root) if upgrades.platform_path(name)}
 
 
+def incoming_files(root):
+    if (root / '.git').exists() or (root / '.nixlab-files.json').is_file():
+        return list(rt.source_files(root))
+    # Nix's bundled source has neither a working copy nor a generated manifest.
+    files = []
+    for path in sorted(root.rglob('*')):
+        name = str(path.relative_to(root))
+        if path.is_symlink():
+            raise ValueError('Bundled platform source cannot contain symlinks: ' + name)
+        if path.is_file() and '__pycache__' not in path.parts and upgrades.platform_path(name):
+            files.append((name, path))
+    if not {'flake.nix', 'flake.lock', 'admin/main.py'}.issubset({name for name, _ in files}):
+        raise ValueError('Bundled source does not contain a complete Nixlab platform')
+    return files
+
+
 def stage_update(root, incoming, stage, baseline):
     """Never overwrite platform edits; machine files are protected separately."""
     rt.snapshot(stage, root)
@@ -55,7 +71,7 @@ def stage_update(root, incoming, stage, baseline):
     if not known:
         raise ValueError('Cannot establish the platform baseline; retry with --no-update and inspect the managed source')
     edits = sorted(name for name in set(known) | set(current) if current.get(name) != known.get(name))
-    desired = {name: path for name, path in rt.source_files(incoming) if upgrades.platform_path(name)}
+    desired = {name: path for name, path in incoming_files(incoming) if upgrades.platform_path(name)}
     edits += sorted(name for name in desired if name not in current and (root / name).exists())
     if edits:
         return False, sorted(set(edits))

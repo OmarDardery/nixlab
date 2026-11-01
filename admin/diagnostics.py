@@ -103,6 +103,8 @@ def doctor(settings):
         data = dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)
         if data.get('LoadState') == 'loaded':
             report['services'].append(data)
+            if data.get('ActiveState') == 'failed':
+                report['ok'] = False
     active = rt.read_json(rt.STATE / 'active.json', {})
     if active.get('id'):
         job = rt.read_json(rt.STATE / 'jobs' / active['id'] / 'job.json', {})
