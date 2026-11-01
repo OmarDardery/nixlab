@@ -103,7 +103,8 @@ in pkgs.testers.runNixOSTest {
   };
   testScript = ''
     import json
-    start_all()
+    lan.start()
+    machine.start(allow_reboot=True)
     lan.wait_for_unit("dnsmasq.service")
     for boot in range(2):
         machine.wait_for_unit("nixlab-management-identity.service")
