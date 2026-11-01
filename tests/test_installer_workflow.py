@@ -152,6 +152,19 @@ class SourceTests(unittest.TestCase):
 
 
 class ReadinessTests(unittest.TestCase):
+    def test_runtime_cockpit_origins_follow_dhcp_without_wildcards(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            template = root / 'base.conf'; template.write_text('[WebService]\nLoginTo=false\nOrigins=https://localhost:9090\n')
+            cfg = initial(); cfg['cockpit']['enable'] = True
+            with patch.object(diagnostics, 'COCKPIT_TEMPLATE', template), patch.object(diagnostics, 'COCKPIT_CONFIG', root / 'cockpit.conf'), \
+                 patch.object(rt, 'STATE', root), patch('diagnostics.management_address', return_value='192.0.2.20'), patch.object(rt, 'issue_tls'):
+                diagnostics.identity(cfg)
+            content = (root / 'cockpit.conf').read_text()
+            self.assertIn('https://192.0.2.20:9090', content)
+            self.assertIn('LoginTo = false', content)
+            self.assertNotIn('*', content)
+
     def test_dhcp_links_use_assigned_address(self):
         cfg = initial()
         result = subprocess.CompletedProcess([], 0, json.dumps([{'addr_info': [

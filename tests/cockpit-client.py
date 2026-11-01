@@ -40,4 +40,13 @@ try:
     assert 'NIXLAB_COCKPIT_TERMINAL_OK' in output, output
 finally:
     ws.close()
+try:
+    bad = websocket.create_connection('wss://127.0.0.1:9090/cockpit/socket', origin='https://untrusted.example',
+                                     cookie=cookies, subprotocols=['cockpit1'], sslopt={'ca_certs': ca}, timeout=30)
+except websocket.WebSocketBadStatusException as exc:
+    assert exc.status_code == 403
+else:
+    bad.close()
+    raise AssertionError('Cross-origin Cockpit websocket was accepted')
 print('Managed Cockpit TLS, local-account login and host terminal channel passed.')
+

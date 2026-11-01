@@ -1,5 +1,7 @@
 """Bounded management probes. No tokens, passwords or raw service logs in reports."""
 import http.client
+import configparser
+import io
 import json
 from pathlib import Path
 import ssl
@@ -7,6 +9,9 @@ import subprocess
 import time
 
 import runtime as rt
+
+COCKPIT_TEMPLATE = Path('/etc/nixlab/cockpit-base.conf')
+COCKPIT_CONFIG = Path('/run/nixlab/cockpit.conf')
 
 
 def management_address(settings):
@@ -80,6 +85,16 @@ def wait_ready(settings, timeout=180):
 
 def identity(settings):
     address = management_address(settings)
+    if settings['cockpit']['enable']:
+        config = configparser.ConfigParser(interpolation=None)
+        config.optionxform = str
+        with COCKPIT_TEMPLATE.open() as source:
+            config.read_file(source)
+        if not config.has_section('WebService'): config.add_section('WebService')
+        hosts = sorted({address, '127.0.0.1', 'localhost', settings['hostName']})
+        config['WebService']['Origins'] = ' '.join('https://' + host + ':' + str(settings['cockpit']['port']) for host in hosts)
+        content = io.StringIO(); config.write(content)
+        rt.atomic(COCKPIT_CONFIG, content.getvalue(), mode=0o644)
     cert = rt.STATE / 'tls.crt'
     check = subprocess.run(['openssl', 'x509', '-in', str(cert), '-noout', '-checkip', address],
                            capture_output=True, text=True, timeout=10) if cert.is_file() else None
