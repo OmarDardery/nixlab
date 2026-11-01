@@ -76,6 +76,18 @@ def read_json(path, fallback=None):
     return json.loads(Path(path).read_text()) if Path(path).exists() else fallback
 
 
+def prepare_state_access():
+    """After declarative users exist, let the portal read its initial auth file."""
+    auth = STATE / 'auth.json'
+    if not auth.exists():
+        return
+    gid = grp.getgrnam('nixlab-ui').gr_gid
+    os.chown(STATE, -1, gid)
+    STATE.chmod(0o710)
+    os.chown(auth, -1, gid)
+    auth.chmod(0o640)
+
+
 class BusyError(ValueError):
     pass
 

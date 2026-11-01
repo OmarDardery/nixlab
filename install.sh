@@ -28,5 +28,5 @@ exec nix --extra-experimental-features 'nix-command flakes' shell \
     checkout=$(mktemp -d)
     trap '\''rm -rf -- "$checkout"'\'' EXIT
     git clone --single-branch --branch "$ref" "$repo" "$checkout/repository"
-    python3 "$checkout/repository/installer/install.py" --checkout "$checkout/repository" --repo "$repo" --ref "$ref" "$@"
+    nix --extra-experimental-features '\''nix-command flakes'\'' run "path:$checkout/repository#install" -- --checkout "$checkout/repository" --repo "$repo" --ref "$ref" "$@"
   ' nixlab-install "$repository" "$revision" "${args[@]}"

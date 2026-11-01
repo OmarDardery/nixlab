@@ -12,6 +12,6 @@ let source = pkgs.runCommand "nixlab-installer-source" { } ''
 '';
 in pkgs.writeShellApplication {
   name = "nixlab-install";
-  runtimeInputs = with pkgs; [ python3 git openssl nix nixos-rebuild iproute2 coreutils systemd ];
+  runtimeInputs = with pkgs; [ python3 git openssl openssh shadow nix nixos-rebuild iproute2 util-linux kmod coreutils systemd networkmanager ];
   text = ''exec python3 ${source}/installer/install.py "$@"'';
 }

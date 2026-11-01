@@ -82,7 +82,13 @@ def main():
     parser.add_argument('--address', help='An address already assigned to the selected interface')
     parser.add_argument('--trusted-cidr', action='append')
     parser.add_argument('--resume', action='store_true')
+    parser.add_argument('--switch', action='store_true', help='Build and activate the full hypervisor now, without the web wizard')
+    parser.add_argument('--ssh-key', action='append', default=[], type=Path, help='Administrator public key file (repeatable; direct switch)')
+    parser.add_argument('--guest-subnet', help='Unused private IPv4 /24 (direct switch; otherwise selected from host routes)')
+    parser.add_argument('--no-apps', action='store_true', help='Direct switch without the Docker/Portainer VM')
     args = parser.parse_args()
+    if not args.switch and (args.ssh_key or args.guest_subnet or args.no_apps):
+        parser.error('--ssh-key, --guest-subnet and --no-apps require --switch')
     if os.geteuid() != 0 or not Path('/etc/NIXOS').exists():
         parser.error('Run as root on an installed NixOS system')
     if Path('/etc/nixlab-iso-revision').exists():
@@ -95,6 +101,11 @@ def main():
         parser.error('An existing Incus database needs an explicit migration; this installer targets fresh NixOS hosts')
     interface, address, prefix, gateway = choose_network(args.interface, args.address)
     trusted = args.trusted_cidr or [str(ipaddress.ip_interface(f'{address}/{prefix}').network)]
+    if args.switch and os.environ.get('SSH_CONNECTION'):
+        client = ipaddress.ip_address(os.environ['SSH_CONNECTION'].split()[0])
+        if client.version != 4:
+            parser.error('Direct conversion requires IPv4 management access; use the local console for an IPv6-only SSH session')
+        trusted = sorted(set(trusted + [str(client) + '/32']))
     for network in trusted:
         if ipaddress.ip_network(network).version != 4:
             parser.error('Use trusted IPv4 CIDRs for this release')
@@ -157,6 +168,34 @@ def main():
     settings = rt.read_json(rt.machine_path(TARGET, 'settings'))
     if settings['ready']:
         parser.error('Initial setup is already complete; use the web interface for changes')
+    # Evaluate preserved accounts/boot/network before selecting the direct target.
+    overview = json.loads(run(['nix', '--extra-experimental-features', 'nix-command flakes', 'eval', '--json',
+                               'path:' + str(TARGET) + '#nixlabOverview'], capture_output=True, text=True).stdout)
+    installation = rt.read_json(rt.machine_path(TARGET, 'installation'))
+    installation['legacyWpaProfiles'] = overview['wpaProfiles']
+    rt.write_json(rt.machine_path(TARGET, 'installation'), installation)
+    candidate = None
+    if args.switch:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import direct
+        from model import inventory
+        previous_guests = None
+        if args.resume and Path('/var/lib/incus/database').exists():
+            from controller import Manager
+            manager = Manager()
+            active = rt.read_json(rt.STATE / 'active.json', {})
+            prior = manager.job(active['id']) if active.get('id') else {}
+            if prior.get('previousSystem'):
+                previous_guests = prior['settings']['guests']
+        candidate = direct.prepare(settings, overview, inventory(), args.ssh_key, args.guest_subnet,
+                                   not args.no_apps, previous_guests=previous_guests)
+        # Load and check KVM before the switch, including when the old kernel has
+        # not loaded its vendor module yet.
+        run(['modprobe', 'kvm_amd' if settings['cpuVendor'] == 'amd' else 'kvm_intel'])
+        import fcntl
+        with open('/dev/kvm', 'rb+', buffering=0) as kvm:
+            if fcntl.ioctl(kvm, 0xAE00, 0) != 12:
+                raise ValueError('Hardware virtualization is unavailable; enable it in firmware')
     password = None
     if not (rt.STATE / 'auth.json').exists():
         password = secrets.token_urlsafe(24)
@@ -164,26 +203,24 @@ def main():
     if not (rt.STATE / 'tls.key').exists():
         rt.issue_tls(settings['management']['address'], settings['hostName'])
     previous = str(Path('/run/current-system').resolve())
+    initial_portainer = None
+    conversion_record = None
     try:
-        # Bootstrap preserves the installed bootloader/users/network and adds setup only.
-        run(['nixos-rebuild', 'build', '--flake', 'path:' + str(TARGET) + '#bootstrap'])
-        overview = json.loads(run(['nix', '--extra-experimental-features', 'nix-command flakes', 'eval', '--json',
-                                   'path:' + str(TARGET) + '#nixlabOverview'], capture_output=True, text=True).stdout)
-        installation = rt.read_json(rt.machine_path(TARGET, 'installation'))
-        installation['legacyWpaProfiles'] = overview['wpaProfiles']
-        rt.write_json(rt.machine_path(TARGET, 'installation'), installation)
-        run(['nixos-rebuild', 'switch', '--flake', 'path:' + str(TARGET) + '#bootstrap'])
+        if args.switch:
+            initial_portainer, conversion_record = direct.activate(candidate)
+            settings = rt.read_json(rt.machine_path(TARGET, 'settings'))
+        else:
+            # Bootstrap retains the existing configuration and adds setup only.
+            run(['nixos-rebuild', 'build', '--flake', 'path:' + str(TARGET) + '#bootstrap'])
+            run(['nixos-rebuild', 'switch', '--flake', 'path:' + str(TARGET) + '#bootstrap'])
     except Exception:
         if password:
             print('Initial setup password for a retry (shown once): ' + password, file=sys.stderr, flush=True)
-        run(['nix-env', '--profile', '/nix/var/nix/profiles/system', '--set', previous])
-        run([previous + '/bin/switch-to-configuration', 'switch'])
+        if not args.switch:  # Direct mode uses the shared durable transaction guard.
+            run(['nix-env', '--profile', '/nix/var/nix/profiles/system', '--set', previous])
+            run([previous + '/bin/switch-to-configuration', 'switch'])
         raise
-    import grp
-    gid = grp.getgrnam('nixlab-ui').gr_gid
-    os.chown(rt.STATE, -1, gid); rt.STATE.chmod(0o710)
-    os.chown(rt.STATE / 'auth.json', -1, gid)
-    (rt.STATE / 'auth.json').chmod(0o640)
+    rt.prepare_state_access()
     # Keep a directly restorable original /etc/nixos; standard rebuilds now see managed code.
     if not ORIGINAL.is_symlink():
         ORIGINAL.rename('/etc/nixos.pre-nixlab')
@@ -198,7 +235,19 @@ def main():
     else:
         print('Use your existing setup password. Root can reset it with nixlab-admin reset-password.')
     print('Verify the local CA fingerprint before trusting its certificate: ' + fingerprint)
-    print('Finish the required wizard, build/review, activate, then confirm access. No disks have been formatted.')
+    if args.switch:
+        print('Hypervisor activated and confirmed. No disks have been formatted.')
+        print('Incus: https://' + address + ':8443')
+        print('Cockpit: https://' + address + ':9090 (use an existing non-root Linux account)')
+        if settings['apps']['enable']:
+            print('Portainer: https://' + address + ':9443')
+            if initial_portainer:
+                print('Portainer username: admin; initial password: ' + initial_portainer)
+        if conversion_record.get('rebootRequired'):
+            print('A reboot is needed to use the newly built kernel; services were switched now.')
+        print('Later rebuilds: sudo nixos-rebuild switch --flake path:/etc/nixos#hypervisor')
+    else:
+        print('Finish the required wizard, build/review, activate, then confirm access. No disks have been formatted.')
 
 
 if __name__ == '__main__':

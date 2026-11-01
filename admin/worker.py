@@ -247,6 +247,7 @@ def apply(directory):
             system = str((directory / 'system').resolve())
             run(['nix-env', '--profile', '/nix/var/nix/profiles/system', '--set', system], log, timeout=120)
             run([system + '/bin/switch-to-configuration', 'switch'], log, timeout=900)
+            rt.prepare_state_access()
             run(['systemctl', 'is-active', 'incus.service', 'nixlab-instances.service'], log, timeout=30)
             if effective['cockpit']['enable']:
                 run(['systemctl', 'is-active', 'cockpit.socket'], log, timeout=30)

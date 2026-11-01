@@ -1,4 +1,74 @@
-# Install once, configure through the web
+# Install on an existing NixOS system
+
+## Direct clone, build and switch
+
+On the **installed target NixOS host**, download the launcher and select direct mode:
+
+```console
+curl -fsSL https://raw.githubusercontent.com/OmarDardery/nixlab/main/install.sh -o install-nixlab.sh
+sudo bash install-nixlab.sh --switch
+```
+
+This clones Nixlab into `/var/lib/nixlab/config`, preserves `/etc/nixos` including
+hardware, bootloader, users, filesystems and `system.stateVersion`, detects the current
+IPv4 uplink and selects a private /24 that does not overlap detected routes. It builds
+the complete hypervisor and activates that exact generation in the same run. There is
+no intermediate portal-only switch and no web wizard to complete. It enables Incus,
+Cockpit, the Docker/Portainer apps VM on port 9443, and lid-closed server operation.
+The script prints the portal and Portainer initial credentials and the local CA
+fingerprint. Cockpit uses your preserved non-root Linux account/password. New Linux
+operator passwords are not invented; `sudo passwd operator` can enroll one locally.
+
+If no administrator SSH key is already declared for root/a wheel user or found in
+the installer user's authorized keys, supply your client public key explicitly:
+
+```console
+sudo bash install-nixlab.sh --switch --ssh-key /path/to/admin.pub
+```
+
+`--ssh-key` is repeatable. The direct mode also retains the current IPv4 SSH client's
+address in the management trust list. `--interface` and `--address` select an existing
+uplink/address; they do not change it to an invented static address. Optional overrides:
+
+```console
+sudo bash install-nixlab.sh --switch --guest-subnet 10.90.90.0/24 --no-apps
+```
+
+Omit `--no-apps` for Portainer. With it, Incus and Cockpit are installed without an
+apps VM. No extra data disks are selected, mounted, partitioned or formatted. Current
+IPv4 configuration is preserved; set a DHCP reservation for a persistent management IP.
+Direct mode still applies the Nixlab firewall and SSH policy: management is limited to
+trusted sources, root SSH/password SSH are disabled, and Docker stays in the apps VM.
+Existing desktop/services are preserved imports, not silently removed.
+
+The shared transaction worker builds/dry-activates before switching, performs service
+health checks and restores the previous generation if activation fails. This explicit
+CLI mode confirms **locally** after those checks; it does not prove browser/remote
+reachability. Keep console access. Builds/activation run independently of the invoking
+shell; an interrupted, unconfirmed activation is handled by the persistent recovery
+guard. Original configuration and the pinned original system remain available.
+The build log is printed and retained under `/var/lib/nixlab-admin/jobs/ID/build.log`.
+After a failed conversion, inspect that log and use `--switch --resume` to retry with
+the existing inventory. If an interrupted activation is still pending, use the portal
+to confirm it or let its recovery window expire before retrying. An already active
+Nixlab host uses normal source updates instead.
+
+Later file-based changes need only a file in `machine/modules/` followed by:
+
+```console
+sudo nixos-rebuild switch --flake path:/etc/nixos#hypervisor
+```
+
+**Supported scope:** installed Intel/AMD x86_64 NixOS with a conventional self-contained
+`/etc/nixos/configuration.nix` and `hardware-configuration.nix`, usable KVM and working
+IPv4. It is not a universal importer for arbitrary flake/Home Manager repositories,
+external/symlinked module trees or initialized Incus databases. Legacy wpa_supplicant
+Wi-Fi credentials require the setup wizard or an Ethernet connection. These cases
+are rejected before the hypervisor switch rather than guessing a migration. A failed
+build preserves the active OS; copied `.nix` sources still follow normal Nix-store
+visibility rules, so keep runtime passwords/keys outside those modules.
+
+## Portal-first installation
 
 Nixlab now includes a bootstrap installer and a self-hosted first-run/settings portal.
 The supported starting point is a **fresh conventional Intel/AMD x86_64 NixOS installation**
@@ -13,21 +83,19 @@ It does not promise to convert every arbitrary existing NixOS desktop/flake auto
 
 ## Run on the target host
 
-Until PR #1 is merged, use the implementation branch explicitly:
-
 ```console
-curl -fsSL https://raw.githubusercontent.com/OmarDardery/nixlab/feat/declarative-incus-platform/install.sh -o install-nixlab.sh
-sudo bash install-nixlab.sh --ref feat/declarative-incus-platform
+curl -fsSL https://raw.githubusercontent.com/OmarDardery/nixlab/main/install.sh -o install-nixlab.sh
+sudo bash install-nixlab.sh
 ```
 
 Or use the packaged installer:
 
 ```console
-sudo nix --extra-experimental-features 'nix-command flakes' run 'github:OmarDardery/nixlab/feat/declarative-incus-platform#install' -- --ref feat/declarative-incus-platform
+sudo nix --extra-experimental-features 'nix-command flakes' run 'github:OmarDardery/nixlab#install'
 ```
 
-After merge the default `main` ref works. The standalone launcher obtains Git, Python and
-OpenSSL through the pinned Nix package set; no `nix-env` package installation is required.
+The standalone launcher obtains Git through the pinned Nix package set and runs the
+cloned source's packaged installer with its complete runtime; no `nix-env` package installation is required.
 The packaged installer provides its own runtime tools. Read/review the script before running it
 as root. It is intended to be run on your NixOS machine, not in this ChatGPT workspace.
 
