@@ -86,12 +86,12 @@ in {
     wantedBy = [ "multi-user.target" ];
     after = [ "incus-preseed.service" "nixlab-kvm-check.service" ];
     requires = [ "incus-preseed.service" "nixlab-kvm-check.service" ];
-    path = [ pkgs.incus-lts.client pkgs.findutils ];
+    path = [ pkgs.incus-lts.client pkgs.findutils pkgs.python3 ];
     restartTriggers = [ desired ];
     serviceConfig = { Type = "oneshot"; RemainAfterExit = true; TimeoutStartSec = "30min"; };
     preStart = lib.optionalString (site.apps.enable && appImage != null) ''
       # Image import updates an alias, never replaces an existing VM or its disk.
-      incus image import ${lib.escapeShellArg appImage.metadata} ${lib.escapeShellArg appImage.disk} --alias nixlab-apps --reuse
+      python3 ${../scripts/import-app-image.py} ${lib.escapeShellArg appImage.metadata} ${lib.escapeShellArg appImage.disk}
     '';
     script = "${reconcile}/bin/nixlab-reconcile";
   };
