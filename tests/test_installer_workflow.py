@@ -53,7 +53,7 @@ class SourceTests(unittest.TestCase):
                 rt.write_json(rt.machine_path(target, 'settings'), candidate)
                 return None, {}
             patches = [
-                patch.object(installer.os, 'geteuid', return_value=0),
+                patch.object(installer, 'installed_host', return_value=True),
                 patch.object(installer, 'TARGET', target), patch.object(installer, 'ORIGINAL', original),
                  patch.object(installer, 'Path', side_effect=paths), patch.object(rt, 'ROOT', target), patch.object(rt, 'STATE', state),
                  patch.object(installer, 'choose_network', return_value=('eth0', '192.0.2.10', 24, '192.0.2.1')),

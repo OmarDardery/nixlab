@@ -125,6 +125,10 @@ def validate_kvm(vendor):
             raise ValueError('Hardware virtualization is unavailable; enable it in firmware')
 
 
+def installed_host():
+    return os.geteuid() == 0 and Path('/etc/NIXOS').exists()
+
+
 def setup_password():
     path = rt.STATE / 'setup-password'
     auth = rt.STATE / 'auth.json'
@@ -196,7 +200,7 @@ def main():
     from model import inventory, merge
     from controller import Manager
     parser, args = parser_args()
-    if os.geteuid() != 0 or not Path('/etc/NIXOS').exists():
+    if not installed_host():
         parser.error('Run as root on an installed NixOS system')
     if Path('/etc/nixlab-iso-revision').exists():
         parser.error('This is live installation media. Use nixlab-stage-install on the mounted target, then nixos-install')
