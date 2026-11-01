@@ -52,8 +52,13 @@ in pkgs.testers.runNixOSTest {
     _module.args.site = settings;
     virtualisation.memorySize = 1536;
     networking.useDHCP = false;
+    # The test driver otherwise adds static 192.168.1.x addresses, which would
+    # mask whether the management interface actually received its DHCP lease.
+    networking.interfaces.eth1.ipv4.addresses = lib.mkForce [ ];
+    networking.interfaces.eth1.ipv6.addresses = lib.mkForce [ ];
     networking.networkmanager = {
       enable = true;
+      unmanaged = [ "interface-name:eth0" "interface-name:lo" ];
       ensureProfiles.profiles.nixlab-test = {
         connection = { id = "nixlab-test"; type = "ethernet"; interface-name = "eth1"; };
         ipv4.method = "auto"; ipv6.method = "disabled";
@@ -107,6 +112,7 @@ in pkgs.testers.runNixOSTest {
         machine.wait_for_unit("nginx.service")
         addresses = json.loads(machine.succeed("ip -j -4 address show dev eth1"))
         address = next(a["local"] for link in addresses for a in link["addr_info"] if a["scope"] == "global")
+        assert address == "192.0.2.20", address
         machine.wait_until_succeeds(f"curl --fail --cacert /var/lib/nixlab-admin/ca.crt https://{address}:9443/api/status | grep NIXLAB_PROXY_READY")
         lan.wait_until_succeeds(f"curl --fail --insecure https://{address}:9090/ping")
         machine.wait_until_succeeds("nixlab-admin doctor")
