@@ -4,12 +4,12 @@ let
   settings = defaults // {
     ready = true; hostName = "nixlab-startup"; cpuVendor = "intel";
     setup = defaults.setup // { enable = true; };
-    apps = defaults.apps // { enable = true; portainerPort = 9443; };
+    apps = defaults.apps // { enable = true; portainerPort = 19443; };
     cockpit = defaults.cockpit // { enable = true; };
     management = defaults.management // {
       interface = "eth1"; address = "192.0.2.10"; trustedCIDRs = [ "192.0.2.0/24" ];
     };
-    guests = defaults.guests // { appsAddress = "10.77.0.10"; };
+    guests = defaults.guests // { appsAddress = "127.0.0.2"; };
   };
   fixture = pkgs.writeText "management-backend.py" ''
     import http.server, ssl
@@ -23,7 +23,7 @@ let
             if self.path != '/api/users/admin/check': self.wfile.write(b'{"fixture":"NIXLAB_PROXY_READY"}')
         def log_message(self, *args): pass
     port = int(sys.argv[1])
-    server = http.server.HTTPServer(('10.77.0.10' if port == 9443 else '0.0.0.0', port), Handler)
+    server = http.server.HTTPServer(('127.0.0.2' if port == 9443 else '0.0.0.0', port), Handler)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     prefix = 'apps-tls' if port == 9443 else 'tls'
     context.load_cert_chain(rt.STATE / (prefix + '.crt'), rt.STATE / (prefix + '.key'))
@@ -66,7 +66,6 @@ in pkgs.testers.runNixOSTest {
     };
     networking.nftables.enable = true;
     networking.firewall.allowedTCPPorts = [ 8443 ];
-    networking.interfaces.lo.ipv4.addresses = [ { address = "10.77.0.10"; prefixLength = 32; } ];
     environment.systemPackages = [ pkgs.curl pkgs.python3 ];
     users.users.operator.isNormalUser = true;
     environment.etc."nixlab-test-settings.json".text = builtins.toJSON settings;
@@ -90,7 +89,7 @@ in pkgs.testers.runNixOSTest {
     systemd.services.fixture-portainer = {
       wantedBy = [ "multi-user.target" ];
       requires = [ "nixlab-management-identity.service" ];
-      after = [ "nixlab-management-identity.service" "network-online.target" ];
+      after = [ "nixlab-management-identity.service" ];
       environment.PYTHONPATH = "${../admin}:${../scripts}";
       serviceConfig.ExecStart = "${pkgs.python3}/bin/python ${fixture} 9443";
     };
@@ -110,12 +109,14 @@ in pkgs.testers.runNixOSTest {
         machine.wait_for_unit("nixlab-management-identity.service")
         machine.wait_for_unit("cockpit.socket")
         machine.wait_for_unit("nginx.service")
+        machine.wait_for_unit("fixture-portainer.service")
+        machine.wait_for_unit("fixture-incus.service")
         addresses = json.loads(machine.succeed("ip -j -4 address show dev eth1"))
         address = next(a["local"] for link in addresses for a in link["addr_info"] if a["scope"] == "global")
         assert address == "192.0.2.20", address
-        machine.wait_until_succeeds(f"curl --fail --cacert /var/lib/nixlab-admin/ca.crt https://{address}:9443/api/status | grep NIXLAB_PROXY_READY")
-        lan.wait_until_succeeds(f"curl --fail --insecure https://{address}:9090/ping")
-        machine.wait_until_succeeds("nixlab-admin doctor")
+        machine.wait_until_succeeds(f"curl --fail --silent --show-error --max-time 5 --cacert /var/lib/nixlab-admin/ca.crt https://{address}:19443/api/status | grep NIXLAB_PROXY_READY", timeout=90)
+        lan.wait_until_succeeds(f"curl --fail --silent --show-error --max-time 5 --insecure https://{address}:9090/ping", timeout=90)
+        machine.wait_until_succeeds("nixlab-admin doctor", timeout=90)
         if boot == 0:
             machine.reboot()
   '';
