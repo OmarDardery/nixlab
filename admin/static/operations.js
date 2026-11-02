@@ -60,7 +60,7 @@ function operationsPage() {
   return (
     title(
       "OFF-HOST RECOVERY",
-      "Back up the host and recover your data.",
+      "Backups & recovery",
       "Incus owns ordinary snapshots and guest controls. Nixlab coordinates independent backups and new-name disaster recovery.",
     ) +
     card(

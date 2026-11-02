@@ -108,8 +108,11 @@ def validate_settings(candidate, current, host, require_devices=True):
     if candidate['cpuVendor'] != host['cpuVendor'] or candidate['cpuVendor'] not in ('intel', 'amd'):
         raise ValueError('CPU vendor must match the detected Intel/AMD host')
     keys = candidate['adminKeys']
-    if not keys or any(not isinstance(k, str) or '\n' in k or not re.fullmatch(r'(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(?:256|384|521)|sk-ssh-ed25519@openssh.com) [A-Za-z0-9+/=]+(?: [^\r\n]*)?', k) for k in keys):
-        raise ValueError('Supply at least one valid administrator SSH public key')
+    if any(not isinstance(k, str) or '\n' in k or not re.fullmatch(r'(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(?:256|384|521)|sk-ssh-ed25519@openssh.com) [A-Za-z0-9+/=]+(?: [^\r\n]*)?', k) for k in keys):
+        raise ValueError('Supply valid administrator SSH public keys')
+    for value in (candidate['guests'].get('bridge', 'incusbr0'), candidate['storage'].get('pool', 'guests')):
+        if not re.fullmatch(r'[a-z][a-z0-9-]{0,14}', value):
+            raise ValueError('Use a safe Incus bridge/pool name')
     interfaces = {i['name']: i for i in host['interfaces']}
     from foundation import validate as validate_foundation
     declared_interfaces = validate_foundation(candidate, host if require_devices else None)
@@ -211,7 +214,7 @@ def validate_settings(candidate, current, host, require_devices=True):
             raise ValueError('Filesystem mounting uses a directory pool; ZFS datasets are configured separately')
         candidate['storage']['source'] = primary[0]['path'] + '/incus'
     elif candidate['storage']['driver'] == 'dir':
-        candidate['storage']['source'] = '/var/lib/incus/storage-pools/guests'
+        candidate['storage']['source'] = '/var/lib/incus/storage-pools/' + candidate['storage'].get('pool', 'guests')
     candidate['backup']['stagingDirectory'] = stages[0]['path'] + '/exports' if stages else '/var/lib/nixlab/exports'
     if candidate['backup']['enable']:
         if not candidate['backup']['repository'] or '\n' in candidate['backup']['repository']:
@@ -243,3 +246,4 @@ def differences(old, new, prefix=''):
         elif before != after:
             changes.append({'setting': path, 'before': before, 'after': after})
     return changes
+

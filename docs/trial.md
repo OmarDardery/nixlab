@@ -1,11 +1,13 @@
 # Nixlab homelab trial
 
-This release candidate is for a disposable or recoverable single host. Verify
-`SHA256SUMS`, flash the ISO, and follow [ISO installation](iso.md). Record the
-manifest revision, hardware model, firmware mode, disk, and results below.
+Start with an ordinary installed NixOS server and follow [single-command
+installation](plain-nixos.md). Record the Git revision, hardware model, firmware
+mode, disks and results below.
 
-1. Install on the selected disk, remove the media, boot, finish the portal review,
-   confirm access, and reboot. Verify other data disks retain their contents.
+1. Run the canonical install command; interrupt and rerun it once. Verify existing
+   users, disk data and guests are preserved. Reboot twice without restarting any
+   service manually. Check `sudo nixlab doctor`, SSH password login, Cockpit login
+   and terminal, Incus UI and Portainer sign-in using the printed credentials.
 2. Enroll an Incus browser certificate. Create and reboot a Linux container and VM;
    verify their data survives and native Incus edits survive a host rebuild.
 3. Create a LAN bridge or private network as appropriate. Run `sudo nixlab-helpers

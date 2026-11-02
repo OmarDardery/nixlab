@@ -38,7 +38,7 @@ assert request('/api/status')[0] == 401
 admin = login('admin', 'vm-integration-password')
 assert request('/api/status', session=admin)[0] == 200
 status, guide, _ = request('/docs/setup.md', session=admin)
-assert status == 200 and b'Install once' in guide
+assert status == 200 and b'Install on an existing NixOS system' in guide
 status, response, _ = request('/api/users', {'username': 'observer', 'role': 'viewer', 'password': 'vm-observer-password',
                                            'current': 'vm-integration-password'}, admin)
 assert status == 200, response
@@ -65,3 +65,4 @@ with tarfile.open('/tmp/recovery-test-secrets.tar.gz', 'r:gz') as stream:
     assert 'admin/auth.json' in stream.getnames()
     assert 'admin/ca.key' in stream.getnames()
 print('Actual NixOS HTTPS, UNIX broker, role enforcement, session revocation and encrypted recovery passed.')
+

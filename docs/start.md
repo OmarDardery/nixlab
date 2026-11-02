@@ -1,8 +1,20 @@
 # Start with Nixlab
 
-Verify the ISO checksum and follow [installation](iso.md). The installer prepares
-only the selected disk. Boot the installed system, verify the console fingerprint,
-sign in, add an SSH key and build, review, activate and confirm the host setup.
+For an installed NixOS server without a desktop, run:
+
+```sh
+sudo nix --extra-experimental-features 'nix-command flakes' \
+  run github:OmarDardery/nixlab#install
+```
+
+Use the same command after an interrupted attempt. Local console installation
+does not require an SSH key. Follow [plain NixOS installation](plain-nixos.md)
+for adoption, key enrollment, credential recovery and diagnostics.
+
+SSH password login works for non-root Linux accounts. Use your existing Linux
+password, or the verified operator password printed by the installer. The host
+disables desktop startup and suspend/hibernation. After reboot, run
+`sudo nixlab doctor` to check the management stack.
 
 Open Incus from the portal and enroll its browser certificate. Create your first
 container or VM in Incus. For application helpers, run `sudo nixlab-helpers doctor`
@@ -13,3 +25,4 @@ Configure independent backups under Recovery and perform an isolated restore.
 The [trial checklist](trial.md) covers reboot, networking, devices and rollback.
 Advanced settings, Nix modules, optional integrations and maintenance remain in
 the [operations guide](operations.md).
+

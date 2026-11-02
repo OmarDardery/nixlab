@@ -56,7 +56,8 @@ def health():
 
 def secret_files():
     files = {}
-    for name in ('auth.json', 'users.json', 'ca.key', 'ca.crt', 'tls.key', 'tls.crt', 'apps-tls.key', 'apps-tls.crt'):
+    for name in ('auth.json', 'users.json', 'setup-password', 'operator-password', 'portainer-account.json',
+                 'ca.key', 'ca.crt', 'tls.key', 'tls.crt', 'apps-tls.key', 'apps-tls.crt'):
         files['admin/' + name] = rt.STATE / name
     for name, path in rt.SECRET_PATHS.items(): files['runtime/' + name] = path
     settings = rt.read_json(Path('/etc/nixlab/effective-settings.json'), rt.read_json(rt.machine_path(rt.ROOT, 'settings'), {}))
@@ -203,3 +204,4 @@ def cli(argv):
     elif args.command == 'inspect': result = inspect(args.archive)[0]
     else: result = stage(args.archive, args.destination)
     print(json.dumps(result, indent=2))
+

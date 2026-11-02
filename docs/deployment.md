@@ -1,8 +1,8 @@
 # Deployment and commissioning
 
-For a fresh conventional NixOS installation, the recommended path is now the
-[bootstrap installer and web wizard](setup.md). It collects hardware/network values locally
-and provides subsequent settings/rebuilds through the portal. The steps below remain the
+For an installed NixOS server, the recommended path is the
+[single-command installer](plain-nixos.md). It detects hardware/network values locally
+and supports subsequent settings/rebuilds through the CLI or optional portal. The steps below remain the
 manual/advanced source workflow.
 
 ## Collect real inventory first
@@ -173,3 +173,4 @@ as appropriate. Never add Incus, Portainer, SSH, Prometheus or Cockpit hostnames
 Sources: [NixOS module](https://github.com/NixOS/nixpkgs/blob/718f670e845328e9c2cecdd832835712b2cbd065/nixos/modules/services/networking/cloudflared.nix),
 [locally managed tunnels](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/local-management/),
 [sops-nix](https://github.com/Mic92/sops-nix).
+

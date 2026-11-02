@@ -11,7 +11,6 @@ let
     cp ${../scripts/foundation.py} $out/foundation.py
     cp ${../scripts/backup_health.py} $out/backup_health.py
     cp ${../scripts/incus_client.py} $out/incus_client.py
-    cp ${../iso/install_disk.py} $out/disk_tools.py
     cp ${pkgs.writeText "nixlab-default-settings.json" (builtins.toJSON (import ../site-defaults.nix))} $out/default-settings.json
     cp -r ${../docs} $out/docs
     cp ${../helpers/sources.json} $out/helper-sources.json

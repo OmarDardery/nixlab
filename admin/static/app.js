@@ -19,6 +19,7 @@ const pages = [
   ["operations", "▥", "Recovery"],
   ["integrations", "↗", "Integrations"],
   ["review", "↗", "Changes"],
+  ["commands", ">_", "Commands & docs"],
 ];
 const hostPages = [
   ["network", "Connectivity"],
@@ -43,6 +44,9 @@ const esc = (v) =>
         c
       ],
   );
+function brandLogo() {
+  return '<div class="brand" aria-label="Nixlab host console"><span class="brand-mark" aria-hidden="true">[n]</span><div class="brand-wordmark">nixlab<span class="brand-cursor" aria-hidden="true">_</span><small>HOST CONSOLE</small></div></div>';
+}
 const at = (obj, path) => path.split(".").reduce((a, k) => a?.[k], obj);
 function put(obj, path, value) {
   const keys = path.split(".");
@@ -93,8 +97,9 @@ function toggle(label, path, hint = "") {
 function secret(label, key, hint = "", textarea = false) {
   return `<label class="field full"><span>${esc(label)} ${state.host?.secretPresent?.[key] ? '<span class="tag">Already provisioned</span>' : ""}</span>${textarea ? `<textarea data-secret="${key}" spellcheck="false" placeholder="Leave empty to keep the current value">${esc(state.secrets[key] || "")}</textarea>` : `<input data-secret="${key}" type="password" autocomplete="new-password" value="${esc(state.secrets[key] || "")}" placeholder="${state.host?.secretPresent?.[key] ? "Leave empty to keep current" : "Enter an initial password"}">`}${hint ? `<small>${esc(hint)}</small>` : ""}</label>`;
 }
+const pageGuides = { overview: "start.md", network: "networking.md", hardware: "hardware.md", integrations: "homelab.md", security: "administration.md", system: "setup.md", files: "file-modules.md", review: "setup.md", operations: "recovery.md", commands: "helpers.md" };
 const title = (eyebrow, heading, text) =>
-  `<div class="page-title"><div><div class="eyebrow">${eyebrow}</div><h1>${heading}</h1><p>${text}</p></div><button class="primary" data-go="review">Review changes ↗</button></div>`;
+  `<div class="page-title"><div><div class="eyebrow">${eyebrow}</div><h1>${heading}</h1><p>${text}</p><a class="page-guide" href="/docs/${pageGuides[state.page] || "setup.md"}" target="_blank" rel="noopener noreferrer">Read the guide ↗</a></div>${["review", "commands"].includes(state.page) ? "" : '<button class="primary" data-go="review">Review changes ↗</button>'}</div>`;
 const card = (heading, body, caption = "") =>
   `<section class="card"><div class="card-header"><h2>${heading}</h2>${caption ? `<span class="caption">${caption}</span>` : ""}</div>${body}</section>`;
 function ownershipBanner() {
@@ -111,10 +116,11 @@ function pendingBanner() {
 }
 function shell() {
   const settings = state.status.effectiveSettings || state.status.settings;
-  app.innerHTML = `<div class="layout"><aside class="sidebar"><div class="brand"><span class="mark">N</span><div>nixlab<small>HOMELAB CONTROL</small></div></div><div><div class="nav-label">WORKSPACE</div><nav class="nav">${pages.map(([id, icon, label]) => `<button data-go="${id}" class="${primaryPage() === id ? "active" : ""}"><span class="nav-icon">${icon}</span>${label}</button>`).join("")}</nav></div><div class="sidebar-bottom"><b><span class="dot"></span>${esc(settings.hostName)}</b>Declarative host · NixOS<br><span class="mono">${esc(settings.management.address)}</span><br><button class="small" data-action="logout">Sign out</button></div></aside><div class="content"><header class="topbar"><div class="breadcrumb">Workspace <span class="muted">/</span> <b>${esc(hostPages.find((p) => p[0] === state.page)?.[1] || pages.find((p) => p[0] === state.page)?.[2])}</b></div><div class="top-actions"><span class="pill"><span class="dot"></span>${settings.ready ? "Configured host" : "Initial setup"}</span><span class="mono muted">${esc(state.principal.username)} · ${esc(state.principal.role)}</span></div></header><main class="page">${pendingBanner()}${ownershipBanner()}${hostTabs()}${renderPage()}</main></div></div>`;
+  app.innerHTML = `<div class="layout"><aside class="sidebar">${brandLogo()}<div><div class="nav-label">YOUR INFRASTRUCTURE</div><nav class="nav">${pages.map(([id, icon, label]) => `<button data-go="${id}" class="${primaryPage() === id ? "active" : ""}"><span class="nav-icon">${icon}</span>${label}</button>`).join("")}</nav></div><div class="sidebar-bottom"><b><span class="dot"></span>${esc(settings.hostName)}</b>Declarative host · NixOS<br><span class="mono">${esc(state.status.managementAddress || settings.management.address)}</span><div class="sidebar-links"><a href="/docs/troubleshooting.md">Offline help</a><a href="https://nixlab.dardery.work/" target="_blank" rel="noopener noreferrer">Website ↗</a></div><button class="small" data-action="logout">Sign out</button></div></aside><div class="content"><header class="topbar"><div class="breadcrumb">Host console <span class="muted">/</span> <b>${esc(hostPages.find((p) => p[0] === state.page)?.[1] || pages.find((p) => p[0] === state.page)?.[2])}</b></div><div class="top-actions"><span class="pill"><span class="dot"></span>${settings.ready ? "Configured host" : "Initial setup"}</span><span class="mono muted">${esc(state.principal.username)} · ${esc(state.principal.role)}</span></div></header><main class="page">${pendingBanner()}${ownershipBanner()}${hostTabs()}${renderPage()}<footer class="footer-note">Declarative infrastructure. Ordinary human consequences.</footer></main></div></div>`;
   bind();
   bindOperations();
   bindFoundation();
+  bindCommands();
   countdown();
 }
 function renderPage() {
@@ -130,24 +136,26 @@ function renderPage() {
     files,
     review,
     operations: operationsPage,
+    commands: commandsPage,
   }[state.page]();
 }
 
 const projectRepository = "https://github.com/OmarDardery/nixlab";
 // Keep pre-release guides reachable until the implementation branch is merged.
 const projectGuides = "/docs/";
-function linkRow(icon, heading, detail, url, label = "Open ↗") {
-  return `<div class="service-row"><span class="service-icon" aria-hidden="true">${esc(icon)}</span><div class="service-copy"><h3>${esc(heading)}</h3><small>${esc(detail)}</small></div><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a></div>`;
+function linkRow(icon, heading, detail, url, label = "Open ↗", docs = "") {
+  return `<div class="service-row"><span class="service-icon" aria-hidden="true">${esc(icon)}</span><div class="service-copy"><h3>${esc(heading)}</h3><small>${esc(detail)}</small>${docs ? `<a class="service-doc" href="${esc(docs)}" target="_blank" rel="noopener noreferrer">Docs ↗</a>` : ""}</div><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a></div>`;
 }
 function homepageTools() {
   const active = state.status.effectiveSettings || state.status.settings,
+    address = state.status.managementAddress || active.management.address,
     ready = state.status.setupComplete;
   const incus = ready
     ? linkRow(
         "▦",
         "Incus",
         "Virtual machines, containers, networks, storage & snapshots",
-        `https://${active.management.address}:8443`,
+        `https://${address}:8443`, "Open ↗", "https://linuxcontainers.org/incus/docs/main/",
       )
     : '<div class="service-row"><div class="service-copy"><h3>Incus</h3><small>Available after the first activation.</small></div><button data-go="review">Finish setup →</button></div>';
   const portainer =
@@ -156,146 +164,30 @@ function homepageTools() {
           "▱",
           "Portainer",
           "Compose projects, logs & service configuration",
-          `https://${active.management.address}:${active.apps.portainerPort ?? 9441}`,
+          `https://${address}:${active.apps.portainerPort ?? 9441}`, "Open ↗", "https://docs.portainer.io/",
         )
       : `<div class="service-row"><div class="service-copy"><h3>Portainer</h3><small>${active.apps.enable ? "Available after the first activation." : "Applications VM is disabled; no dashboard is running."}</small></div><button data-go="apps">${active.apps.enable ? "Configure →" : "Enable apps →"}</button></div>`;
   const cockpit = ready && active.cockpit?.enable
-    ? linkRow("⌘", "Cockpit", "Host terminal, systemd services, journal & resource usage", `https://${active.management.address}:${active.cockpit.port}`)
+    ? linkRow("⌘", "Cockpit", "Host terminal, systemd services, journal & resource usage", `https://${address}:${active.cockpit.port}`, "Open ↗", "https://cockpit-project.org/documentation.html")
     : '<div class="service-row"><div class="service-copy"><h3>Cockpit</h3><small>Host web terminal uses a local Linux account; separate from portal accounts.</small></div><button data-go="integrations">Configure host access →</button></div>';
   return card(
     "Management tools",
     incus +
       cockpit +
       portainer +
-      `<div class="service-row"><div class="service-copy"><h3>SSH administration</h3><small>Key-based access to the active host as operator.</small></div><button data-action="copy-ssh" ${ready ? "" : "disabled"}>Copy command</button></div><div class="service-row"><div class="service-copy"><h3>Monitoring & logs</h3><small>${active.monitoring.history ? "Local history is enabled." : "Live Incus views and host health; local history is disabled."} Prometheus stays on host loopback.</small></div><button data-go="system">Settings →</button></div><div class="separator"></div><p class="note">Incus browser access requires a separate, revocable client certificate. Links use active settings, including while you edit a different desired address.</p><button data-action="certificate" ${ready ? "" : "disabled"}>Create browser certificate</button><div id="certificate-result"></div>`,
+      `<div class="service-enrollment"><p class="note">Incus browser access uses a separate client certificate.</p><button class="small" data-action="certificate" ${ready ? "" : "disabled"}>Create browser certificate</button><div id="certificate-result"></div></div>`,
     "Private management",
   );
 }
-function homepageResources() {
+function publicApplications() {
   const active = state.status.effectiveSettings || state.status.settings;
-  const apps = active.tunnel.enable
-    ? Object.keys(active.tunnel.ingress)
-        .filter(
-          (name) =>
-            /^[a-zA-Z0-9][a-zA-Z0-9.-]*$/.test(name) && !name.includes("*"),
-        )
-        .map((name) =>
-          linkRow(
-            "↗",
-            name,
-            "Configured public application endpoint; availability is not checked",
-            "https://" + name,
-          ),
-        )
-        .join("")
-    : "";
-  return (
-    card(
-      "Application helpers",
-      linkRow(
-        "↗",
-        "Incus helper scripts",
-        "Community installers adapted for Incus; Pinned runner; see Integrations for verification status",
-        "https://github.com/community-scripts/Incus",
-        "Browse ↗",
-      ) +
-        linkRow(
-          "↗",
-          "Community Scripts catalog",
-          "Check platform support before choosing an installer",
-          "https://community-scripts.org/",
-          "Browse ↗",
-        ) +
-        linkRow(
-          "↗",
-          "Proxmox helper scripts",
-          "Proxmox host/VM tools remain platform-specific",
-          "https://github.com/community-scripts/ProxmoxVE",
-          "Reference ↗",
-        ) +
-        '<p class="note">These links open external resources and never execute installers. Use the packaged CLI runner for the upstream wizard. Script-created applications remain mutable and Incus-managed.</p>',
-      "External resources",
-    ) +
-    card(
-      "Guides & project",
-      linkRow(
-        "▤",
-        "Setup & recovery",
-        "Installation, storage roles, safe activation and recovery",
-        projectGuides + "setup.md",
-      ) +
-        linkRow(
-          "▤",
-          "Administration & CLI",
-          "SSH, guest commands and project operations",
-          projectGuides + "administration.md",
-        ) +
-        linkRow(
-          "▤",
-          "Networking",
-          "Host, guest, application and public endpoint boundaries",
-          projectGuides + "networking.md",
-        ) +
-        linkRow(
-          "▤",
-          "Backups & restoration",
-          "Independent backups and recovery procedures",
-          projectGuides + "recovery.md",
-        ) +
-        linkRow(
-          "▤",
-          "Proxmox migration",
-          "Plan guest and application migrations",
-          projectGuides + "migration.md",
-        ) +
-        linkRow(
-          "▤",
-          "Quality-of-life roadmap",
-          "Priorities, acceptance criteria and declarative boundaries",
-          projectGuides + "roadmap.md",
-        ) +
-        linkRow(
-          "▤",
-          "Architecture & trade-offs",
-          "Why each component was selected",
-          projectGuides + "architecture.md",
-        ) +
-        linkRow(
-          "▤",
-          "Validation checklist",
-          "Verified checks and target-hardware acceptance tests",
-          projectGuides + "validation.md",
-        ),
-    ) +
-    card(
-      "Project & references",
-      linkRow(
-        "↗",
-        "Nixlab source",
-        "Review the declarative configuration",
-        projectRepository,
-      ) +
-        linkRow(
-          "↗",
-          "Report an issue",
-          "Include version and redacted diagnostics",
-          projectRepository + "/issues",
-        ) +
-        linkRow(
-          "↗",
-          "Incus documentation",
-          "Official guest, storage, networking and CLI reference",
-          "https://linuxcontainers.org/incus/docs/main/",
-        ) +
-        linkRow(
-          "↗",
-          "Cloudflare dashboard",
-          "Manage your account, tunnels and DNS",
-          "https://dash.cloudflare.com/",
-        ),
-    ) +
-    (apps ? card("Public applications", apps, "Configured hostnames") : "")
-  );
+  const apps = active.tunnel.enable ? Object.keys(active.tunnel.ingress)
+    .filter(name => /^[a-zA-Z0-9][a-zA-Z0-9.-]*$/.test(name) && !name.includes("*"))
+    .map(name => linkRow("↗", name, "Configured public application; availability is not checked", "https://" + name)).join("") : "";
+  return apps ? card("Public applications", apps, "Configured hostnames") : "";
+}
+function homepageResources() {
+  return referenceCatalog() + publicApplications();
 }
 
 function flatDisks(devices) {
@@ -349,9 +241,9 @@ function security() {
     title(
       "MANAGEMENT ACCESS",
       "Private by default.",
-      "SSH keys for the host, certificate identities for Incus, and application-only public ingress.",
+      "Linux password or SSH key access for the host, certificate identities for Incus, and application-only public ingress.",
     ) +
-    `<div class="grid">${card("SSH administration", `<div class="fields">${field("Operator SSH public keys", "adminKeys", { type: "textarea", list: true, full: true, placeholder: "ssh-ed25519 AAAA… your-device", hint: "One public key per line. Private keys never belong here." })}</div><p class="note">The operator account can administer the platform through sudo. Existing local accounts remain available from the installed configuration.</p><button data-action="certificate" ${!state.status.setupComplete ? "disabled" : ""}>Create an Incus browser identity</button><div id="certificate-result"></div>`)}${card("Cloudflare Tunnel", `${toggle("Enable a locally managed tunnel", "tunnel.enable")}<div class="fields">${field("Existing tunnel UUID", "tunnel.uuid", { full: true })}<label class="field full"><span>Hostname → internal application URL</span><textarea data-ingress spellcheck="false" placeholder='{"app.example.com":"http://GUEST_IP:8080"}'>${esc(JSON.stringify(state.draft.tunnel.ingress, null, 2))}</textarea><small>Nix owns ingress rules. Account, tunnel and DNS creation stay in Cloudflare.</small></label>${secret("Tunnel-specific credentials JSON", "tunnelCredentials", "Runtime credentials stay outside Git and the Nix store.", true)}</div><p class="note">Incus, SSH and dashboard origins are excluded from public ingress. Protect public applications with their own authentication or Cloudflare Access.</p>`)}</div>`
+    `<div class="grid">${card("SSH administration", `<div class="fields">${toggle("Allow SSH password login for non-root Linux accounts", "access.sshPasswordLogin")}${field("Operator SSH public keys", "adminKeys", { type: "textarea", list: true, full: true, placeholder: "ssh-ed25519 AAAA… your-device", hint: "One public key per line. Private keys never belong here." })}</div><p class="note">The operator account can administer the platform through sudo. Existing local accounts remain available from the installed configuration.</p><button data-action="certificate" ${!state.status.setupComplete ? "disabled" : ""}>Create an Incus browser identity</button><div id="certificate-result"></div>`)}${card("Cloudflare Tunnel", `${toggle("Enable a locally managed tunnel", "tunnel.enable")}<div class="fields">${field("Existing tunnel UUID", "tunnel.uuid", { full: true })}<label class="field full"><span>Hostname → internal application URL</span><textarea data-ingress spellcheck="false" placeholder='{"app.example.com":"http://GUEST_IP:8080"}'>${esc(JSON.stringify(state.draft.tunnel.ingress, null, 2))}</textarea><small>Nix owns ingress rules. Account, tunnel and DNS creation stay in Cloudflare.</small></label>${secret("Tunnel-specific credentials JSON", "tunnelCredentials", "Runtime credentials stay outside Git and the Nix store.", true)}</div><p class="note">Incus, SSH and dashboard origins are excluded from public ingress. Protect public applications with their own authentication or Cloudflare Access.</p>`)}</div>`
   );
 }
 function system() {
@@ -364,7 +256,7 @@ function system() {
   return (
     title(
       "HOST PREFERENCES",
-      "Make the host fit its home.",
+      "Host preferences",
       "Radio controls and maintenance settings use separate Nix modules and the same reviewed deployment path.",
     ) +
     `<div class="grid">${card("Identity & maintenance", `<div class="fields">${field("Host name", "hostName")}${field("Time zone", "maintenance.timeZone", { placeholder: "Region/City" })}${field("Setup HTTPS port", "setup.port", { type: "number" })}${field("Confirmation window, seconds", "setup.confirmationSeconds", { type: "number", hint: "300–1800 seconds after activation completes." })}</div><div class="separator"></div>${toggle("Enable scheduled filesystem TRIM", "maintenance.trim")}${toggle("Deduplicate the Nix store weekly", "maintenance.optimiseStore")}${toggle("Laptop server: keep running with lid closed", "maintenance.laptopMode")}<p class="note">Previous OS generations remain available. Updates and reboots are initiated explicitly.</p><button data-action="export-settings">Export desired settings JSON</button>`)}${card("Wi-Fi & Bluetooth", `${toggle("Enable Wi-Fi", "radios.wifi.enable")}<div class="fields">${field("Wi-Fi interface", "radios.wifi.interface", { options: wifiChoices, full: true })}</div>${toggle("Declare a Wi-Fi connection profile", "radios.wifi.manageProfile")}<div class="fields">${field("Network name / SSID", "radios.wifi.ssid", { full: true })}${secret("WPA password", "wifiPassword", "WPA personal networks are supported. Existing NetworkManager profiles can be retained without entering a new password.")}</div><div class="separator"></div>${toggle("Enable Bluetooth and power it on at boot", "radios.bluetooth.enable")}<p class="note">Wi-Fi uplinks work with the private routed/NAT guest bridge. The physical Wi-Fi interface is never enslaved into an Ethernet bridge.</p>`)}${card("Change portal password", '<form id="password-form"><div class="fields"><label class="field full"><span>Current password</span><input name="current" type="password" autocomplete="current-password" required></label><label class="field full"><span>New password</span><input name="password" type="password" autocomplete="new-password" minlength="16" required></label></div><div class="actions"><button>Update password & sign out</button></div></form>')}${card("Monitoring history", `${toggle("Collect host metrics for external monitoring", "monitoring.collection")}${toggle("Enable local Prometheus history and alert rules", "monitoring.history")}<div class="fields">${field("Retention, days", "monitoring.retentionDays", { type: "number", hint: "1–90 days; default 14." })}${field("Metrics interval, seconds", "monitoring.scrapeSeconds", { type: "number", hint: "15–300 seconds; default 60." })}</div><p class="note">Off by default to save memory and disk writes. Incus live resource views, systemd health and journal logs remain available. Metrics collection is optional. Prometheus alert rules are evaluated only while history is enabled; external notifications need an alert receiver.</p>`)}${card("Package maintenance", `<p>The repository uses a lock file on the NixOS 26.05 stable branch. You can include a package refresh in the next build and inspect the resulting activation plan before switching.</p><label class="toggle"><input type="checkbox" id="update-inputs" ${state.updateInputs ? "checked" : ""}> Refresh pinned Nixpkgs for the next review</label><p class="note">Guest database migrations and mutable data have their own recovery requirements. An OS rollback restores the OS generation and settings.</p><button data-go="review">Build a maintenance review →</button>`)}</div>`
@@ -374,7 +266,7 @@ function files() {
   return (
     title(
       "ADMINISTRATOR CONFIGURATION",
-      "Add a configuration file",
+      "Configuration files",
       "Nix modules can define root services. Upload only code you trust; never include credentials.",
     ) +
     (state.status.layoutVersion === 0
@@ -420,7 +312,7 @@ function formatBytes(v) {
 function login(message = "") {
   clearInterval(state.timer);
   state.timer = null;
-  app.innerHTML = `<main class="login"><section class="login-card"><div class="brand"><span class="mark">N</span><div>nixlab<small>HOMELAB CONTROL</small></div></div><div class="eyebrow">YOUR PRIVATE WORKSPACE</div><h1>Welcome to your homelab.</h1><p>Sign in with the setup password printed by the installer.</p><form id="login-form"><label class="field"><span>Account</span><input name="username" value="admin" autocomplete="username" required></label><label class="field"><span>Administrator password</span><input name="password" type="password" autocomplete="current-password" required autofocus></label><p class="error" id="login-error">${esc(message)}</p><button class="primary">Sign in →</button></form><p class="note">Verify the local CA fingerprint from the installer before signing in. <a href="/ca.crt">Download the management CA</a>.</p></section></main>`;
+  app.innerHTML = `<main class="login"><div class="login-story">${brandLogo()}<p class="eyebrow">YOUR PRIVATE HOST CONSOLE</p><h1>Your homelab.<br>Declaratively<br><em>overthought.</em></h1><p>Same homelab. Fewer tabs. Your host settings, reviewed changes and recovery tools live here.</p><div class="login-boundary">NIXOS OWNS THE HOST. INCUS OWNS THE GUESTS.<br>THE LOGIN IS YOURS.</div><a class="text-link" href="https://nixlab.dardery.work/" target="_blank" rel="noopener noreferrer">Website & documentation ↗</a></div><section class="login-card"><p class="eyebrow">HOST ACCESS / NIXLAB</p><h2>Sign in to your host.</h2><p>Use your Nixlab portal account. First sign-in: <code>admin</code> and the setup password printed by the installer.</p><form id="login-form"><label class="field"><span>Account</span><input name="username" value="admin" autocomplete="username" required></label><label class="field"><span>Portal password</span><input name="password" type="password" autocomplete="current-password" required autofocus></label><p class="error" id="login-error">${esc(message)}</p><button class="primary">Sign in →</button></form><p class="note">SSH, Cockpit and Portainer use separate identities. Verify the local CA fingerprint before signing in. <a href="/ca.crt">Download the management CA</a>.</p></section></main>`;
   document.querySelector("#login-form").onsubmit = async (e) => {
     e.preventDefault();
     const button = e.target.querySelector("button");
@@ -496,3 +388,4 @@ setInterval(countdown, 1000);
     login();
   }
 })();
+

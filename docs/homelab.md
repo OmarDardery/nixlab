@@ -5,6 +5,9 @@ and system-container management and guest consoles. Portainer supplies Docker
 Compose stacks and application consoles inside the dedicated `apps` NixOS VM.
 Docker does not run on the hypervisor.
 
+For a plain NixOS server, use the [single-command workflow](plain-nixos.md).
+The steps below describe the optional portal preset.
+
 ## Enable and activate
 
 1. Upgrade to the reviewed source revision. Preserve the machine directory, Incus
@@ -18,18 +21,18 @@ Docker does not run on the hypervisor.
    change that password within Portainer.
 4. Build and review, activate, verify access, then confirm. Check the automatic
    `cockpit.managePassword` change in the review when enrolling the local account.
-5. Open the active homepage links. With your intended host address:
+5. Open the active homepage links. Use the detected address printed by installation (shown as `HOST_IP` below):
 
    | Interface | URL | Authentication |
    |---|---|---|
-   | Incus | `https://192.168.1.240:8443` | Enrolled Incus browser certificate |
-   | Cockpit | `https://192.168.1.240:9090` | Linux `operator` account or existing non-root local account |
-   | Portainer | `https://192.168.1.240:9443` | Portainer account |
-   | Nixlab configuration/recovery | `https://192.168.1.240:9440` | Nixlab portal account |
+   | Incus | `https://HOST_IP:8443` | Enrolled Incus browser certificate |
+   | Cockpit | `https://HOST_IP:9090` | Linux `operator` account or existing non-root local account |
+   | Portainer | `https://HOST_IP:9443` | Portainer account |
+   | Nixlab configuration/recovery | `https://HOST_IP:9440` | Nixlab portal account |
 
 The preset selects Portainer port 9443. Older settings retain **9441** until
 explicitly changed. Management ports are configurable and collision-checked.
-Homepage links use active settings, rather than an unapplied draft. Portainer's
+Homepage links use the observed management address, falling back to active settings. Portainer's
 internal port remains 9443 behind the host's TLS-verified proxy. Only the
 hypervisor may reach that published VM endpoint, including after Docker restarts.
 Other Docker applications retain their own exposure policies.
@@ -53,8 +56,9 @@ root; direct switches do not arm portal confirmation recovery.
 
 ## Host login and commands
 
-Cockpit is installed natively and authenticates through PAM. Enrolling its operator
-password does **not** enable SSH password authentication or root web login. The
+Cockpit is installed natively and authenticates through PAM. SSH password login is
+enabled by default; the same Linux password works for SSH and Cockpit. Select
+key-only SSH under Access if needed. Root SSH and root web login remain disabled. The
 operator is a trusted infrastructure administrator with sudo access. Portal roles,
 Incus identities, Linux users and Portainer roles remain separate.
 
@@ -85,9 +89,9 @@ additional stacks. Back up stack YAML and runtime secrets independently.
 
 ## Keep the working services and network
 
-Your host `192.168.1.240` and bridge `10.90.90.1/24` are separate networks. NAT
+The host management address and private guest bridge are separate networks. NAT
 guests do not acquire `192.168.1.x` addresses automatically. Do not assign the
-host's `.240` to a guest. Do not remap an initialized Incus subnet, pool or project
+host's management address to a guest. Do not remap an initialized Incus subnet, pool or project
 merely to match a fresh-install example.
 
 For directly addressed LAN guests such as AdGuard, use a reviewed **wired** bridge
@@ -129,3 +133,4 @@ real Docker forwarding with a disposable HTTP fixture before/after Docker restar
 The fixture tests the Portainer port's access boundary; it does not claim to boot
 the external Portainer image or validate your application stacks. Those remain
 target-machine checks.
+

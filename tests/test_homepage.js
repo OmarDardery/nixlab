@@ -7,6 +7,7 @@ const source = fs.readFileSync(path.join(__dirname, '../admin/static/app.js'), '
 const bootstrap = source.lastIndexOf('\n(async () =>');
 assert.ok(bootstrap > 0, 'Locate browser bootstrap before evaluating renderers');
 const context = vm.createContext({document:{querySelector:()=>({})},setInterval:()=>0,URL});
+vm.runInContext(fs.readFileSync(path.join(__dirname, '../admin/static/commands.js'), 'utf8'), context);
 vm.runInContext(source.slice(0,bootstrap), context);
 vm.runInContext(`
 state.status = {setupComplete:true, settings:{
@@ -31,11 +32,11 @@ tools = vm.runInContext('homepageTools()', context);
 assert.ok(!tools.includes(':8443"'));
 assert.ok(tools.includes('Finish setup'));
 let resources = vm.runInContext('homepageResources()', context);
-for (const destination of ['https://github.com/community-scripts/Incus','https://community-scripts.org/','https://github.com/community-scripts/ProxmoxVE','https://photos.example.com','roadmap.md','recovery.md']) {
+for (const destination of ['https://github.com/community-scripts/Incus','https://community-scripts.org/','https://github.com/docker/awesome-compose','https://github.com/lissy93/portainer-templates','https://photos.example.com','roadmap.md','recovery.md']) {
   assert.ok(resources.includes(destination), 'Missing destination: '+destination);
 }
 assert.ok(!resources.includes('https://*.example.com'), 'Wildcard DNS records are not browsable endpoints');
-assert.ok(resources.includes('never execute installers'));
+assert.ok(!/data-(action|install-script|guest-action)=/.test(resources), 'Reference links must not execute host operations');
 for (const match of (tools+resources).matchAll(/<a [^>]+>/g)) {
   assert.ok(match[0].includes('rel="noopener noreferrer"'), 'External tabs must not retain opener/referrer access');
 }
@@ -53,6 +54,11 @@ vm.runInContext("state.status.setupComplete=true; state.status.effectiveSettings
 const effectiveTools=vm.runInContext('homepageTools()',context);
 assert.ok(effectiveTools.includes('https://198.51.100.30:8443'));
 assert.ok(!effectiveTools.includes('https://192.0.2.10:8443'));
+vm.runInContext("state.status.managementAddress='198.51.100.40'", context);
+const observedTools=vm.runInContext('homepageTools()',context);
+assert.ok(observedTools.includes('https://198.51.100.40:8443'));
+assert.ok(!observedTools.includes('https://198.51.100.30:8443'));
 vm.runInContext("state.status.codeOverrides=[{setting:'cockpit.enable'}];state.draft.cockpit={enable:false};state.status.effectiveSettings.cockpit.enable=true;", context);
 assert.ok(vm.runInContext("toggle('Cockpit','cockpit.enable')", context).includes('checked'));
 assert.equal(vm.runInContext('state.draft.cockpit.enable', context), false, 'Displaying file-owned values must not change the JSON overlay');
+

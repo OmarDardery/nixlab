@@ -9,8 +9,8 @@ let
       "snapshots.pattern" = "auto-%Y%m%d-%H%M";
     };
     devices = {
-      root = { type = "disk"; path = "/"; pool = "guests"; size = "32GiB"; };
-      eth0 = { type = "nic"; name = "eth0"; network = "incusbr0"; };
+      root = { type = "disk"; path = "/"; pool = site.storage.pool; size = "32GiB"; };
+      eth0 = { type = "nic"; name = "eth0"; network = site.guests.bridge; };
     };
   };
   declared = site.instances ++ map (i: lib.filterAttrs (_: value: value != null) i)
@@ -22,8 +22,8 @@ let
     config = { "limits.cpu" = site.apps.cpu; "limits.memory" = site.apps.memory;
       "security.secureboot" = "false"; "boot.autostart" = "true"; };
     devices = {
-      root = { type = "disk"; path = "/"; pool = "guests"; size = site.apps.disk; };
-      eth0 = { type = "nic"; name = "eth0"; network = "incusbr0"; "ipv4.address" = site.guests.appsAddress; };
+      root = { type = "disk"; path = "/"; pool = site.storage.pool; size = site.apps.disk; };
+      eth0 = { type = "nic"; name = "eth0"; network = site.guests.bridge; "ipv4.address" = site.guests.appsAddress; };
     };
   } ++ lib.optional (!site.apps.enable) {
     name = "apps"; project = "lab"; type = "virtual-machine";
@@ -43,11 +43,11 @@ in {
     enable = true;
     ui.enable = true;
     preseed = {
-      config."core.https_address" = "${site.management.address}:8443";
-      storage_pools = [ { name = "guests"; driver = site.storage.driver;
+      config."core.https_address" = "0.0.0.0:8443";
+      storage_pools = [ { name = site.storage.pool; driver = site.storage.driver;
         config.source = site.storage.source; } ];
       networks = [ {
-        name = "incusbr0"; type = "bridge";
+        name = site.guests.bridge; type = "bridge";
         config = {
           "ipv4.address" = site.guests.gatewayCIDR;
           "ipv4.dhcp.ranges" = site.guests.dhcpRange;
@@ -96,3 +96,4 @@ in {
     script = "${reconcile}/bin/nixlab-reconcile";
   };
 }
+

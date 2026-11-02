@@ -2,71 +2,18 @@
 
 ## Direct clone, build and switch
 
-On the **installed target NixOS host**, download the launcher and select direct mode:
+For a plain installed NixOS server, run:
 
 ```console
-curl -fsSL https://raw.githubusercontent.com/OmarDardery/nixlab/main/install.sh -o install-nixlab.sh
-sudo bash install-nixlab.sh --switch
+sudo nix --extra-experimental-features 'nix-command flakes' \
+  run github:OmarDardery/nixlab#install
 ```
 
-This clones Nixlab into `/var/lib/nixlab/config`, preserves `/etc/nixos` including
-hardware, bootloader, users, filesystems and `system.stateVersion`, detects the current
-IPv4 uplink and selects a private /24 that does not overlap detected routes. It builds
-the complete hypervisor and activates that exact generation in the same run. There is
-no intermediate portal-only switch and no web wizard to complete. It enables Incus,
-Cockpit, the Docker/Portainer apps VM on port 9443, and lid-closed server operation.
-The script prints the portal and Portainer initial credentials and the local CA
-fingerprint. Cockpit uses your preserved non-root Linux account/password. New Linux
-operator passwords are not invented; `sudo passwd operator` can enroll one locally.
-
-If no administrator SSH key is already declared for root/a wheel user or found in
-the installer user's authorized keys, supply your client public key explicitly:
-
-```console
-sudo bash install-nixlab.sh --switch --ssh-key /path/to/admin.pub
-```
-
-`--ssh-key` is repeatable. The direct mode also retains the current IPv4 SSH client's
-address in the management trust list. `--interface` and `--address` select an existing
-uplink/address; they do not change it to an invented static address. Optional overrides:
-
-```console
-sudo bash install-nixlab.sh --switch --guest-subnet 10.90.90.0/24 --no-apps
-```
-
-Omit `--no-apps` for Portainer. With it, Incus and Cockpit are installed without an
-apps VM. No extra data disks are selected, mounted, partitioned or formatted. Current
-IPv4 configuration is preserved; set a DHCP reservation for a persistent management IP.
-Direct mode still applies the Nixlab firewall and SSH policy: management is limited to
-trusted sources, root SSH/password SSH are disabled, and Docker stays in the apps VM.
-Existing desktop/services are preserved imports, not silently removed.
-
-The shared transaction worker builds/dry-activates before switching, performs service
-health checks and restores the previous generation if activation fails. This explicit
-CLI mode confirms **locally** after those checks; it does not prove browser/remote
-reachability. Keep console access. Builds/activation run independently of the invoking
-shell; an interrupted, unconfirmed activation is handled by the persistent recovery
-guard. Original configuration and the pinned original system remain available.
-The build log is printed and retained under `/var/lib/nixlab-admin/jobs/ID/build.log`.
-After a failed conversion, inspect that log and use `--switch --resume` to retry with
-the existing inventory. If an interrupted activation is still pending, use the portal
-to confirm it or let its recovery window expire before retrying. An already active
-Nixlab host uses normal source updates instead.
-
-Later file-based changes need only a file in `machine/modules/` followed by:
-
-```console
-sudo nixos-rebuild switch --flake path:/etc/nixos#hypervisor
-```
-
-**Supported scope:** installed Intel/AMD x86_64 NixOS with a conventional self-contained
-`/etc/nixos/configuration.nix` and `hardware-configuration.nix`, usable KVM and working
-IPv4. It is not a universal importer for arbitrary flake/Home Manager repositories,
-external/symlinked module trees or initialized Incus databases. Legacy wpa_supplicant
-Wi-Fi credentials require the setup wizard or an Ethernet connection. These cases
-are rejected before the hypervisor switch rather than guessing a migration. A failed
-build preserves the active OS; copied `.nix` sources still follow normal Nix-store
-visibility rules, so keep runtime passwords/keys outside those modules.
+The default now installs the full stack. Retries resume automatically; local
+console installation needs no SSH key. See [plain NixOS installation](plain-nixos.md)
+for supported scope, source updates, Incus adoption, login policy, credential
+recovery and diagnostics. The rest of this guide documents the optional web-wizard
+workflow, selected explicitly with `--wizard`.
 
 ## Portal-first installation
 
@@ -84,25 +31,18 @@ It does not promise to convert every arbitrary existing NixOS desktop/flake auto
 ## Run on the target host
 
 ```console
-curl -fsSL https://raw.githubusercontent.com/OmarDardery/nixlab/main/install.sh -o install-nixlab.sh
-sudo bash install-nixlab.sh
+sudo nix --extra-experimental-features 'nix-command flakes' \
+  run github:OmarDardery/nixlab#install -- --wizard
 ```
 
-Or use the packaged installer:
-
-```console
-sudo nix --extra-experimental-features 'nix-command flakes' run 'github:OmarDardery/nixlab#install'
-```
-
-The standalone launcher obtains Git through the pinned Nix package set and runs the
-cloned source's packaged installer with its complete runtime; no `nix-env` package installation is required.
-The packaged installer provides its own runtime tools. Read/review the script before running it
-as root. It is intended to be run on your NixOS machine, not in this ChatGPT workspace.
+The packaged installer provides its own runtime tools. Run it on the target
+NixOS host. Omit `--wizard` for the default complete installation.
 
 Optional network selection flags:
 
 ```console
-sudo bash install-nixlab.sh --ref feat/declarative-incus-platform --interface enp2s0 --address CURRENT_ASSIGNED_IP --trusted-cidr YOUR_ADMIN_SUBNET
+sudo nix --extra-experimental-features 'nix-command flakes' \
+  run github:OmarDardery/nixlab#install -- --wizard --interface enp2s0 --address CURRENT_ASSIGNED_IP --trusted-cidr YOUR_ADMIN_SUBNET
 ```
 
 Without these flags the installer selects the existing default-route interface, its actual
@@ -133,7 +73,7 @@ Keep console access for the first activation.
 
 No disks are partitioned or formatted. No VM or guest bridge is initialized by bootstrap.
 If the first switch fails, the installer attempts to restore the preceding profile/generation.
-Use `--resume` for an intact installation inventory after a failed bootstrap; an existing
+Rerun with `--wizard` after a failed bootstrap; `--resume` is optional. An existing
 checkout/configuration is never blindly overwritten. Lost portal passwords can be reset locally
 with `sudo nixlab-admin reset-password`, followed by restarting `nixlab-ui` to revoke sessions.
 The installer does not overwrite a pre-existing Incus database.
@@ -155,7 +95,7 @@ The portal is at `https://HOST_IP:9440` by default. Sign in with the initial pas
   keep the safe system-filesystem baseline. Root/boot/swap or already-mounted-elsewhere devices,
   duplicate UUIDs, mismatched filesystem types and mount paths that hide files are rejected.
 - **Access:** paste an SSH public key for the `operator` account. Existing local accounts remain
-  in the imported installation. The host's managed SSH policy requires key authentication.
+  in the imported installation. SSH password login is enabled by default for non-root Linux accounts; Access can select key-only login.
 - **Applications:** optionally enable Docker/Portainer (off by default) and set the initial Portainer password. VM CPU/RAM defaults use
   detected hardware. The optional demo also needs a database initialization password.
 - **Radios:** choose Wi-Fi/Bluetooth on or off. Wi-Fi uses NetworkManager with the iwd backend.
@@ -349,7 +289,7 @@ this does not test their availability. Prometheus stays private on loopback.
 Helper links open upstream documentation; they do not execute installers or establish Nixlab
 compatibility. See the [quality-of-life roadmap](roadmap.md) for the proposed curated integration.
 
-For guided ISO installation, guest jobs, account roles, recipes, reviewed platform updates,
+For guest jobs, account roles, recipes, reviewed platform updates,
 local documentation and recovery exports, see [operations](operations.md).
 
 ## Focused host portal
@@ -365,3 +305,4 @@ it or install a workload. Backups has schedule/coverage/group controls and
 independent recovery. Integrations supplies Incus/Portainer links and a packaged
 upstream helper wizard; those page links never execute installers. See
 [ownership](ownership.md), [helpers](helpers.md) and [hardware](hardware.md).
+

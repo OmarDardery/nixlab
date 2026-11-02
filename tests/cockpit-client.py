@@ -5,8 +5,9 @@ import ssl
 import urllib.error
 import urllib.request
 import websocket
+import sys
 
-origin = 'https://127.0.0.1:9090'
+origin = sys.argv[1] if len(sys.argv) > 1 else 'https://127.0.0.1:9090'
 ca = '/var/lib/nixlab-admin/ca.crt'
 context = ssl.create_default_context(cafile=ca)
 token = base64.b64encode(b'operator:vm-cockpit-password').decode()
@@ -16,7 +17,7 @@ with urllib.request.urlopen(request, context=context, timeout=30) as response:
     assert isinstance(identity, dict), identity
     cookies = '; '.join(value.split(';', 1)[0] for value in response.headers.get_all('Set-Cookie', []))
 assert cookies
-ws = websocket.create_connection('wss://127.0.0.1:9090/cockpit/socket', origin=origin,
+ws = websocket.create_connection(origin.replace('https://', 'wss://') + '/cockpit/socket', origin=origin,
                                  cookie=cookies, subprotocols=['cockpit1'], sslopt={'ca_certs': ca}, timeout=30)
 try:
     initial = ws.recv()
@@ -40,4 +41,13 @@ try:
     assert 'NIXLAB_COCKPIT_TERMINAL_OK' in output, output
 finally:
     ws.close()
+try:
+    bad = websocket.create_connection(origin.replace('https://', 'wss://') + '/cockpit/socket', origin='https://untrusted.example',
+                                     cookie=cookies, subprotocols=['cockpit1'], sslopt={'ca_certs': ca}, timeout=30)
+except websocket.WebSocketBadStatusException as exc:
+    assert exc.status_code == 403
+else:
+    bad.close()
+    raise AssertionError('Cross-origin Cockpit websocket was accepted')
 print('Managed Cockpit TLS, local-account login and host terminal channel passed.')
+

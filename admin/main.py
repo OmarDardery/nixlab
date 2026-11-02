@@ -297,8 +297,13 @@ def web():
                           '/api.js': ('api.js', 'text/javascript; charset=utf-8'),
                           '/events.js': ('events.js', 'text/javascript; charset=utf-8'),
                           '/operations.js': ('operations.js', 'text/javascript; charset=utf-8'),
+                          '/commands.js': ('commands.js', 'text/javascript; charset=utf-8'),
                           '/foundation.js': ('foundation.js', 'text/javascript; charset=utf-8'),
-                          '/style.css': ('style.css', 'text/css; charset=utf-8')}
+                          '/style.css': ('style.css', 'text/css; charset=utf-8'),
+                          '/brand.css': ('brand.css', 'text/css; charset=utf-8'),
+                          '/favicon.svg': ('favicon.svg', 'image/svg+xml'),
+                          '/fonts/dm-sans-latin.woff2': ('fonts/dm-sans-latin.woff2', 'font/woff2'),
+                          '/fonts/space-grotesk-latin.woff2': ('fonts/space-grotesk-latin.woff2', 'font/woff2')}
                 if path in assets:
                     filename, mime = assets[path]
                     return reply(self, 200, (rt.SOURCE / 'static' / filename).read_bytes(), mime)
@@ -322,8 +327,9 @@ def web():
                     except ImportError:
                         content = '<pre>' + html.escape(text) + '</pre>'
                     page = ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-                            '<title>Nixlab guide</title><link rel="stylesheet" href="/style.css">'
-                            '<main class="page"><article class="card"><a href="/">Back to Nixlab</a>' + content + '</article></main></html>')
+                            '<meta name="theme-color" content="#111310"><title>Nixlab · Offline guide</title>'
+                            '<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/brand.css"><link rel="stylesheet" href="/style.css">'
+                            '<body><main class="page offline-guide"><header class="guide-bar"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">[n]</span><span>nixlab<span class="brand-cursor" aria-hidden="true">_</span></span></a><a href="/">Back to host console →</a></header><article class="card">' + content + '</article></main></body></html>')
                     return reply(self, 200, page.encode(), 'text/html; charset=utf-8')
                 if path == '/api/session':
                     return reply(self, 200, {key: session[key] for key in ('csrf', 'username', 'role')})
@@ -444,7 +450,8 @@ def renew():
     if any(checks):
         if checks[1]:
             (rt.STATE / 'apps-tls.key').unlink(missing_ok=True)
-        rt.issue_tls(settings['management']['address'], settings['hostName'])
+        import diagnostics
+        rt.issue_tls(diagnostics.management_address(settings), settings['hostName'])
         services = ['nixlab-ui.service']
         if settings['ready']:
             services += ['incus.service']
@@ -479,7 +486,63 @@ def guests_cli(argv):
 if __name__ == '__main__':
     os.umask(0o027)
     action = sys.argv[1] if len(sys.argv) > 1 else ''
-    if action == 'backend':
+    if action in ('doctor', 'identity', 'enroll-key', 'portainer') and os.geteuid() == 0:
+        from controller import Manager
+        import diagnostics
+        try:
+            manager = Manager()
+            settings = manager.effective_settings()
+            if action == 'doctor':
+                if sys.argv[2:] == ['--wait']:
+                    diagnostics.wait_ready(settings)
+                result = diagnostics.doctor(settings)
+                print(json.dumps(result, indent=2))
+                sys.exit(0 if result['ok'] else 1)
+            elif action == 'identity':
+                # network-online may be reached before a DHCP lease is usable.
+                deadline = time.monotonic() + 90
+                while True:
+                    try:
+                        diagnostics.identity(settings)
+                        break
+                    except (ValueError, OSError, subprocess.SubprocessError):
+                        if time.monotonic() >= deadline: raise
+                        time.sleep(2)
+            elif action == 'enroll-key':
+                if len(sys.argv) != 3: raise ValueError('Usage: sudo nixlab enroll-key laptop.pub')
+                keys = [line.strip() for line in Path(sys.argv[2]).read_text().splitlines()
+                        if line.strip() and not line.lstrip().startswith('#')]
+                if not keys: raise ValueError('The public key file is empty')
+                candidate = manager.settings()
+                candidate['adminKeys'] = sorted(set(candidate['adminKeys'] + keys))
+                # Use the same reviewed transaction and health checks as setup.
+                job_id = manager.review(candidate, principal='root-key-enrollment')['id']
+                print('Building key enrollment transaction: ' + job_id, flush=True)
+                # Poll locally; workers survive this CLI being disconnected.
+                while True:
+                    record = manager.status()['job']
+                    if record['status'] != 'building': break
+                    time.sleep(1)
+                if record['status'] != 'ready': raise ValueError(record.get('error', record['status']))
+                manager.apply(job_id)
+                while True:
+                    record = manager.job(job_id)
+                    if record['status'] != 'applying': break
+                    time.sleep(1)
+                if record['status'] != 'awaiting-confirmation': raise ValueError(record.get('error', record['status']))
+                diagnostics.wait_ready(record.get('effectiveSettings', candidate))
+                manager.confirm(job_id)
+                print('Client key enrolled for operator. Connect with ssh operator@' + diagnostics.management_address(settings))
+            else:
+                if sys.argv[2:] != ['reset-password']: raise ValueError('Usage: sudo nixlab portainer reset-password')
+                import portainer
+                with rt.locked(blocking=False): result = portainer.reset(settings)
+                print('Portainer recovered: ' + result['url'])
+                print('Username: ' + result['username'] + '; password: ' + result['password'])
+                print('Backup in applications VM: ' + result['backup'])
+        except (ValueError, OSError, subprocess.SubprocessError) as exc:
+            sys.exit(str(exc))
+    elif action == 'backend':
         backend()
     elif action == 'web':
         web()
@@ -522,6 +585,8 @@ if __name__ == '__main__':
         import getpass
         value = getpass.getpass('New Nixlab administrator password: ')
         rt.write_json(rt.STATE / 'auth.json', rt.password_record(value), mode=0o640, group='nixlab-ui')
+        rt.durable_unlink(rt.STATE / 'setup-password')
         print('Password changed. Restart nixlab-ui to revoke existing sessions.')
     else:
-        sys.exit('Usage: nixlab-admin {backend|web|guard|renew|reset-password|config|guests|recovery|prune-jobs|disk prepare}')
+        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|portainer reset-password|backend|web|guard|renew|reset-password|config|guests|recovery|prune-jobs|disk prepare}')
+

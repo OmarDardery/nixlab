@@ -46,7 +46,7 @@ in {
           "/var/lib/nixlab-secrets/tls.crt:/run/secrets/tls.crt:ro"
           "/var/lib/nixlab-secrets/tls.key:/run/secrets/tls.key:ro"
         ];
-      cmd = [ "--admin-password-file" "/run/secrets/admin-password" "--host" "unix:///var/run/docker.sock" ] ++ lib.optionals site.setup.enable [ "--sslcert" "/run/secrets/tls.crt" "--sslkey" "/run/secrets/tls.key" ];
+      cmd = [ "--admin-password-file" "/run/secrets/admin-password" "--host" "unix:///var/run/docker.sock" ] ++ lib.optionals site.setup.enable [ "--tlscert" "/run/secrets/tls.crt" "--tlskey" "/run/secrets/tls.key" ];
     };
   };
   systemd.services.docker-portainer.unitConfig.ConditionPathExists = [ "/var/lib/nixlab-secrets/portainer-admin-password" ]
@@ -90,3 +90,4 @@ in {
     '';
   };
 }
+

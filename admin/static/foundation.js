@@ -3,16 +3,11 @@
 function hostOverview() {
   const s = state.status.effectiveSettings || state.status.settings;
   const health = operationView.health;
-  const failedServices = (health?.services || []).filter((unit) => unit.ActiveState === "failed");
-  const healthKnown = (health?.services || []).some((unit) => unit.LoadState === "loaded");
-  return (
-    title(
-      "NIXOS HOST FOUNDATION",
-      "A dependable home for Incus.",
-      "Nixlab prepares and recovers the host. Use Incus for guests, consoles, devices, networks and snapshots.",
-    ) +
-    `<div class="grid">${homepageTools()}${card("Host readiness", `<p>Backup: ${esc(health?.backup?.health || "unknown")} · ${state.status.rebootRequired ? "Reboot required" : "No reboot pending"}</p><p>${failedServices.length ? esc(failedServices.length) + " service(s) need attention" : healthKnown ? "No failed services reported" : "Service health unavailable"}${health?.rootStorage ? " · " + esc(formatBytes(health.rootStorage.availableBytes)) + " root storage available" : ""}</p><p>${state.host.kvm ? "Hardware virtualization is available." : "Hardware virtualization needs attention."}</p><p>${esc(state.host.architecture)} · ${esc(state.host.cpuVendor)} · ${state.host.uefi ? "UEFI" : "BIOS"}</p><p>Active management: <code>${esc(s.management.interface)} · ${esc(s.management.address)}</code></p><p>Configuration: ${state.status.job ? esc(state.status.job.status) : "No pending change"}</p><button data-go="review">Inspect host changes</button>`)}${card("One owner for each layer", '<p>Incus manages virtualization. NixOS owns physical networking, drivers, mounts and host services. Helper scripts own application installation; application tools own their configuration.</p><p>Ordinary Incus/helper-created guests are never adopted by a host rebuild. Platform-declared infrastructure stays source-managed.</p><a href="/docs/ownership.md">Read the ownership contract</a>')}${card("Recoverability", '<p>Keep verified independent backups. Configuration rollback does not restore guest disks or application data.</p><button data-go="operations">Backups & recovery</button>')}</div>`
-  );
+  const failed = (health?.services || []).filter(unit => unit.ActiveState === "failed");
+  const known = (health?.services || []).some(unit => unit.LoadState === "loaded");
+  const services = failed.length ? failed.length + " service(s) need attention" : known ? "No failed services reported" : "Service health unavailable";
+  return title("HOST CONSOLE / OVERVIEW", "Your homelab.", "Manage the host here. Open Incus, Cockpit or Portainer for the rest.")
+    + `<div class="grid overview-grid">${homepageTools()}${card("Host status", `<dl class="host-facts"><div><dt>Management</dt><dd><code>${esc(s.management.interface)} · ${esc(state.status.managementAddress || s.management.address)}</code></dd></div><div><dt>Services</dt><dd class="${failed.length ? "error" : ""}">${esc(services)}</dd></div><div><dt>Virtualization</dt><dd>${state.host.kvm ? "KVM available" : "Needs attention"}</dd></div><div><dt>Backup</dt><dd>${esc(health?.backup?.health || "unknown")}</dd></div><div><dt>Reboot</dt><dd>${state.status.rebootRequired ? "Required" : "Not pending"}</dd></div>${health?.rootStorage ? `<div><dt>Free root space</dt><dd>${esc(formatBytes(health.rootStorage.availableBytes))}</dd></div>` : ""}<div><dt>Configuration</dt><dd>${esc(state.status.job?.status || "No pending change")}</dd></div></dl><div class="actions"><button data-go="commands">Commands & docs</button><button data-go="operations">Backups & recovery</button></div><p class="note">OS rollback does not restore guest data. <a href="/docs/ownership.md">Who owns what →</a></p>`)}</div>${publicApplications()}`;
 }
 
 function recordEditor(heading, path, columns, defaults) {
@@ -38,7 +33,7 @@ function hostConnectivity() {
   return (
     title(
       "PHYSICAL NETWORKING",
-      "Connect the host, then use Incus.",
+      "Connectivity",
       "Ethernet bridges and VLANs are host prerequisites. Create guest networks, reservations, NIC attachments and ACLs in Incus.",
     ) +
     card(
@@ -90,7 +85,7 @@ function hostHardware() {
   return (
     title(
       "HARDWARE & DISKS",
-      "Prepare hardware without taking over guests.",
+      "Hardware & disks",
       "Nixlab handles stable host identities and prerequisites. Assign devices and guest permissions in Incus.",
     ) +
     card(
@@ -127,18 +122,17 @@ function integrations() {
   return (
     title(
       "UPSTREAM INTEGRATIONS",
-      "Use the tools that already do the job.",
+      "Integrations",
       "Incus owns guests. Community Scripts provisions applications through its native Incus backend; Nixlab supplies a pinned host runner.",
     ) +
-    homepageTools() +
     card("Homelab management", `<p>Cockpit runs on the host for its terminal, services and journal. Incus manages guests. Portainer manages Docker Compose inside the isolated apps VM.</p><button data-action="management-stack">Stage Cockpit + Portainer + laptop mode</button><p>This stages settings only. Enter credentials below, then Build & review → Activate → Confirm access. Existing networks, disks and workloads are preserved.</p><a href="/docs/homelab.md">Your homelab setup and service migration</a>`) +
-    card("Cockpit host terminal", `${toggle("Enable Cockpit on the host", "cockpit.enable")}<div class="fields">${field("Cockpit HTTPS port", "cockpit.port", { type: "number" })}${secret("Local operator password for Cockpit", "cockpitPassword", "At least 16 characters. This enrolls the Linux operator account; SSH remains key-only. Leave blank to retain an existing local account password.")}</div><p>Sign in as operator using its Linux password, or use an existing non-root local account. Portal accounts and passwords are separate. The operator has sudo administration rights.</p>`) +
+    card("Cockpit host terminal", `${toggle("Enable Cockpit on the host", "cockpit.enable")}<div class="fields">${field("Cockpit HTTPS port", "cockpit.port", { type: "number" })}${secret("Local operator password for Cockpit", "cockpitPassword", "At least 16 characters. This enrolls the Linux operator account; SSH accepts the same password when password login is enabled. Leave blank to retain an existing local account password.")}</div><p>Sign in as operator using its Linux password, or use an existing non-root local account. Portal accounts and passwords are separate. The operator has sudo administration rights.</p>`) +
     card(
       "Community Scripts",
-      `${toggle("Install the packaged helper runner", "helpers.enable")}<p>Run on the host through SSH or its console:</p><pre class="log">sudo nixlab-helpers doctor\nsudo nixlab-helpers list\nsudo nixlab-helpers run debian --project lab</pre><p>The upstream interactive wizard selects resources, storage and network. Its guests remain Incus-managed. Nothing on this page executes a script.</p><a href="https://community-scripts.org/" target="_blank" rel="noopener noreferrer">Browse upstream applications ↗</a><p>Proxmox-specific host/VM scripts requiring pct, qm or /etc/pve are unsupported. Upstream Incus scripts are available; Nixlab verification is recorded separately.</p><div class="table-wrap"><table><thead><tr><th>Qualification target</th><th>Compatibility</th><th>Notes</th></tr></thead><tbody>${info.applications.map((item) => `<tr><td>${esc(item.title)}</td><td>${item.status === "verified" ? "Verified on Nixlab" : "Upstream-supported; unverified here"}</td><td>${esc(item.notes)}</td></tr>`).join("")}</tbody></table></div><details><summary>Pinned upstream revisions</summary><pre class="log">${esc(JSON.stringify(info.sources, null, 2))}</pre></details><a href="/docs/helpers.md">Runner, prerequisites and compatibility</a>`,
+      `${toggle("Install the packaged helper runner", "helpers.enable")}<p>The packaged runner opens an interactive Incus wizard from your host terminal.</p><button class="small" data-go="commands">Helper commands & documentation →</button><p>The upstream interactive wizard selects resources, storage and network. Its guests remain Incus-managed. Nothing on this page executes a script.</p><a href="https://community-scripts.org/" target="_blank" rel="noopener noreferrer">Browse upstream applications ↗</a><p>Proxmox-specific host/VM scripts requiring pct, qm or /etc/pve are unsupported. Upstream Incus scripts are available; Nixlab verification is recorded separately.</p><details><summary>Compatibility & pinned revisions</summary><div class="table-wrap"><table><thead><tr><th>Qualification target</th><th>Compatibility</th><th>Notes</th></tr></thead><tbody>${info.applications.map((item) => `<tr><td>${esc(item.title)}</td><td>${item.status === "verified" ? "Verified on Nixlab" : "Upstream-supported; unverified here"}</td><td>${esc(item.notes)}</td></tr>`).join("")}</tbody></table></div><pre class="log">${esc(JSON.stringify(info.sources, null, 2))}</pre></details><a href="/docs/helpers.md">Runner, prerequisites and compatibility</a>`,
     ) +
     apps() +
-    homepageResources()
+    '<p class="note">Looking for commands or upstream resources? <button class="small" data-go="commands">Commands & docs →</button></p>'
   );
 }
 
@@ -214,3 +208,4 @@ function bindFoundation() {
         .filter((g) => g.length));
   }
 }
+

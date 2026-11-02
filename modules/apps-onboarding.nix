@@ -45,7 +45,8 @@ in {
         # Explicit listen.ssl alone does not enable NixOS certificate directives.
         onlySSL = true;
         serverName = site.management.address;
-        listen = [ { addr = site.management.address; port = site.apps.portainerPort; ssl = true; } ];
+        # Source CIDRs and the input firewall restrict access, independently of DHCP readiness.
+        listen = [ { addr = "0.0.0.0"; port = site.apps.portainerPort; ssl = true; } ];
         sslCertificate = "/run/credentials/nginx.service/nixlab-tls.crt";
         sslCertificateKey = "/run/credentials/nginx.service/nixlab-tls.key";
         locations."/" = {
@@ -74,3 +75,4 @@ in {
     '';
   };
 }
+

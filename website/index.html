@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111310">
+  <meta name="description" content="Nixlab turns an installed NixOS server into an Incus, Cockpit and Portainer homelab. One command, preserved guests, and actual troubleshooting docs.">
+  <meta property="og:title" content="Nixlab — Your homelab. Declaratively overthought.">
+  <meta property="og:description" content="Incus, Cockpit and Portainer on plain NixOS. A small stack with a suspiciously well-documented recovery plan.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://nixlab.dardery.work/">
+  <link rel="canonical" href="https://nixlab.dardery.work/">
+  <link rel="icon" href="@@BASE@@/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="@@BASE@@/assets/brand.css"><link rel="stylesheet" href="@@BASE@@/assets/style.css">
+  <script defer src="@@BASE@@/assets/site.js"></script>
+  <title>Nixlab — Your homelab. Declaratively overthought.</title>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header"><div class="header-inner">
+    <a class="brand" href="@@BASE@@/" aria-label="Nixlab home"><span class="brand-mark" aria-hidden="true">[n]</span>nixlab<span class="brand-cursor" aria-hidden="true">_</span></a>
+    <nav aria-label="Main navigation"><a class="hide-small" href="#stack">The stack</a><a href="@@BASE@@/docs/">Docs</a><a class="hide-small" href="@@BASE@@/docs/troubleshooting/">Troubleshooting</a><a class="github-link" href="https://github.com/OmarDardery/nixlab">GitHub <span aria-hidden="true">↗</span></a></nav>
+  </div></header>
+  <main id="main">
+    <section class="hero section-wrap">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="square" aria-hidden="true"></span> NIXOS IN. HOMELAB OUT. MOSTLY.</p>
+        <h1>Your homelab.<br>Declaratively<br><em>overthought.</em></h1>
+        <p class="hero-intro">You looked at a working laptop and thought,<br class="hide-small"> “this should be infrastructure.” We understand.</p>
+        <p class="hero-detail">Incus, Cockpit and Portainer on an existing NixOS server. One install command, automatic resume, and a recovery plan that isn’t “reinstall everything.”</p>
+        <div class="hero-actions"><a class="button button-primary" href="#install">Install Nixlab <span aria-hidden="true">↗</span></a><a class="text-link" href="@@BASE@@/docs/">Read the docs <span aria-hidden="true">→</span></a></div>
+        <p class="hero-footnote">HEADLESS BY DESIGN. NOT BY ACCIDENT.</p>
+      </div>
+      <div class="stack-illustration" aria-label="NixOS host runs Incus and Cockpit, with Docker and Portainer in an apps VM">
+        <div class="map-label"><span>FIG. 01 / THE REASON YOU’RE HERE</span><span aria-hidden="true">↓</span></div>
+        <div class="host-box">
+          <div class="host-heading"><span class="server-glyph" aria-hidden="true">▤</span><div><strong>THE HOST</strong><span>NixOS · bare metal · no desktop</span></div><span class="small-tag">YOUR LAPTOP, PROBABLY</span></div>
+          <div class="service-row"><div class="service-symbol" aria-hidden="true">i_</div><div><strong>Incus</strong><span>Containers &amp; virtual machines</span></div><code>:8443</code></div>
+          <div class="service-row"><div class="service-symbol" aria-hidden="true">&gt;_</div><div><strong>Cockpit</strong><span>Host terminal, services &amp; logs</span></div><code>:9090</code></div>
+          <div class="vm-connector"><span aria-hidden="true">└</span><span>apps · NixOS virtual machine</span><span class="vm-isolation">SEPARATE KERNEL</span></div>
+          <div class="vm-box"><div class="service-row"><div class="service-symbol" aria-hidden="true">▱</div><div><strong>Portainer + Docker</strong><span>Compose stacks live here</span></div><code>:9443*</code></div><p>* HTTPS through the host proxy. Docker stays in the VM.</p></div>
+          <div class="host-bottom"><span><span class="small-square" aria-hidden="true"></span> NIX-OWNED HOST</span><span>INCUS-OWNED GUEST DATA</span></div>
+        </div>
+        <div class="map-caption"><span>Architecture diagram. Not a live status monitor.</span><span class="hand-note">fewer moving parts.<br>still some moving parts.</span></div>
+      </div>
+    </section>
+    <div class="spec-strip"><div class="section-wrap"><span><b>01</b> Plain NixOS</span><span><b>02</b> No desktop required</span><span><b>03</b> Password SSH included</span><span><b>04</b> Guest data preserved</span></div></div>
+    <section id="install" class="install-section section-wrap">
+      <div class="section-heading"><p class="eyebrow">01 / GET IT RUNNING</p><h2>One command.<br><span>A reasonable number of opinions.</span></h2><p>Run on an installed Intel/AMD x86_64 NixOS system with Internet access and hardware virtualization enabled. Start with a minimal NixOS installation; Nixlab configures the stack on top.</p></div>
+      <div class="install-panel">
+        <div class="terminal-bar"><span><span class="terminal-dot" aria-hidden="true"></span> host / terminal</span><button class="copy-button" type="button" data-copy="install-command" aria-label="Copy install command">Copy command <span aria-hidden="true">⧉</span></button></div>
+        <pre><code id="install-command">sudo nix --extra-experimental-features 'nix-command flakes' \
+  run github:OmarDardery/nixlab#install</code></pre>
+        <div class="terminal-note"><span aria-hidden="true">↳</span> Interrupted? Run the same command again. It remembers.</div>
+      </div>
+      <div class="install-notes"><p><strong>Your system stays your system.</strong> Installed users, boot configuration, mounts and addressing are preserved. Password SSH works for non-root Linux accounts; the installer provisions a stable operator password if needed.</p><p><strong>Already running Incus?</strong> Review the adoption inventory and backups before proceeding. Keeping existing guests is a feature, not an exercise for the reader. <a href="@@BASE@@/docs/plain-nixos/#adopt-an-existing-incus-host">Adoption details →</a></p></div>
+      <div class="inline-note"><span class="small-tag">RELEASE CANDIDATE</span><p>Automated VM checks cover DHCP/reboot, Cockpit sessions, password SSH and the management proxy. Your particular NIC still gets a vote. <a href="@@BASE@@/docs/commissioning/">Commissioning checklist →</a></p></div>
+    </section>
+    <section id="stack" class="stack-section section-wrap">
+      <div class="section-heading split-heading"><div><p class="eyebrow">02 / KNOW WHO DOES WHAT</p><h2>Three interfaces.<br><span>Each with an actual job.</span></h2></div><p>Nix owns the host configuration. Incus owns guest operations and data. Docker runs inside its own VM. The public docs site administers exactly none of them.</p></div>
+      <div class="stack-table">
+        <article><span class="row-index">01</span><div><h3>Incus <span>:8443</span></h3><p>Create containers and VMs. Manage guest consoles, networks, storage and snapshots.</p></div><span class="row-role">THE GUESTS</span></article>
+        <article><span class="row-index">02</span><div><h3>Cockpit <span>:9090</span></h3><p>Get a host terminal. Inspect services and the journal. Use your Linux account.</p></div><span class="row-role">THE HOST</span></article>
+        <article><span class="row-index">03</span><div><h3>Portainer <span>:9443</span></h3><p>Deploy Docker Compose stacks in the apps VM. Separate Linux and Portainer logins.</p></div><span class="row-role">THE APPS</span></article>
+      </div>
+      <p class="section-caption">The Nixlab configuration and recovery portal is on <code>:9440</code>. Use the actual address printed by installation. Wishing for a static IP does not configure one.</p>
+    </section>
+    <section class="docs-section section-wrap">
+      <div class="section-heading"><p class="eyebrow">03 / BEFORE YOU OPEN 19 TABS</p><h2>Documentation.<br><span>A suspicious amount of it.</span></h2></div>
+      <div class="doc-cards"><a href="@@BASE@@/docs/plain-nixos/"><span class="card-label">START HERE / 01</span><h3>Install &amp; sign in <span aria-hidden="true">↗</span></h3><p>Requirements, the command, usable credentials and your first working URLs.</p><span class="card-bottom">READ THE INSTALL GUIDE →</span></a><a href="@@BASE@@/docs/troubleshooting/"><span class="card-label">WHEN REALITY ARRIVES / 02</span><h3>Troubleshoot <span aria-hidden="true">↗</span></h3><p>Cockpit after reboot, missing credentials, DHCP surprises and failed attempts.</p><span class="card-bottom">FIND YOUR SYMPTOM →</span></a><a href="@@BASE@@/docs/recovery/"><span class="card-label">FUTURE YOU SAYS THANKS / 03</span><h3>Back up &amp; recover <span aria-hidden="true">↗</span></h3><p>Protect the data that a NixOS generation cannot magically roll back.</p><span class="card-bottom">MAKE A RECOVERY PLAN →</span></a></div>
+    </section>
+    <section class="faq-section section-wrap"><div><p class="eyebrow">04 / FAIR QUESTIONS</p><h2>Before you commit.</h2></div><div class="faq-list">
+      <details><summary>Is this a Proxmox replacement?<span aria-hidden="true">+</span></summary><p>It is a single-host NixOS platform built on Incus, with different trade-offs and a release-candidate status. Read the <a href="@@BASE@@/docs/architecture/">architecture</a> and <a href="@@BASE@@/docs/migration/">migration guide</a> before replacing a working host.</p></details>
+      <details><summary>Does it wipe my disks?<span aria-hidden="true">+</span></summary><p>The single-command installer does not format disks. It preserves the installed system and uses a directory storage pool by default. Existing Incus state needs explicit adoption and backups.</p></details>
+      <details><summary>Why does my server need an SSH key?<span aria-hidden="true">+</span></summary><p>It does not need one for the default installation. Non-root Linux password login is enabled. Keys are optional client identities for remote administration; generating a server key will not let your laptop log in.</p></details>
+      <details><summary>Can I close the laptop lid?<span aria-hidden="true">+</span></summary><p>The installer enables lid-closed operation, and the host configuration disables suspend and hibernation. Check cooling, power and battery behavior on your actual hardware. It remains a laptop, despite the promotion.</p></details>
+    </div></section>
+    <section class="last-call section-wrap"><p class="eyebrow">SMALL STACK. REAL ESCAPE HATCHES.</p><h2>Build it. Break it.<br><span>Preferably in that order.</span></h2><a class="button button-primary" href="@@BASE@@/docs/plain-nixos/">Start with the installation guide <span aria-hidden="true">↗</span></a></section>
+  </main>
+  <footer class="site-footer section-wrap"><a class="brand" href="@@BASE@@/">nixlab<span class="brand-cursor" aria-hidden="true">_</span></a><p>Declarative infrastructure. Ordinary human consequences.</p><a href="https://github.com/OmarDardery/nixlab">Source &amp; issues ↗</a></footer>
+  <p class="sr-only" id="announcer" role="status" aria-live="polite"></p>
+</body></html>

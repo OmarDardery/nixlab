@@ -64,15 +64,42 @@ with tempfile.TemporaryDirectory(prefix='nixlab-direct-eval-') as folder:
       incus = c.virtualisation.incus.enable;
       cockpit = c.services.cockpit.enable;
       hostDocker = c.virtualisation.docker.enable;
+      passwordSSH = c.services.openssh.settings.PasswordAuthentication;
+      rootSSH = c.services.openssh.settings.PermitRootLogin;
+      displayManager = c.services.displayManager.enable;
+      suspend = c.systemd.sleep.settings.Sleep.AllowSuspend;
       readerKeys = c.users.users.reader.openssh.authorizedKeys.keys;
     }''')
     assert actual['stateVersion'] == '25.11', actual
     assert actual['rootDevice'] == '/dev/disk/by-label/TEST-ONLY', actual
     assert actual['networkManager'] and actual['incus'] and actual['cockpit'], actual
     assert not actual['hostDocker'], actual
+    assert actual['passwordSSH'] and actual['rootSSH'] == 'no', actual
+    assert not actual['displayManager'] and not actual['suspend'], actual
     assert actual['readerKeys'] == [key(2)], actual
     assert actual['settings']['management'] == settings['management'], actual
     assert set(actual['settings']['adminKeys']) == {key(1), key(3)}, actual
     # Evaluate the actual system derivation to force NixOS assertions too.
     evaluate(root, 'nixosConfigurations.hypervisor.config.system.build.toplevel.drvPath')
+    # A physical-console install is valid without a key. Adoption can use an
+    # independent bridge/pool without changing native Incus resources.
+    candidate['adminKeys'] = []
+    candidate['guests']['bridge'] = 'nixlabbr'
+    candidate['storage']['pool'] = 'nixlab-guests'
+    candidate['storage']['source'] = '/var/lib/incus/storage-pools/nixlab-guests'
+    candidate['connectivity']['guestInterfaces'] = ['nixlabbr']
+    candidate['connectivity']['preservedIncusBridges'] = ['incusbr0']
+    path.write_text(json.dumps(candidate))
+    adopted = evaluate(root, 'nixosConfigurations.hypervisor.config', '''c: {
+      pool = (builtins.head c.virtualisation.incus.preseed.storage_pools).name;
+      bridge = (builtins.head c.virtualisation.incus.preseed.networks).name;
+      nat = c.networking.nat.internalInterfaces;
+      passwordLogin = c.services.openssh.settings.PasswordAuthentication;
+    }''')
+    assert adopted == {'pool': 'nixlab-guests', 'bridge': 'nixlabbr', 'nat': ['nixlabbr'], 'passwordLogin': True}, adopted
+    evaluate(root, 'nixosConfigurations.hypervisor.config.system.build.toplevel.drvPath')
+    candidate['access']['sshPasswordLogin'] = False
+    path.write_text(json.dumps(candidate))
+    assert not evaluate(root, 'nixosConfigurations.hypervisor.config.services.openssh.settings.PasswordAuthentication')
     print('Direct conversion: preserved machine inputs and full hypervisor evaluation passed.')
+

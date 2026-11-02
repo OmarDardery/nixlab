@@ -35,12 +35,23 @@ def main():
     p.add_argument("--project", default=cfg.get("project", "lab"), type=name)
     sub = p.add_subparsers(dest="action", required=True)
     sub.add_parser("list")
+    sub.add_parser("doctor")
+    sub.add_parser("enroll-key").add_argument("file", type=Path)
+    portainer = sub.add_parser("portainer")
+    portainer.add_argument("operation", choices=["reset-password"])
     for action in ("exec", "exec-many", "restart", "backup", "deploy", "update", "logs", "down", "project-restart", "action"):
         q = sub.add_parser(action)
         q.add_argument("target")
         if action in ("exec", "exec-many", "action"):
             q.add_argument("command", nargs=argparse.REMAINDER)
     args = p.parse_args()
+    if args.action in ("doctor", "enroll-key", "portainer"):
+        if os.geteuid() != 0:
+            p.error('Run this host administration command with sudo')
+        command = ["nixlab-admin", args.action]
+        if args.action == "enroll-key": command += [str(args.file)]
+        if args.action == "portainer": command += [args.operation]
+        return execute(command, args.action, "host")
     prefix = ["incus", "--project", args.project]
     if args.action == "list":
         return execute(prefix + ["list", args.remote + ":"], "list", args.project)
@@ -91,3 +102,4 @@ if __name__ == "__main__":
     except (ValueError, OSError, argparse.ArgumentTypeError) as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
+

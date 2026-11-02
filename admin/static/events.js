@@ -154,8 +154,7 @@ async function action(name, el) {
     if (name === "copy-ssh") {
       await navigator.clipboard.writeText(
         "ssh operator@" +
-          (state.status.effectiveSettings || state.status.settings).management
-            .address,
+          (state.status.managementAddress || (state.status.effectiveSettings || state.status.settings).management.address),
       );
       toast("SSH command copied.");
       return;
@@ -254,3 +253,4 @@ async function action(name, el) {
     if (el.isConnected) el.disabled = false;
   }
 }
+

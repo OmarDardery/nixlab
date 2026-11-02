@@ -1,10 +1,9 @@
 # Operating the single-host release
 
-Boot the ISO, connect to the Internet and run `sudo nixlab-setup`. Use the
-[ISO guide](iso.md) for the destructive-disk confirmation and manual alternatives.
-First boot starts the authenticated setup portal; the first reviewed activation
-provisions Incus. The [commissioning checklist](commissioning.md) is the remaining
-target-machine acceptance work.
+Install from an existing NixOS system using the [single command](plain-nixos.md).
+The installer configures and verifies Incus, Cockpit and the Portainer VM, preserves
+installed data and resumes interrupted work. The [commissioning checklist](commissioning.md)
+covers target-machine acceptance.
 
 ## Daily work
 
@@ -111,7 +110,7 @@ Local machine state never becomes upstream platform code. Personal changes belon
 under `machine/`; reviewed upgrades replace tracked platform code. A separate package
 refresh updates Nixpkgs inside the same candidate. Updates never force a reboot.
 
-The ISO's Git snapshot needs no manually configured tracking branch for this path.
+The packaged source's Git snapshot needs no manually configured tracking branch for this path.
 Its upstream revision is recorded in `platform-release.json`. Private repositories
 require a root-owned Git credential helper configured before the background fetch;
 do not put tokens in the SHA field, Nix source or module uploads. A failed fetch/build
