@@ -111,7 +111,7 @@ def doctor(settings):
         report = {'ok': False, 'error': str(exc)}
     report['services'] = []
     for unit in ('incus', 'incus-preseed', 'nixlab-instances', 'nixlab-management-identity',
-                 'nixlab-admin-backend', 'nixlab-ui', 'cockpit.socket', 'nixlab-apps-onboarding', 'nginx'):
+                 'nixlab-admin-backend', 'nixlab-ui', 'cockpit.socket', 'cockpit.service', 'nixlab-apps-onboarding', 'nginx'):
         result = subprocess.run(['systemctl', 'show', unit, '-p',
                                  'Id,LoadState,ActiveState,SubState,Result,ExecMainStatus'],
                                 capture_output=True, text=True, timeout=10)
