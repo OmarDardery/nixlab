@@ -206,7 +206,7 @@ summary { cursor: pointer; color: var(--text); font-size: 12px; padding: 12px 0;
 /* Keep the daily console small; longer examples and references live in one section. */
 .page-guide { display: inline-block; font-size: 10px; margin-top: 10px; }
 .overview-grid { align-items: start; }
-.service-doc { display: inline-block; font-size: 10px; margin-top: 6px; }
+.service-doc { display: block; width: fit-content; font-size: 10px; margin-top: 6px; }
 .service-enrollment { border-top: 1px solid var(--line); padding-top: 17px; margin-top: 6px; }
 .service-enrollment .note { margin-bottom: 12px; }
 .host-facts { margin: 0; }
