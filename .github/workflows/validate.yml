@@ -43,13 +43,14 @@ jobs:
         run: find . -name '*.nix' -exec nix-instantiate --parse '{}' ';' >/dev/null
       - name: Evaluate direct conversion from an installed NixOS configuration
         run: python3 tests/evaluate_direct_install.py
+      - name: Verify production firewall and DHCP management across reboot
+        run: nix build .#checks.x86_64-linux.startup --no-link -L
       - name: Boot portal and verify real NixOS permissions
         run: nix build .#checks.x86_64-linux.portal --no-link -L
       - name: Verify management services and Docker forwarding boundary
         run: |
           nix eval .#nixosConfigurations.validation-management.config.system.build.toplevel.drvPath
           nix build .#checks.x86_64-linux.management --no-link -L
-          nix build .#checks.x86_64-linux.startup --no-link -L
       - name: Boot real Incus containers and verify host integration and restore
         run: nix build .#checks.x86_64-linux.foundation --no-link -L
       - name: Evaluate configuration variants

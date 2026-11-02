@@ -15,7 +15,9 @@ in {
     filterForward = true;
     allowedTCPPorts = lib.mkForce [ ];
     allowedUDPPorts = lib.mkForce [ ];
-    trustedInterfaces = lib.mkForce [ ];
+    # NixOS adds lo through this option. Dropping it also blocks connections
+    # to the host's own LAN address, including every management health probe.
+    trustedInterfaces = lib.mkForce [ "lo" ];
     allowPing = false;
     # Interface trust is deliberately not granted to the guest bridge.
     extraInputRules = ''
