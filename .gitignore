@@ -7,6 +7,8 @@ result*
 !/secrets/*.yaml
 !/secrets/README.md
 __pycache__/
+/_site/
+/.venv-website/
 
 /local/
 /installed-system/

@@ -102,7 +102,6 @@ NixOS rollback restores host configuration, not Incus schema or guest data.
 
 ```sh
 sudo nixlab doctor
-sudo nixlab portainer reset-password
 ```
 
 Installation confirms only after checking the Incus API/UI, Nixlab portal,
@@ -131,6 +130,12 @@ helper fails. It verifies readiness and authenticates before showing the new
 username/password. The backup path is printed. The official helper currently uses
 its upstream `latest` image; the helper output is retained in a root-only file if
 its output format changes. This command does not delete stacks or guest disks.
+
+To explicitly reset Portainer's account after backing up its data, run:
+
+```sh
+sudo nixlab portainer reset-password
+```
 
 ## Installation regression checklist
 

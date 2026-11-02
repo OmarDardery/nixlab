@@ -3,6 +3,8 @@
 A declarative NixOS bare-metal host using Incus for system containers and KVM VMs,
 with Docker Compose isolated inside a NixOS applications VM.
 
+[Website & documentation](https://nixlab.dardery.work/) · [Troubleshooting](docs/troubleshooting.md) · [GitHub Pages / domain setup](docs/website.md)
+
 **Start from a plain, installed NixOS server** (no desktop needed):
 
 ```sh
