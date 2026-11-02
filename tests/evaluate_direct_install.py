@@ -64,12 +64,18 @@ with tempfile.TemporaryDirectory(prefix='nixlab-direct-eval-') as folder:
       incus = c.virtualisation.incus.enable;
       cockpit = c.services.cockpit.enable;
       hostDocker = c.virtualisation.docker.enable;
+      passwordSSH = c.services.openssh.settings.PasswordAuthentication;
+      rootSSH = c.services.openssh.settings.PermitRootLogin;
+      displayManager = c.services.displayManager.enable;
+      suspend = c.systemd.sleep.settings.Sleep.AllowSuspend;
       readerKeys = c.users.users.reader.openssh.authorizedKeys.keys;
     }''')
     assert actual['stateVersion'] == '25.11', actual
     assert actual['rootDevice'] == '/dev/disk/by-label/TEST-ONLY', actual
     assert actual['networkManager'] and actual['incus'] and actual['cockpit'], actual
     assert not actual['hostDocker'], actual
+    assert actual['passwordSSH'] and actual['rootSSH'] == 'no', actual
+    assert not actual['displayManager'] and not actual['suspend'], actual
     assert actual['readerKeys'] == [key(2)], actual
     assert actual['settings']['management'] == settings['management'], actual
     assert set(actual['settings']['adminKeys']) == {key(1), key(3)}, actual
@@ -90,7 +96,10 @@ with tempfile.TemporaryDirectory(prefix='nixlab-direct-eval-') as folder:
       nat = c.networking.nat.internalInterfaces;
       passwordLogin = c.services.openssh.settings.PasswordAuthentication;
     }''')
-    assert adopted == {'pool': 'nixlab-guests', 'bridge': 'nixlabbr', 'nat': ['nixlabbr'], 'passwordLogin': False}, adopted
+    assert adopted == {'pool': 'nixlab-guests', 'bridge': 'nixlabbr', 'nat': ['nixlabbr'], 'passwordLogin': True}, adopted
     evaluate(root, 'nixosConfigurations.hypervisor.config.system.build.toplevel.drvPath')
+    candidate['access']['sshPasswordLogin'] = False
+    path.write_text(json.dumps(candidate))
+    assert not evaluate(root, 'nixosConfigurations.hypervisor.config.services.openssh.settings.PasswordAuthentication')
     print('Direct conversion: preserved machine inputs and full hypervisor evaluation passed.')
 
