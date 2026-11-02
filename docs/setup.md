@@ -31,25 +31,18 @@ It does not promise to convert every arbitrary existing NixOS desktop/flake auto
 ## Run on the target host
 
 ```console
-curl -fsSL https://raw.githubusercontent.com/OmarDardery/nixlab/main/install.sh -o install-nixlab.sh
-sudo bash install-nixlab.sh --wizard
+sudo nix --extra-experimental-features 'nix-command flakes' \
+  run github:OmarDardery/nixlab#install -- --wizard
 ```
 
-Or use the packaged installer:
-
-```console
-sudo nix --extra-experimental-features 'nix-command flakes' run 'github:OmarDardery/nixlab#install' -- --wizard
-```
-
-The standalone launcher obtains Git through the pinned Nix package set and runs the
-cloned source's packaged installer with its complete runtime; no `nix-env` package installation is required.
-The packaged installer provides its own runtime tools. Read/review the script before running it
-as root. It is intended to be run on your NixOS machine, not in this ChatGPT workspace.
+The packaged installer provides its own runtime tools. Run it on the target
+NixOS host. Omit `--wizard` for the default complete installation.
 
 Optional network selection flags:
 
 ```console
-sudo bash install-nixlab.sh --wizard --interface enp2s0 --address CURRENT_ASSIGNED_IP --trusted-cidr YOUR_ADMIN_SUBNET
+sudo nix --extra-experimental-features 'nix-command flakes' \
+  run github:OmarDardery/nixlab#install -- --wizard --interface enp2s0 --address CURRENT_ASSIGNED_IP --trusted-cidr YOUR_ADMIN_SUBNET
 ```
 
 Without these flags the installer selects the existing default-route interface, its actual
@@ -102,7 +95,7 @@ The portal is at `https://HOST_IP:9440` by default. Sign in with the initial pas
   keep the safe system-filesystem baseline. Root/boot/swap or already-mounted-elsewhere devices,
   duplicate UUIDs, mismatched filesystem types and mount paths that hide files are rejected.
 - **Access:** paste an SSH public key for the `operator` account. Existing local accounts remain
-  in the imported installation. The host's managed SSH policy requires key authentication.
+  in the imported installation. SSH password login is enabled by default for non-root Linux accounts; Access can select key-only login.
 - **Applications:** optionally enable Docker/Portainer (off by default) and set the initial Portainer password. VM CPU/RAM defaults use
   detected hardware. The optional demo also needs a database initialization password.
 - **Radios:** choose Wi-Fi/Bluetooth on or off. Wi-Fi uses NetworkManager with the iwd backend.
@@ -296,7 +289,7 @@ this does not test their availability. Prometheus stays private on loopback.
 Helper links open upstream documentation; they do not execute installers or establish Nixlab
 compatibility. See the [quality-of-life roadmap](roadmap.md) for the proposed curated integration.
 
-For guided ISO installation, guest jobs, account roles, recipes, reviewed platform updates,
+For guest jobs, account roles, recipes, reviewed platform updates,
 local documentation and recovery exports, see [operations](operations.md).
 
 ## Focused host portal

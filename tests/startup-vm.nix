@@ -45,10 +45,10 @@ in pkgs.testers.runNixOSTest {
       };
     };
     networking.firewall.allowedUDPPorts = [ 53 67 ];
-    environment.systemPackages = [ pkgs.curl ];
+    environment.systemPackages = [ pkgs.curl pkgs.openssh pkgs.sshpass ];
   };
   nodes.machine = { lib, ... }: {
-    imports = [ ../modules/admin-ui.nix ../modules/apps-onboarding.nix ../modules/cockpit.nix ];
+    imports = [ ../modules/admin-ui.nix ../modules/apps-onboarding.nix ../modules/cockpit.nix ../modules/security.nix ../modules/quality-of-life.nix ];
     _module.args.site = settings;
     virtualisation.memorySize = 1536;
     networking.useDHCP = false;
@@ -65,9 +65,10 @@ in pkgs.testers.runNixOSTest {
       };
     };
     networking.nftables.enable = true;
-    networking.firewall.allowedTCPPorts = [ 8443 ];
-    environment.systemPackages = [ pkgs.curl pkgs.python3 ];
-    users.users.operator.isNormalUser = true;
+    networking.firewall.allowedTCPPorts = [ 22 8443 ];
+    environment.systemPackages = [ pkgs.curl (pkgs.python3.withPackages (ps: [ ps.websocket-client ])) ];
+    users.users.operator.initialPassword = "vm-cockpit-password"; # disposable VM only
+    environment.etc."nixlab-test-cockpit.py".source = ./cockpit-client.py;
     environment.etc."nixlab-test-settings.json".text = builtins.toJSON settings;
     environment.etc."nixlab/effective-settings.json".text = builtins.toJSON settings;
     systemd.services.nixlab-test-fixture = {
@@ -103,8 +104,10 @@ in pkgs.testers.runNixOSTest {
   };
   testScript = ''
     import json
-    lan.start()
     machine.start(allow_reboot=True)
+    # Exercise a real DHCP delay instead of assuming network-online means ready.
+    machine.wait_for_unit("NetworkManager.service")
+    lan.start()
     lan.wait_for_unit("dnsmasq.service")
     for boot in range(2):
         machine.wait_for_unit("nixlab-management-identity.service")
@@ -117,7 +120,10 @@ in pkgs.testers.runNixOSTest {
         assert address == "192.0.2.20", address
         machine.wait_until_succeeds(f"curl --fail --silent --show-error --max-time 5 --cacert /var/lib/nixlab-admin/ca.crt https://{address}:19443/api/status | grep NIXLAB_PROXY_READY", timeout=90)
         lan.wait_until_succeeds(f"curl --fail --silent --show-error --max-time 5 --insecure https://{address}:9090/ping", timeout=90)
+        machine.succeed(f"python3 /etc/nixlab-test-cockpit.py https://{address}:9090")
+        lan.succeed(f"sshpass -p vm-cockpit-password ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=password operator@{address} 'test $(id -un) = operator'")
         machine.wait_until_succeeds("nixlab-admin doctor", timeout=90)
+        machine.wait_for_unit("nixlab-management-health.service")
         if boot == 0:
             machine.reboot()
   '';

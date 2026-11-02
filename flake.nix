@@ -40,26 +40,7 @@
         specialArgs = { inventory = checkSettings inventory; appImage = if vm == null then null else artifacts vm; installedNetworking = networking; installedBase = null; };
         modules = [ sops-nix.nixosModules.sops ./configuration.nix ] ++ extra;
       };
-      bundledSource = nixpkgs.lib.cleanSourceWith {
-        src = self.outPath;
-        filter = path: type:
-          let relative = nixpkgs.lib.removePrefix (toString self.outPath + "/") (toString path);
-              top = builtins.head (nixpkgs.lib.splitString "/" relative);
-          in type != "symlink" && builtins.baseNameOf path != "__pycache__" && (toString path == toString self.outPath || builtins.elem top [ "admin" "configuration.nix" "configuration-bootstrap.nix"
-            "docs" "examples" "flake.lock" "flake.nix" "guests" "installer" "iso" "lib"
-            "modules" "platform-modules" "scripts" "helpers" "site-defaults.nix" "site.nix" "tests"
-            "README.md" "VERSION" "install.sh" "platform-release.json" ".gitignore" ]);
-      };
-      isoInstaller = import ./installer/package.nix { inherit pkgs; };
-      firstbootModule = import ./iso/firstboot.nix {
-        source = bundledSource; installer = isoInstaller; revision = self.rev or "unversioned";
-      };
-      installerIso = nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        specialArgs = { nixlabSource = bundledSource; nixlabInstaller = isoInstaller;
-          nixlabRevision = self.rev or "unversioned"; };
-        modules = [ ./iso/live.nix ];
-      };
+      installer = import ./installer/package.nix { inherit pkgs; };
       pkgs = import nixpkgs { system = "x86_64-linux"; };
       ethernetSite = testSite // {
         apps = testSite.apps // { enable = false; };
@@ -77,11 +58,6 @@
       nixosConfigurations = {
         hypervisor = mkHost site apps [ ];
         inherit apps bootstrap;
-        installer-iso = installerIso;
-        validation-iso-firstboot = nixpkgs.lib.nixosSystem {
-          system = "x86_64-linux";
-          modules = [ ./tests/hardware.nix firstbootModule { system.stateVersion = "26.05"; } ];
-        };
         # Evaluation fixtures, never an installation target.
         validation-minimal = mkHost (testSite // { apps = testSite.apps // { enable = false; }; }) testApps [ ./tests/hardware.nix ];
         validation-file-disk = mkHost testSite testApps
@@ -142,10 +118,7 @@
         }) testApps [ ./tests/hardware.nix ];
       };
       packages.x86_64-linux = {
-        installer = isoInstaller;
-        installer-iso = installerIso.config.system.build.isoImage;
-        iso-stage = installerIso.config.system.build.nixlabStageInstaller;
-        iso-setup = installerIso.config.system.build.nixlabGuidedInstaller;
+        inherit installer;
         admin = import ./admin/package.nix { inherit pkgs; };
         homelab = import ./scripts/homelab.nix { inherit pkgs; };
         helpers = import ./helpers/package.nix { inherit pkgs; };
@@ -206,12 +179,6 @@
       devShells.x86_64-linux = {
         default = pkgs.mkShell {
           packages = with pkgs; [ nixfmt shellcheck python3 incus-lts.client docker-compose ];
-        };
-        iso-test = pkgs.mkShell {
-          packages = [ pkgs.python3 pkgs.qemu ];
-          NIXLAB_OVMF_CODE = pkgs.OVMF.firmware;
-          NIXLAB_OVMF_VARS = pkgs.OVMF.variables;
-          NIXLAB_OVMF_SMM = if pkgs.OVMF.systemManagementModeRequired then "1" else "0";
         };
       };
     };

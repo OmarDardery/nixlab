@@ -2,7 +2,7 @@
 
 ## SSH and Incus CLI
 
-The `operator` account accepts declared SSH keys only. It may use sudo for infrastructure
+The `operator` account accepts Linux passwords by default and optional declared SSH keys. Root SSH login is disabled. It may use sudo for infrastructure
 administration. Neither ordinary users nor `operator` receive an unrestricted Incus/Docker
 socket group automatically. Sudo-all is intentional for the trusted infrastructure operator;
 use separate accounts/project-scoped Incus identities for less-trusted users.

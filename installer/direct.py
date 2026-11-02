@@ -27,13 +27,15 @@ def guest_network(routes, requested=None):
 
 
 def prepare(settings, overview, host, key_files=(), subnet=None, apps=True, previous_guests=None,
-            remote=False, password_login=False):
+            remote=False, password_login=None):
     candidate = copy.deepcopy(settings)
     keys = list(candidate['adminKeys']) + overview.get('adminKeys', [])
     for path in key_files:
         keys += [line.strip() for line in Path(path).read_text().splitlines()
                  if line.strip() and not line.startswith('#')]
     candidate['adminKeys'] = sorted(set(keys))
+    if password_login is None:
+        password_login = candidate.get('access', {}).get('sshPasswordLogin', True)
     candidate.setdefault('access', {})['sshPasswordLogin'] = password_login
     if remote and not keys and not password_login:
         raise ValueError('Remote installation needs your client SSH public key (--ssh-key laptop.pub), '

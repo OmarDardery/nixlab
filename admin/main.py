@@ -444,7 +444,8 @@ def renew():
     if any(checks):
         if checks[1]:
             (rt.STATE / 'apps-tls.key').unlink(missing_ok=True)
-        rt.issue_tls(settings['management']['address'], settings['hostName'])
+        import diagnostics
+        rt.issue_tls(diagnostics.management_address(settings), settings['hostName'])
         services = ['nixlab-ui.service']
         if settings['ready']:
             services += ['incus.service']
@@ -486,6 +487,8 @@ if __name__ == '__main__':
             manager = Manager()
             settings = manager.effective_settings()
             if action == 'doctor':
+                if sys.argv[2:] == ['--wait']:
+                    diagnostics.wait_ready(settings)
                 result = diagnostics.doctor(settings)
                 print(json.dumps(result, indent=2))
                 sys.exit(0 if result['ok'] else 1)

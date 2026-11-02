@@ -7,10 +7,10 @@ let
           top = builtins.head (pkgs.lib.splitString "/" relative);
       in type != "symlink" && builtins.baseNameOf path != "__pycache__"
         && (toString path == toString ../. || builtins.elem top [
-          "admin" "installer" "scripts" "helpers" "lib" "modules" "platform-modules" "iso"
+          "admin" "installer" "scripts" "helpers" "lib" "modules" "platform-modules"
           "guests" "tests" "docs" "examples" "configuration.nix" "configuration-bootstrap.nix"
           "hardware-configuration.nix" "flake.nix" "flake.lock" "site.nix" "site-defaults.nix"
-          "README.md" "VERSION" "install.sh" ".gitignore"
+          "README.md" "VERSION" ".gitignore"
         ]);
   };
   source = pkgs.runCommand "nixlab-installer-source" { } ''

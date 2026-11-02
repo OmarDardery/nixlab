@@ -12,7 +12,7 @@
     extraGroups = [ "wheel" ];
     openssh.authorizedKeys.keys = site.adminKeys;
   };
-  # Key-authenticated operator is a trusted infrastructure administrator.
+  # The operator is a trusted infrastructure administrator.
   # sudo operations are journaled; neither control socket is delegated to ordinary users.
   security.sudo.extraRules = [ { users = [ "operator" ]; commands = [ { command = "ALL"; options = [ "NOPASSWD" ]; } ]; } ];
   services.journald.extraConfig = ''

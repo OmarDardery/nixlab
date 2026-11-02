@@ -51,7 +51,7 @@ class SourceTests(unittest.TestCase):
             path_type = Path
             def paths(value, *extra):
                 if str(value) == '/etc/NIXOS': return flag
-                if str(value) in ('/etc/nixlab-iso-revision', '/etc/nixos.pre-nixlab', '/var/lib/incus/database', '/etc/systemd/system/nixlab-firstboot.service'):
+                if str(value) in ('/etc/nixos.pre-nixlab', '/var/lib/incus/database'):
                     return root / ('missing-' + path_type(value).name)
                 if str(value) in ('/root', '/home'): return root / 'homes'
                 return path_type(value, *extra)

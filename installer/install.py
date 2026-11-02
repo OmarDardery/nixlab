@@ -73,9 +73,9 @@ def copy_embedded_checkout(source, target, repository, revision=None):
     if revision and len(revision) == 40 and all(c in '0123456789abcdef' for c in revision):
         import upgrades
         rt.write_json(target / 'platform-release.json', {'version': upgrades.version(source), 'revision': revision, 'repository': repository})
-    run(['git', '-C', str(target), 'init', '-q', '-b', 'nixlab-iso'])
+    run(['git', '-C', str(target), 'init', '-q', '-b', 'nixlab-source'])
     run(['git', '-C', str(target), 'add', '.'])
-    run(['git', '-C', str(target), '-c', 'user.name=Nixlab ISO', '-c',
+    run(['git', '-C', str(target), '-c', 'user.name=Nixlab installer', '-c',
          'user.email=installer@nixlab.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '-q', '-m', 'Initialize bundled Nixlab source'])
     run(['git', '-C', str(target), 'remote', 'add', 'origin', repository])
 
@@ -92,11 +92,12 @@ def parser_args():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--switch', dest='switch', action='store_true', help='Install the full stack (default)')
     mode.add_argument('--wizard', dest='switch', action='store_false', help='Only bootstrap the optional web wizard')
-    # Retain the existing firstboot appliance route; plain installed hosts use
-    # the full local CLI workflow. ISO composition and boot code are unchanged.
-    parser.set_defaults(switch=not Path('/etc/systemd/system/nixlab-firstboot.service').exists())
+    parser.set_defaults(switch=True)
     parser.add_argument('--ssh-key', action='append', default=[], type=Path, help='Client public key file, never a private key')
-    parser.add_argument('--ssh-password-login', action='store_true', help='Explicitly retain SSH password login for existing non-root accounts')
+    ssh = parser.add_mutually_exclusive_group()
+    ssh.add_argument('--ssh-password-login', action='store_true', dest='ssh_password_login', help='Enable SSH password login for non-root Linux accounts (default on fresh installs)')
+    ssh.add_argument('--no-ssh-password-login', action='store_false', dest='ssh_password_login', help='Disable SSH password login; remote installs need a client public key')
+    parser.set_defaults(ssh_password_login=True)
     parser.add_argument('--guest-subnet', help='Unused private IPv4 /24')
     parser.add_argument('--no-apps', action='store_true', help='Skip the Docker/Portainer VM')
     parser.add_argument('--adopt-incus', action='store_true', help='Back up existing Incus guests and add an isolated Nixlab namespace')
@@ -170,7 +171,7 @@ def summarize(settings, password=None, record=None):
             import local_access
             operator_password = local_access.operator_password()
             if operator_password:
-                print('Verified Cockpit username: operator; password: ' + operator_password)
+                print('Verified Linux username: operator (SSH/Cockpit); password: ' + operator_password)
         if settings['apps']['enable']:
             import portainer
             print('Portainer: https://' + address + ':' + str(settings['apps']['portainerPort']))
@@ -202,8 +203,6 @@ def main():
     parser, args = parser_args()
     if not installed_host():
         parser.error('Run as root on an installed NixOS system')
-    if Path('/etc/nixlab-iso-revision').exists():
-        parser.error('This is live installation media. Use nixlab-stage-install on the mounted target, then nixos-install')
     if os.uname().machine != 'x86_64':
         parser.error('This release supports Intel/AMD x86_64 NixOS hosts')
     remote = workflow.remote_session()
@@ -305,13 +304,13 @@ def main():
         if args.switch:
             candidate = direct.prepare(default, overview, host, args.ssh_key, args.guest_subnet,
                 not args.no_apps if not default['ready'] else default['apps']['enable'], previous_guests=previous_guests,
-                remote=remote, password_login=args.ssh_password_login or default.get('access', {}).get('sshPasswordLogin', False))
+                remote=remote, password_login=args.ssh_password_login)
             validate_keys(candidate['adminKeys'])
             validate_kvm(candidate['cpuVendor'])
             import local_access
             if not local_access.cockpit_accounts():
                 candidate['cockpit']['managePassword'] = True
-                print('No usable local administrator password was found; a stable operator login will be provisioned for Cockpit.')
+                print('No usable local administrator password was found; a stable operator login will be provisioned for SSH and Cockpit.')
             # File-owned settings can enable services or select another port.
             # Provision and report the evaluated stack, while the transaction
             # continues to store the administrator's original JSON overlay.

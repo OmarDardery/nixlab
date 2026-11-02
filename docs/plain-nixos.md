@@ -27,29 +27,31 @@ Append options after `--` to the command:
 | Option | Purpose |
 |---|---|
 | `--ssh-key /path/to/laptop.pub` | Enroll a client public key for the `operator` account |
-| `--ssh-password-login` | Explicitly retain password login for existing non-root Linux users |
+| `--no-ssh-password-login` | Choose key-only SSH; remote installs then require a client key |
 | `--no-apps` | Omit the Docker/Portainer VM on first installation |
 | `--adopt-incus` | Explicitly select the backup-and-adopt workflow described below |
 | `--no-update` | Keep the installed platform source on retry |
 | `--wizard` | Bootstrap the web setup instead of installing the full stack |
 | `--guest-subnet 10.78.0.0/24` | Select an unused private guest subnet |
 
-The default disables SSH password login and root SSH login. This policy is
-printed before activation. A console installation can proceed with no key and
-enroll one later:
+The default enables SSH password login for non-root Linux accounts, including
+`operator`. Root SSH login stays disabled. The installer prints this policy before
+activation; rerunning it enables password login unless `--no-ssh-password-login`
+or a file-owned setting explicitly selects key-only access. A console installation
+can proceed with no key and enroll one later:
 
 ```sh
 sudo nixlab enroll-key /path/to/laptop.pub
 ```
 
 The key must come from the **client** that will connect. Generating a private key
-on the server does not authorize the laptop. A remote SSH installation must have
-an administrator key or explicitly retain password login. Detection also checks
+on the server does not authorize the laptop. A remote SSH installation using key-only access must have an administrator key. Detection also checks
 for an sshd process ancestor because sudo can remove SSH environment variables.
 
 Cockpit uses an existing non-root administrator's Linux password. If no usable
 local administrator password exists, the installer provisions a stable operator
-password outside the Nix store and shows it only after checking the active hash.
+password outside the Nix store and shows it only after checking the active hash. This password works for SSH too
+when password login is enabled. Existing account passwords are preserved.
 The portal, Linux account, Incus browser certificate and Portainer account are
 separate identities. Enroll the Incus browser certificate through the portal.
 
@@ -106,8 +108,14 @@ sudo nixlab portainer reset-password
 Installation confirms only after checking the Incus API/UI, Nixlab portal,
 Cockpit and enabled Portainer proxy/status/administrator initialization over TLS.
 Tests of local endpoints cannot prove connectivity from every LAN/VPN client.
-The startup identity service uses the assigned management address; listeners are
-independent of DHCP address readiness and remain restricted by the firewall.
+The startup identity service uses the assigned management address before TLS
+services start. Cockpit socket activation listens independently of DHCP readiness
+and restarts a failed worker automatically. The firewall restricts management access.
+`nixlab-management-health.service` checks all enabled interfaces after each boot,
+waits for readiness and retries on failure; inspect its journal if commissioning fails.
+The server disables display-manager/X11 startup and suspend/hibernation. Wi-Fi
+power saving is off when Wi-Fi provides connectivity; Bluetooth, monitoring history
+and demo applications remain optional.
 
 `doctor` returns a nonzero status on failed endpoint checks and saves a bounded
 report at `/var/lib/nixlab-admin/last-health.json`, without tokens or passwords.
@@ -137,15 +145,15 @@ its output format changes. This command does not delete stacks or guest disks.
 | Rollback masked original error or restarted missing units/connections | Separate error fields, loaded-unit checks and existing-UUID checks |
 | Cockpit address unavailable at boot; stale `.240` links | Address-independent listeners, runtime TLS identity, observed URLs; DHCP/reboot VM fixture |
 | Success despite broken interfaces | TLS endpoint and Portainer administrator readiness gate before confirmation |
-| Password login disappeared unexpectedly | Printed policy, remote installation guard and explicit password-login option |
+| Password login disappeared unexpectedly | Password login enabled by default, printed policy and explicit key-only option |
 | Portainer bootstrap secret disagreed with database | Stable credential files and authentication before displaying stored credentials |
 | Manual Portainer recovery left it stopped | Backed-up reset command with restart in cleanup and authenticated verification |
 | TLS deprecation and confusing shutdown logs | Current `--tlscert`/`--tlskey` flags; readiness/exit status drives diagnostics |
 
-ISO, microcode, serial console, GRUB, SquashFS and Ventoy changes are outside
-this workflow and were deliberately left untouched. VM tests use controlled
-Portainer/Incus TLS backends for the proxy/reboot boundary; actual registry pulls,
-nested KVM deployment and physical-host commissioning still need host testing.
+VM tests use controlled Portainer/Incus TLS backends for the proxy/reboot boundary
+and real Cockpit PAM/WebSocket and SSH password sessions before and after reboot.
+Actual registry pulls, nested KVM deployment and physical-host commissioning still
+need host testing.
 
 Upstream recovery/flag references:
 [password reset helper](https://github.com/portainer/helper-reset-password),

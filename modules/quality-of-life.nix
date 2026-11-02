@@ -1,5 +1,14 @@
 { lib, pkgs, site, ... }:
 {
+  # A headless hypervisor must remain reachable without a desktop session.
+  services.xserver.enable = lib.mkForce false;
+  services.displayManager.enable = lib.mkForce false;
+  systemd.sleep.extraConfig = ''
+    AllowSuspend=no
+    AllowHibernation=no
+    AllowHybridSleep=no
+    AllowSuspendThenHibernate=no
+  '';
   services.fstrim.enable = lib.mkForce site.maintenance.trim;
   nix.optimise = { automatic = site.maintenance.optimiseStore; dates = [ "weekly" ]; };
   environment.systemPackages = with pkgs; [ git htop tmux pciutils usbutils lm_sensors smartmontools ];

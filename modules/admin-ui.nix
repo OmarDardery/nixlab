@@ -89,6 +89,20 @@ in {
       environment.NIXLAB_ROOT = "/var/lib/nixlab/config";
       serviceConfig = { Type = "oneshot"; ExecStart = "${tool}/bin/nixlab-admin renew"; };
     };
+    systemd.services.nixlab-management-health = lib.mkIf site.ready {
+      description = "Verify enabled management interfaces after boot";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "nixlab-management-identity.service" "nixlab-ui.service" ]
+        ++ lib.optional site.cockpit.enable "cockpit.socket"
+        ++ lib.optionals site.apps.enable [ "nixlab-apps-onboarding.service" "nginx.service" ];
+      path = [ pkgs.iproute2 ];
+      serviceConfig = {
+        Type = "oneshot"; RemainAfterExit = true;
+        ExecStart = "${tool}/bin/nixlab-admin doctor --wait";
+        TimeoutStartSec = "4min";
+        Restart = "on-failure"; RestartSec = "30s";
+      };
+    };
     systemd.timers.nixlab-tls-renew = {
       wantedBy = [ "timers.target" ];
       timerConfig = { OnCalendar = "monthly"; Persistent = true; };

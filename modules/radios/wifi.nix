@@ -15,6 +15,7 @@ in {
   networking.networkmanager = {
     enable = lib.mkIf w.enable (lib.mkForce true);
     wifi.backend = lib.mkIf w.enable (lib.mkForce "iwd");
+    wifi.powersave = lib.mkIf w.enable false;
     unmanaged = [ "interface-name:${site.guests.bridge}" "interface-name:veth*" "interface-name:tap*" ]
       ++ map (bridge: "interface-name:${bridge}") site.connectivity.preservedIncusBridges
       ++ lib.optional (!w.enable) "type:wifi"

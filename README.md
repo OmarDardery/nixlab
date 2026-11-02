@@ -12,17 +12,15 @@ sudo nix --extra-experimental-features 'nix-command flakes' \
 
 It preserves installed users, filesystems, boot configuration and addressing, then
 builds Incus, Cockpit and the Portainer apps VM. Retries detect active work and
-resume automatically. Local console installation needs no SSH key; remote
-installation needs a client public key or an explicit password-login policy.
+resume automatically. SSH password login is enabled for non-root Linux accounts;
+no SSH key is required. A stable operator password is created if needed.
 Success includes endpoint checks, actual assigned URLs and verified credentials.
 Existing Incus requires explicit adoption and completed backups.
 See [plain NixOS installation and recovery](docs/plain-nixos.md) for options,
 supported adoption boundaries and the installation issue regression checklist.
 
-**For a blank machine:** boot the [installer ISO](docs/iso.md), connect to the Internet,
-and run `sudo nixlab-setup`. The guided console installer reviews one selected disk,
-requires typed erase confirmation, installs NixOS and starts the private web setup on first boot.
-An [existing conventional NixOS installation](docs/setup.md) can use the conversion installer instead.
+Start with an ordinary minimal NixOS installation, working networking and hardware
+virtualization enabled in firmware.
 
 The portal handles host settings, reviewed file uploads and source upgrades, Ethernet/hardware prerequisites,
 independent backups/recovery, accounts and offline guides. Incus handles guest operations, consoles, networks and snapshots. Optional recipes
@@ -30,7 +28,7 @@ include laptop lid policy, SMART health, private SSH access, monitoring and the 
 See the [ownership contract](docs/ownership.md), [helper integration](docs/helpers.md), [hardware support](docs/hardware.md) and [commissioning checklist](docs/commissioning.md).
 
 This is a single-host release candidate. CI gates include source tests, real NixOS portal/UNIX
-permissions, and BIOS/UEFI media boot checks. Hardware installation, first-boot conversion,
+permissions, password SSH, authenticated Cockpit terminals and DHCP/reboot startup checks. Physical-host installation,
 actual workloads, network-loss recovery and a restore drill remain commissioning requirements.
 
 ## Selected stack
@@ -65,8 +63,7 @@ site.nix                     # explicit inventory and feature flags
 flake.nix / flake.lock        # pinned host, VM, image, helper and validation outputs
 modules/                     # Incus, firewall, storage, secrets, backups, monitoring
 modules/docker-host.nix       # imported in apps VM only
-install.sh                   # Nix-backed bootstrap launcher
-installer/                   # preserved-installation bootstrap and packaged installer
+installer/                   # single-command installation, safe retry and source updates
 admin/                       # HTTPS UI, local root broker, transaction/recovery engine
 machine/settings.json        # generated on the host; ignored by Git
 machine/modules/             # administrator modules, discovered automatically
@@ -114,7 +111,9 @@ Numeric selectors are explicit aliases in the client's JSON config, not inferred
 Proxmox IDs. `backup` is an on-demand Incus export; scheduled restic backups additionally
 stop guests and protect custom volumes. See the consistency distinctions in the recovery guide.
 
-Lightweight defaults: Docker/Portainer and local Prometheus history are opt-in. The setup UI
+The installer enables Cockpit and Docker/Portainer; use `--no-apps` to omit the VM.
+Local Prometheus history and the demo workload remain off. Advanced module defaults
+keep Docker/Portainer opt-in. The headless host cannot suspend or hibernate. The setup UI
 serves its own static assets; only the optional application portal adds a one-worker Nginx proxy.
 Settings remain declared through Nix and can be exported from the UI. See the
 [resource and ownership policy](docs/setup.md#lightweight-defaults-and-declarative-ownership).
@@ -134,16 +133,6 @@ recovery, but are no longer authoritative after migration.
 See [file configuration](docs/file-modules.md) for typed settings, named guests,
 disks, reviewed uploads and the migration procedure. Feature composition is
 covered in `platform-modules/`; mutable guest data still needs independent backups.
-
-### Bootable installer ISO
-
-Download the ISO and `SHA256SUMS` from [Releases](https://github.com/OmarDardery/nixlab/releases),
-or use the `nixlab-installer-x86_64` CI artifact for an untagged candidate.
-You can also build `nix build .#packages.x86_64-linux.installer-iso -o result-iso`.
-Version tags publish release assets only after full validation and BIOS/UEFI boot checks pass.
-The guided installer prepares one explicitly confirmed boot disk and starts Nixlab's
-web setup on first boot. The standard NixOS manual installation path remains available. See [ISO installation](docs/iso.md) for exact steps and
-validation limits. No disks are formatted automatically.
 
 ### Focused host foundation
 

@@ -4,20 +4,23 @@ This checklist is acceptance testing for the implemented single-host release. Us
 spare installation disk or a verified recovery path. Record hardware model, firmware
 mode, CPU, NICs, disks, exact source revision, results and relevant redacted logs.
 
-## Installation and first boot
+## Installation and reboot
 
-- Boot the final ISO on the chosen laptop in its intended UEFI/BIOS mode. Verify
-  checksum, console, keyboard, display and network. Secure Boot key enrollment is
-  outside this unsigned installer.
-- Check `sudo nixlab-setup --list` and `--dry-run`. Verify the installation USB and
-  all mounted disks are excluded; verify model, serial and capacity of the target.
-- On the disposable target only, complete guided installation and set its root password.
-  Verify untouched data disks retain their filesystems/data. Boot without the USB.
-- Observe `nixlab-firstboot.service`, its completion marker, management URL, generated
-  password and CA fingerprint. Verify preserved hardware/boot configuration and Wi-Fi
-  profiles if used. Test interrupted first boot/resume with console access available.
-- Complete the portal wizard and confirm the reviewed activation. Check SSH keys,
-  trusted source CIDRs, TLS identity and absence of public management ingress.
+- Start with a plain installed NixOS system. Run the command in the
+  [installation guide](plain-nixos.md); verify preserved boot configuration,
+  accounts, filesystems and NetworkManager/DHCP or static addressing.
+- On a host with existing Incus guests, review the inventory and adoption backups;
+  verify guest disks and native configuration survive conversion.
+- Interrupt an installation and rerun the same command. Verify automatic resume
+  and unchanged credentials. Confirm completed installs do not duplicate resources.
+- Test password SSH from a trusted laptop, Cockpit login and host terminal, Incus
+  browser enrollment and Portainer authentication. Verify URLs match the assigned
+  address and the console CA fingerprint before trusting the management CA.
+- Reboot twice with delayed DHCP if applicable, without manual service restarts.
+  Run `sudo nixlab doctor`; check `nixlab-management-health.service`, Cockpit
+  socket/service, apps VM, proxy and usable credentials after each boot.
+- Test explicit key-only SSH with a client public key and console recovery available.
+  Check trusted source CIDRs and absence of public management ingress.
 
 ## Hypervisor and storage
 

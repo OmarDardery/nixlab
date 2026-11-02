@@ -13,10 +13,10 @@ import unittest
 from unittest.mock import patch
 
 BASE = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(BASE / 'admin'), str(BASE / 'scripts'), str(BASE / 'iso')]
+sys.path[:0] = [str(BASE / 'admin'), str(BASE / 'scripts')]
 import accounts
 import catalog
-import install_disk
+import disk_tools
 import operations
 import recovery
 import runtime as rt
@@ -26,17 +26,12 @@ from locking import open_lock
 
 
 class DiskTests(unittest.TestCase):
-    def test_missing_installation_tools_fail_before_any_subprocess_or_erasure(self):
-        with patch.object(install_disk.shutil,'which',return_value=None),patch.object(install_disk,'run') as run:
-            with self.assertRaisesRegex(ValueError,'tools missing'):install_disk.preflight('/unused')
-        run.assert_not_called()
-
     def test_data_disk_preparation_refuses_wrong_phrase_before_commands(self):
-        with patch.dict(sys.modules, {'disk_tools': install_disk}):
+        with patch.dict(sys.modules, {'disk_tools': disk_tools}):
             import disks as data_disks
         with patch.object(data_disks.os,'geteuid',return_value=0),patch.object(data_disks,'Path') as path, \
                 patch.object(data_disks.sys.stdin,'isatty',return_value=True), \
-                patch.object(install_disk,'disks',return_value=[self.disk]),patch.object(install_disk,'run') as run, \
+                patch.object(disk_tools,'disks',return_value=[self.disk]),patch.object(disk_tools,'run') as run, \
                 patch('builtins.input',side_effect=['1','archive','data','wrong']),patch('builtins.print'):
             path.return_value.exists.return_value=True
             with self.assertRaisesRegex(ValueError,'confirmation'):
@@ -48,33 +43,12 @@ class DiskTests(unittest.TestCase):
                      'wwn': 'abc', 'maj:min': '8:0', 'ro': False, 'mountpoints': [None], 'children': [], 'byId': '/dev/disk/by-id/test-serial'}
 
     def test_mounted_descendant_live_disk_read_only_and_non_disk_are_refused(self):
-        self.assertTrue(install_disk.eligible(self.disk))
+        self.assertTrue(disk_tools.eligible(self.disk))
         for change in ({'ro': True}, {'busy': True}, {'type': 'loop'}, {'mountpoints': ['/']}, {'size': 1024},
-                       {'children': [{'mountpoints': ['/iso']}]}):
+                       {'children': [{'mountpoints': ['/srv/data']}]}):
             value = self.disk | change
-            self.assertFalse(install_disk.eligible(value))
-            with self.assertRaises(ValueError): install_disk.plan(value, 'nixlab', True)
+            self.assertFalse(disk_tools.eligible(value))
 
-    def test_hotplug_identity_or_new_mount_invalidates_review(self):
-        proposal = install_disk.plan(self.disk, 'nixlab', True)
-        for change in ({'serial': 'other'}, {'maj:min': '8:16'}, {'size': 128 * 1024**3}, {'mountpoints': ['/mnt']}):
-            with self.assertRaises(ValueError): install_disk.verify_target(proposal, [self.disk | change])
-        with self.assertRaises(ValueError): install_disk.verify_target(proposal, [])
-
-    def test_invalid_confirmation_never_executes_commands(self):
-        with patch.object(install_disk, 'run') as run:
-            with self.assertRaisesRegex(ValueError, 'confirmation'):
-                install_disk.install(install_disk.plan(self.disk, 'nixlab', True), 'yes', '/module')
-        run.assert_not_called()
-
-    def test_installed_configuration_uses_selected_firmware_and_safe_host_name(self):
-        efi = install_disk.configuration(install_disk.plan(self.disk, 'home-server', True))
-        bios = install_disk.configuration(install_disk.plan(self.disk, 'home-server', False))
-        self.assertIn('systemd-boot.enable = true', efi)
-        self.assertNotIn('/dev/test', efi)
-        self.assertIn('grub.device = "/dev/disk/by-id/test-serial"', bios)
-        for name in ('x"; bad', '../host', 'bad-'):
-            with self.assertRaises(ValueError): install_disk.plan(self.disk, name, True)
 
 
 class PlatformUpgradeTests(unittest.TestCase):

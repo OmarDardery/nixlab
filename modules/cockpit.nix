@@ -13,6 +13,12 @@ in {
       settings.WebService = { LoginTo = false; AllowMultiHost = false; AllowUnencrypted = false; };
     };
     systemd.sockets.cockpit.listenStreams = lib.mkForce [ "" "0.0.0.0:${toString c.port}" ];
+    # Keep socket activation available through DHCP startup. A transient TLS or
+    # worker failure must recover without an administrator restarting Cockpit.
+    systemd.services.cockpit = {
+      startLimitIntervalSec = 0;
+      serviceConfig = { Restart = "on-failure"; RestartSec = "3s"; };
+    };
     networking.firewall.extraInputRules = ''
       iifname ${builtins.toJSON site.management.interface} ip saddr { ${trusted} } tcp dport ${toString c.port} accept
     '';

@@ -75,10 +75,14 @@ class DirectPlanningTests(unittest.TestCase):
         self.assertTrue(value['management']['configure'])
         self.assertEqual(value['apps']['portainerPort'], 19443)
 
-    def test_local_console_needs_no_key_but_remote_access_must_be_explicit(self):
+    def test_password_ssh_is_default_with_explicit_key_only_policy(self):
         self.assertEqual(direct.prepare(initial(), {}, inventory())['adminKeys'], [])
+        self.assertTrue(direct.prepare(initial(), {}, inventory(), remote=True)['access']['sshPasswordLogin'])
         with self.assertRaisesRegex(ValueError, 'client SSH public key'):
-            direct.prepare(initial(), {}, inventory(), remote=True)
+            direct.prepare(initial(), {}, inventory(), remote=True, password_login=False)
+        current = initial()
+        current['access']['sshPasswordLogin'] = False
+        self.assertFalse(direct.prepare(current, {}, inventory())['access']['sshPasswordLogin'])
         self.assertTrue(direct.prepare(initial(), {}, inventory(), remote=True, password_login=True)['access']['sshPasswordLogin'])
         current = initial()
         current['radios']['wifi'].update(enable=True, interface='eth0')

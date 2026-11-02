@@ -6,7 +6,7 @@
   hostName = "nixlab";
   cpuVendor = ""; # intel or amd
   adminKeys = [ ];
-  access.sshPasswordLogin = false; # Explicit opt-in; local console installs need no key.
+  access.sshPasswordLogin = true; # Normal Linux passwords work for non-root server administration.
   management = {
     interface = "";
     address = "";
