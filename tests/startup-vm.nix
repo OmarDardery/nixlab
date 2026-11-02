@@ -9,7 +9,7 @@ let
     management = defaults.management // {
       interface = "eth1"; address = "192.0.2.10"; trustedCIDRs = [ "192.0.2.0/24" ];
     };
-    guests = defaults.guests // { appsAddress = "127.0.0.2"; };
+    guests = defaults.guests // { appsAddress = "127.0.0.2"; cidr = "10.77.0.0/24"; };
   };
   fixture = pkgs.writeText "management-backend.py" ''
     import http.server, ssl
@@ -48,7 +48,7 @@ in pkgs.testers.runNixOSTest {
     environment.systemPackages = [ pkgs.curl pkgs.openssh pkgs.sshpass ];
   };
   nodes.machine = { lib, ... }: {
-    imports = [ ../modules/admin-ui.nix ../modules/apps-onboarding.nix ../modules/cockpit.nix ../modules/security.nix ../modules/quality-of-life.nix ];
+    imports = [ ../modules/networking.nix ../modules/admin-ui.nix ../modules/apps-onboarding.nix ../modules/cockpit.nix ../modules/security.nix ../modules/quality-of-life.nix ];
     _module.args.site = settings;
     virtualisation.memorySize = 1536;
     networking.useDHCP = false;
@@ -64,8 +64,8 @@ in pkgs.testers.runNixOSTest {
         ipv4.method = "auto"; ipv6.method = "disabled";
       };
     };
-    networking.nftables.enable = true;
-    networking.firewall.allowedTCPPorts = [ 22 8443 ];
+    # Exercise the production host firewall, including local traffic to its own
+    # DHCP address. A simplified test firewall previously hid loopback drops.
     environment.systemPackages = [ pkgs.curl (pkgs.python3.withPackages (ps: [ ps.websocket-client ])) ];
     users.users.operator.initialPassword = "vm-cockpit-password"; # disposable VM only
     environment.etc."nixlab-test-cockpit.py".source = ./cockpit-client.py;

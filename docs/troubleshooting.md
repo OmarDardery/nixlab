@@ -19,6 +19,27 @@ Its report is `/var/lib/nixlab-admin/installation-failure.json`; detailed build
 logs are under `/var/lib/nixlab-admin/jobs/<transaction-id>/build.log`.
 Review logs before sharing them; do not publish passwords, tokens or private keys.
 
+## Every management check times out against the host's own address
+
+Read the saved result before running another check:
+
+```sh
+sudo cat /var/lib/nixlab-admin/last-health.json
+sudo journalctl -b -u nixlab-management-health.service --no-pager -n 60
+```
+
+An earlier firewall configuration forced `trustedInterfaces = [ ]`, removing
+NixOS's loopback allowance. Connections from the host to its own LAN address
+arrive through `lo`; all six HTTPS probes could time out even with listeners
+running. Current Nixlab trusts only `lo`, while retaining the LAN source/interface
+restrictions and guest isolation. Update with the installation command after the
+fix is available. Do not disable the firewall or skip health checks.
+
+If the problem persists, check `ip -4 address`, `ip -4 route get HOST_IP` and
+`sudo nft list ruleset`. Missing addresses, custom firewall rules and service
+failures still need their own diagnosis. A failed activation rolls back, so
+listener checks after rollback describe the restored system.
+
 ## Cockpit works only after a manual restart
 
 First collect the boot evidence, before restarting anything:

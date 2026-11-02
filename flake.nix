@@ -131,6 +131,7 @@
         legacy = self.nixosConfigurations.validation-setup.config;
         proxy = c.services.nginx.virtualHosts.nixlab-portainer;
       in {
+        onlyLoopbackTrusted = c.networking.firewall.trustedInterfaces == [ "lo" ];
         cockpitEnabled = c.services.cockpit.enable;
         cockpitLocalOnly = !c.services.cockpit.settings.WebService.LoginTo;
         cockpitAddress = c.systemd.sockets.cockpit.listenStreams == [ "" "0.0.0.0:9090" ];
