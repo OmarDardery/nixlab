@@ -7,6 +7,7 @@ const source = fs.readFileSync(path.join(__dirname, '../admin/static/app.js'), '
 const bootstrap = source.lastIndexOf('\n(async () =>');
 assert.ok(bootstrap > 0, 'Locate browser bootstrap before evaluating renderers');
 const context = vm.createContext({document:{querySelector:()=>({})},setInterval:()=>0,URL});
+vm.runInContext(fs.readFileSync(path.join(__dirname, '../admin/static/commands.js'), 'utf8'), context);
 vm.runInContext(source.slice(0,bootstrap), context);
 vm.runInContext(`
 state.status = {setupComplete:true, settings:{
@@ -31,11 +32,11 @@ tools = vm.runInContext('homepageTools()', context);
 assert.ok(!tools.includes(':8443"'));
 assert.ok(tools.includes('Finish setup'));
 let resources = vm.runInContext('homepageResources()', context);
-for (const destination of ['https://github.com/community-scripts/Incus','https://community-scripts.org/','https://github.com/community-scripts/ProxmoxVE','https://photos.example.com','roadmap.md','recovery.md']) {
+for (const destination of ['https://github.com/community-scripts/Incus','https://community-scripts.org/','https://github.com/docker/awesome-compose','https://github.com/lissy93/portainer-templates','https://photos.example.com','roadmap.md','recovery.md']) {
   assert.ok(resources.includes(destination), 'Missing destination: '+destination);
 }
 assert.ok(!resources.includes('https://*.example.com'), 'Wildcard DNS records are not browsable endpoints');
-assert.ok(resources.includes('never execute installers'));
+assert.ok(!/data-(action|install-script|guest-action)=/.test(resources), 'Reference links must not execute host operations');
 for (const match of (tools+resources).matchAll(/<a [^>]+>/g)) {
   assert.ok(match[0].includes('rel="noopener noreferrer"'), 'External tabs must not retain opener/referrer access');
 }

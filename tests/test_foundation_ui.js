@@ -21,7 +21,7 @@ assert.ok(html.includes('connectivity.vlans'));
 assert.ok(html.includes('connectivity.privateAccess'));
 assert.ok(!/<button[^>]*data-(create|launch|console)-guest/.test(html),'No duplicate Incus provisioning controls');
 html=vm.runInContext('integrations()',context);
-assert.ok(html.includes('sudo nixlab-helpers doctor'));
+assert.ok(html.includes('data-go="commands"'), 'Integrations must link to the command reference');
 assert.ok(html.includes('Upstream-supported; unverified here'));
 assert.ok(html.includes('&lt;img src=x&gt;'));
 assert.ok(!html.includes('data-install-script'),'No browser execution endpoint');

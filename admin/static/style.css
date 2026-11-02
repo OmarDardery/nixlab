@@ -202,3 +202,57 @@ summary { cursor: pointer; color: var(--text); font-size: 12px; padding: 12px 0;
   .offline-guide .guide-bar { align-items: flex-start; flex-direction: column; }
 }
 @media(prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+/* Keep the daily console small; longer examples and references live in one section. */
+.page-guide { display: inline-block; font-size: 10px; margin-top: 10px; }
+.overview-grid { align-items: start; }
+.service-doc { display: inline-block; font-size: 10px; margin-top: 6px; }
+.service-enrollment { border-top: 1px solid var(--line); padding-top: 17px; margin-top: 6px; }
+.service-enrollment .note { margin-bottom: 12px; }
+.host-facts { margin: 0; }
+.host-facts > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 15px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.host-facts > div:first-child { padding-top: 0; }
+.host-facts > div:last-child { border-bottom: 0; }
+.host-facts dt { color: var(--muted); }
+.host-facts dd { margin: 0; overflow-wrap: anywhere; }
+.reference-jumps { display: flex; gap: 22px; font: 10px var(--mono); margin-bottom: 22px; }
+.command-library { border-top: 1px solid var(--line); }
+.command-group { border-bottom: 1px solid var(--line); scroll-margin-top: 25px; }
+.command-group > summary { display: flex; align-items: center; gap: 16px; padding: 20px 0; font: 500 17px/1.4 var(--display); list-style: none; }
+.command-group > summary::-webkit-details-marker { display: none; }
+.command-group > summary::after { content: "+"; color: var(--accent); font: 16px var(--mono); }
+.command-group[open] > summary::after { content: "−"; }
+.group-count { margin-left: auto; color: var(--muted); font: 9px var(--mono); }
+.group-guide { font-size: 10px; margin-top: 0; }
+.command-group-body { padding: 0 0 15px; }
+.command-row { padding: 19px 0; border-top: 1px solid var(--line); }
+.command-description h3 { display: inline; font-size: 14px; margin-right: 15px; }
+.command-location { display: inline-block; font: 9px var(--mono); color: var(--green); }
+.command-description p { font-size: 12px; margin: 8px 0 13px; max-width: 760px; }
+.command-code { display: flex; gap: 15px; align-items: flex-start; padding: 13px 14px; background: #10140d; border: 1px solid var(--line); min-width: 0; }
+.command-code pre { flex: 1; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #d9e3c5; font-size: 12px; line-height: 1.8; }
+.command-code button { flex: none; font: 10px var(--mono); padding: 7px 10px; }
+.reference-catalog { margin-top: 42px; scroll-margin-top: 25px; }
+.section-label { font: 9px var(--mono); color: var(--muted); letter-spacing: 1.3px; margin-bottom: 15px; }
+.reference-catalog > h2 { font-size: 24px; letter-spacing: -.6px; }
+.reference-catalog > p { font-size: 12px; max-width: 790px; }
+.guide-shortcuts { display: flex; flex-wrap: wrap; gap: 10px 20px; margin: 22px 0; font-size: 11px; }
+.reference-row { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 25px; align-items: center; padding: 20px 0; border-top: 1px solid var(--line); }
+.reference-row h3 { margin: 0 0 5px; font-size: 15px; }
+.reference-row p { margin: 0; font-size: 11px; }
+.reference-links { display: flex; flex-wrap: wrap; gap: 9px 20px; font-size: 11px; }
+.more-references { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.more-references > summary { font-size: 12px; padding: 20px 0; color: var(--muted); }
+@media(max-width: 850px) { .reference-row { grid-template-columns: 190px minmax(0, 1fr); gap: 18px; } }
+@media(max-width: 700px) {
+  .host-facts > div { grid-template-columns: 95px minmax(0, 1fr); font-size: 11px; gap: 10px; }
+  .command-group > summary { font-size: 15px; gap: 10px; }
+  .group-count { font-size: 8px; }
+  .command-description h3 { display: block; margin-bottom: 4px; }
+  .command-description p { font-size: 11px; }
+  .command-code { gap: 10px; padding: 12px; }
+  .command-code pre { font-size: 11px; }
+  .command-code button { padding: 7px 9px; font-size: 9px; }
+  .reference-row { grid-template-columns: 1fr; gap: 12px; padding: 18px 0; }
+  .reference-links { font-size: 10px; gap: 10px 15px; }
+}

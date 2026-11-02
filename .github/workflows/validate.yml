@@ -28,6 +28,8 @@ jobs:
           node --check admin/static/events.js
           node --check admin/static/operations.js
           node --check admin/static/foundation.js
+          node --check admin/static/commands.js
+          node tests/test_commands_ui.js
           node tests/test_homepage.js
           node tests/test_operations_ui.js
           node tests/test_foundation_ui.js

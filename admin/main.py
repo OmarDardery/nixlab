@@ -297,6 +297,7 @@ def web():
                           '/api.js': ('api.js', 'text/javascript; charset=utf-8'),
                           '/events.js': ('events.js', 'text/javascript; charset=utf-8'),
                           '/operations.js': ('operations.js', 'text/javascript; charset=utf-8'),
+                          '/commands.js': ('commands.js', 'text/javascript; charset=utf-8'),
                           '/foundation.js': ('foundation.js', 'text/javascript; charset=utf-8'),
                           '/style.css': ('style.css', 'text/css; charset=utf-8'),
                           '/brand.css': ('brand.css', 'text/css; charset=utf-8'),

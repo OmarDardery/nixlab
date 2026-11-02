@@ -66,12 +66,17 @@ def main():
             page.set_viewport_size({'width': 1440, 'height': 1000})
             page.locator('input[name=password]').fill('disposable-ui-fixture-password')
             page.get_by_role('button', name='Sign in →', exact=True).click()
-            page.get_by_role('heading', name='Your homelab. Declaratively overthought.', exact=True).wait_for()
+            page.get_by_role('heading', name='Your homelab.', exact=True).wait_for()
             page.evaluate('document.fonts.ready')
             assert page.evaluate("document.fonts.check('16px DM Sans')")
             assert page.evaluate("document.fonts.check('16px Space Grotesk')")
             page.screenshot(path=str(args.output / 'overview.png'), full_page=True)
             assert page.locator('[data-guest-action]').count() == 0
+            page.locator('nav [data-go="commands"]').click()
+            page.get_by_role('heading', name='Commands & docs', exact=True).wait_for()
+            assert page.locator('[data-copy-command]').count() == 16
+            assert page.locator('[data-action=build]').count() == 0
+            assert page.locator('a[href="https://github.com/community-scripts/Incus"]').count() == 1
             page.locator('nav [data-go="network"]').click()
             page.locator('[data-record-add="connectivity.bridges"]').click()
             page.locator('[data-record="connectivity.bridges"][data-key="interfaces"]').fill('eth0')

@@ -531,6 +531,7 @@ main.backend()
 
     def test_login_brand_assets_are_local_and_available_before_authentication(self):
         for path, mime, signature in (
+            ('/commands.js', 'text/javascript', b'function commandsPage'),
             ('/brand.css', 'text/css', b'@font-face'),
             ('/favicon.svg', 'image/svg+xml', b'<svg'),
             ('/fonts/dm-sans-latin.woff2', 'font/woff2', b'wOF2'),

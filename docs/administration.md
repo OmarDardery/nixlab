@@ -1,5 +1,19 @@
 # Administration
 
+## Commands, docs and community resources
+
+Open **Commands & docs** in the Nixlab host console for copyable platform updates,
+package-refresh reviews, health checks, guest/Docker examples and community helper
+commands. Each example says where to run it. Copying never executes a command or
+creates a guest from the browser. Application wizards run interactively in the host
+terminal; Docker examples target the apps VM.
+
+The same section groups Nixlab guides, upstream documentation and community resources
+by project. Incus helpers, Cockpit plugins, Docker Compose examples and Portainer
+templates are labeled separately. Optional backup, secret, ingress and monitoring
+references are under the expanded resources list. Community compatibility and
+Nixlab qualification remain separate.
+
 ## SSH and Incus CLI
 
 The `operator` account accepts Linux passwords by default and optional declared SSH keys. Root SSH login is disabled. It may use sudo for infrastructure
