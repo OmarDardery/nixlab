@@ -1,0 +1,32 @@
+/* Shared by the public website and the private host console. */
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("fonts/dm-sans-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("fonts/space-grotesk-latin.woff2") format("woff2");
+}
+:root {
+  color-scheme: dark;
+  font-synthesis: none;
+  --bg: #111310;
+  --panel: #191c17;
+  --panel2: #20241d;
+  --text: #eeeee4;
+  --muted: #a4aa9b;
+  --line: #34392e;
+  --accent: #ed8654;
+  --green: #b6c78b;
+  --mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  --display: "Space Grotesk", Arial, sans-serif;
+  --body: "DM Sans", Arial, sans-serif;
+}
+.brand-mark { font: 600 18px/1 var(--mono); color: var(--accent); letter-spacing: -2px; }
+.brand-cursor { color: var(--accent); }

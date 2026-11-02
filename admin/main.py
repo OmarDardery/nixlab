@@ -298,7 +298,11 @@ def web():
                           '/events.js': ('events.js', 'text/javascript; charset=utf-8'),
                           '/operations.js': ('operations.js', 'text/javascript; charset=utf-8'),
                           '/foundation.js': ('foundation.js', 'text/javascript; charset=utf-8'),
-                          '/style.css': ('style.css', 'text/css; charset=utf-8')}
+                          '/style.css': ('style.css', 'text/css; charset=utf-8'),
+                          '/brand.css': ('brand.css', 'text/css; charset=utf-8'),
+                          '/favicon.svg': ('favicon.svg', 'image/svg+xml'),
+                          '/fonts/dm-sans-latin.woff2': ('fonts/dm-sans-latin.woff2', 'font/woff2'),
+                          '/fonts/space-grotesk-latin.woff2': ('fonts/space-grotesk-latin.woff2', 'font/woff2')}
                 if path in assets:
                     filename, mime = assets[path]
                     return reply(self, 200, (rt.SOURCE / 'static' / filename).read_bytes(), mime)
@@ -322,8 +326,9 @@ def web():
                     except ImportError:
                         content = '<pre>' + html.escape(text) + '</pre>'
                     page = ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-                            '<title>Nixlab guide</title><link rel="stylesheet" href="/style.css">'
-                            '<main class="page"><article class="card"><a href="/">Back to Nixlab</a>' + content + '</article></main></html>')
+                            '<meta name="theme-color" content="#111310"><title>Nixlab · Offline guide</title>'
+                            '<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/brand.css"><link rel="stylesheet" href="/style.css">'
+                            '<body><main class="page offline-guide"><header class="guide-bar"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">[n]</span><span>nixlab<span class="brand-cursor" aria-hidden="true">_</span></span></a><a href="/">Back to host console →</a></header><article class="card">' + content + '</article></main></body></html>')
                     return reply(self, 200, page.encode(), 'text/html; charset=utf-8')
                 if path == '/api/session':
                     return reply(self, 200, {key: session[key] for key in ('csrf', 'username', 'role')})

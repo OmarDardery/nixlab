@@ -115,6 +115,10 @@ def check(output, base):
         parser = PageLinks(); text = path.read_text(); parser.feed(text); pages[path] = parser
         if re.search(r'@@[A-Z]+@@', text): raise ValueError('Unresolved template: ' + str(path))
     failures = []
+    for sheet in (output / 'assets').glob('*.css'):
+        for asset in re.findall(r'url\([\'"]?([^\)\'\"]+)', sheet.read_text()):
+            if urlsplit(asset).scheme or asset.startswith('data:'): continue
+            if not (sheet.parent / asset).is_file(): failures.append('Missing CSS asset: ' + asset)
     for path, parser in pages.items():
         relative = '/' + str(path.relative_to(output))
         for target in parser.links:
@@ -149,6 +153,10 @@ def build(output, base):
         shutil.rmtree(output)
     output.mkdir(parents=True)
     shutil.copytree(SOURCE / 'assets', output / 'assets')
+    shared = ROOT / 'admin/static'
+    for name in ('brand.css', 'favicon.svg'):
+        shutil.copyfile(shared / name, output / 'assets' / name)
+    shutil.copytree(shared / 'fonts', output / 'assets/fonts')
     (output / '.nojekyll').touch()
     (output / 'index.html').write_text((SOURCE / 'index.html').read_text().replace('@@BASE@@', base))
     sources = sorted((ROOT / 'docs').glob('*.md'))
@@ -170,7 +178,7 @@ def build(output, base):
     home = output / 'docs' / 'index.html'
     home.write_text(template({'BASE': base, 'TITLE': 'Read this before improvising.', 'DESCRIPTION': DESCRIPTIONS['index'], 'CANONICAL': '/docs/', 'NAV': navigation(base, 'index', pages), 'BODY': body, 'TOC': '<a href="' + url(base, 'plain-nixos') + '">Start with installation →</a>', 'SOURCE': REPO + '/tree/main/docs'}))
     (output / 'search-index.json').write_text(json.dumps(search, ensure_ascii=False))
-    not_found = f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>404 · Nixlab</title><link rel="stylesheet" href="{base}/assets/style.css"></head><body><main class="not-found section-wrap"><p class="eyebrow">404 / UNDECLARED RESOURCE</p><h1>This page failed to evaluate.</h1><p>Or the link moved. Either way, a rebuild of your server will not help.</p><a class="button button-primary" href="{url(base)}">Back to the docs →</a></main></body></html>'
+    not_found = f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>404 · Nixlab</title><link rel="stylesheet" href="{base}/assets/brand.css"><link rel="stylesheet" href="{base}/assets/style.css"></head><body><main class="not-found section-wrap"><p class="eyebrow">404 / UNDECLARED RESOURCE</p><h1>This page failed to evaluate.</h1><p>Or the link moved. Either way, a rebuild of your server will not help.</p><a class="button button-primary" href="{url(base)}">Back to the docs →</a></main></body></html>'
     (output / '404.html').write_text(not_found)
     urls = [DOMAIN + '/'] + [DOMAIN + '/docs/'] + [DOMAIN + '/docs/' + p.stem + '/' for p in sources]
     (output / 'sitemap.xml').write_text('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + ''.join('<url><loc>' + escape(link) + '</loc></url>' for link in urls) + '</urlset>')

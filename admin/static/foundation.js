@@ -7,9 +7,9 @@ function hostOverview() {
   const healthKnown = (health?.services || []).some((unit) => unit.LoadState === "loaded");
   return (
     title(
-      "NIXOS HOST FOUNDATION",
-      "A dependable home for Incus.",
-      "Nixlab prepares and recovers the host. Use Incus for guests, consoles, devices, networks and snapshots.",
+      "YOUR PRIVATE HOST CONSOLE",
+      "Your homelab. Declaratively overthought.",
+      "The host settings are declarative. The responsibility is still yours. Use Incus for guests, Cockpit for the host terminal and Portainer for apps.",
     ) +
     `<div class="grid">${homepageTools()}${card("Host readiness", `<p>Backup: ${esc(health?.backup?.health || "unknown")} · ${state.status.rebootRequired ? "Reboot required" : "No reboot pending"}</p><p>${failedServices.length ? esc(failedServices.length) + " service(s) need attention" : healthKnown ? "No failed services reported" : "Service health unavailable"}${health?.rootStorage ? " · " + esc(formatBytes(health.rootStorage.availableBytes)) + " root storage available" : ""}</p><p>${state.host.kvm ? "Hardware virtualization is available." : "Hardware virtualization needs attention."}</p><p>${esc(state.host.architecture)} · ${esc(state.host.cpuVendor)} · ${state.host.uefi ? "UEFI" : "BIOS"}</p><p>Active management: <code>${esc(s.management.interface)} · ${esc(state.status.managementAddress || s.management.address)}</code></p><p>Configuration: ${state.status.job ? esc(state.status.job.status) : "No pending change"}</p><button data-go="review">Inspect host changes</button>`)}${card("One owner for each layer", '<p>Incus manages virtualization. NixOS owns physical networking, drivers, mounts and host services. Helper scripts own application installation; application tools own their configuration.</p><p>Ordinary Incus/helper-created guests are never adopted by a host rebuild. Platform-declared infrastructure stays source-managed.</p><a href="/docs/ownership.md">Read the ownership contract</a>')}${card("Recoverability", '<p>Keep verified independent backups. Configuration rollback does not restore guest disks or application data.</p><button data-go="operations">Backups & recovery</button>')}</div>`
   );

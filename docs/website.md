@@ -70,3 +70,10 @@ layout, pass `--base-path /nixlab --output /tmp/nixlab-project-site --check`.
 The build checks internal links, anchors, assets and the canonical install command.
 Search runs in the browser against a generated index; no analytics, login or backend
 is required for the public website.
+
+The public website and private host console share `admin/static/brand.css`, the
+favicon and the licensed local fonts under `admin/static/fonts/`. The site build
+copies those assets into its output. The host console uses the same charcoal,
+orange and sage identity without contacting a font service. Keep operational
+errors, confirmation prompts and recovery instructions direct; the jokes belong
+in introductory copy.

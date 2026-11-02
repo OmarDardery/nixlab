@@ -2,9 +2,9 @@ name: Website
 on:
   push:
     branches: [main]
-    paths: ['website/**', 'docs/**', '.github/workflows/pages.yml']
+    paths: ['website/**', 'docs/**', 'admin/static/brand.css', 'admin/static/favicon.svg', 'admin/static/fonts/**', '.github/workflows/pages.yml']
   pull_request:
-    paths: ['website/**', 'docs/**', '.github/workflows/pages.yml']
+    paths: ['website/**', 'docs/**', 'admin/static/brand.css', 'admin/static/favicon.svg', 'admin/static/fonts/**', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions:

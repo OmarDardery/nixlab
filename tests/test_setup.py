@@ -529,5 +529,20 @@ main.backend()
         data,_,status=self.request('/ca.crt',auth=False)
         self.assertEqual(status,200);self.assertIn(b'BEGIN CERTIFICATE',data)
 
+    def test_login_brand_assets_are_local_and_available_before_authentication(self):
+        for path, mime, signature in (
+            ('/brand.css', 'text/css', b'@font-face'),
+            ('/favicon.svg', 'image/svg+xml', b'<svg'),
+            ('/fonts/dm-sans-latin.woff2', 'font/woff2', b'wOF2'),
+            ('/fonts/space-grotesk-latin.woff2', 'font/woff2', b'wOF2'),
+        ):
+            with self.subTest(path=path):
+                data,headers,status=self.request(path,auth=False)
+                self.assertEqual(status,200)
+                self.assertIn(mime,headers['Content-Type'])
+                self.assertIn(signature,data)
+                self.assertIn("default-src 'self'",headers['Content-Security-Policy'])
+                self.assertNotIn('unsafe-inline',headers['Content-Security-Policy'])
+
 if __name__=='__main__':unittest.main()
 

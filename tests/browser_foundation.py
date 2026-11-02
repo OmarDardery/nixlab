@@ -27,7 +27,7 @@ def main():
                                'product': 'Simulated USB serial device', 'driver': 'example', 'stablePaths': ['/dev/serial/by-id/example']}],
             'helpers': {'sources': json.loads((BASE / 'helpers/sources.json').read_text()),
                         'applications': list(json.loads((BASE / 'helpers/compatibility.json').read_text()).values())}}
-    submitted = []; errors = []
+    submitted = []; errors = []; authenticated = [False]; requests = []
     class Quiet(SimpleHTTPRequestHandler):
         def log_message(self, *_): pass
     server = ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Quiet, directory=str(BASE / 'admin/static')))
@@ -38,14 +38,18 @@ def main():
             browser = p.chromium.launch(executable_path=executable, args=['--no-sandbox'])
             page = browser.new_page(viewport={'width': 1440, 'height': 1000})
             page.on('pageerror', lambda error: errors.append(str(error)))
+            page.on('request', lambda request: requests.append(request.url))
             def api(route):
                 endpoint = route.request.url.split('/api/', 1)[1]
+                if endpoint == 'session' and not authenticated[0]:
+                    route.fulfill(status=401, json={'error': 'Sign in to continue'}); return
                 if route.request.method == 'POST':
                     body = route.request.post_data_json; submitted.append((endpoint, body))
+                    if endpoint == 'login': authenticated[0] = True
                     if endpoint == 'review':
                         status['job'] = {'id': 'a'*32, 'status': 'building', 'settings': copy.deepcopy(body['settings']),
                                          'changes': [], 'moduleChanges': [], 'secretChanges': [], 'log': ''}
-                    response = {'id': 'a'*32}
+                    response = {'csrf': 'example', 'username': 'admin', 'role': 'admin'} if endpoint == 'login' else {'id': 'a'*32}
                 else:
                     response = {'session': {'csrf': 'example', 'username': 'admin', 'role': 'admin'},
                                 'status': status, 'inventory': host,
@@ -54,7 +58,19 @@ def main():
                 route.fulfill(json=response)
             page.route('**/api/**', api)
             page.goto('http://127.0.0.1:' + str(server.server_port))
-            page.get_by_role('heading', name='A dependable home for Incus.').wait_for()
+            page.get_by_role('heading', name='Sign in to your host.', exact=True).wait_for()
+            assert page.get_by_text('HOST CONSOLE', exact=True).count() == 1
+            page.set_viewport_size({'width': 390, 'height': 844})
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+            page.screenshot(path=str(args.output / 'login-mobile.png'), full_page=True)
+            page.set_viewport_size({'width': 1440, 'height': 1000})
+            page.locator('input[name=password]').fill('disposable-ui-fixture-password')
+            page.get_by_role('button', name='Sign in →', exact=True).click()
+            page.get_by_role('heading', name='Your homelab. Declaratively overthought.', exact=True).wait_for()
+            page.evaluate('document.fonts.ready')
+            assert page.evaluate("document.fonts.check('16px DM Sans')")
+            assert page.evaluate("document.fonts.check('16px Space Grotesk')")
+            page.screenshot(path=str(args.output / 'overview.png'), full_page=True)
             assert page.locator('[data-guest-action]').count() == 0
             page.locator('nav [data-go="network"]').click()
             page.locator('[data-record-add="connectivity.bridges"]').click()
@@ -95,6 +111,7 @@ def main():
             page.set_viewport_size({'width': 1440, 'height': 1000})
             page.screenshot(path=str(args.output / 'integrations.png'), full_page=True)
             assert not errors, errors
+            assert not [url for url in requests if not url.startswith('http://127.0.0.1:')], 'Private console assets must stay local'
             assert all(action != 'operation' for action, _ in submitted)
             browser.close()
     finally: server.shutdown(); server.server_close()
