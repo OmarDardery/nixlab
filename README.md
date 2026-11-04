@@ -1,5 +1,21 @@
 # nixlab
 
+### Give the old laptop a suspicious amount of responsibility.
+
+Nixlab turns an installed NixOS machine into a repeatable home server: manage
+containers and virtual machines, run applications, and keep host changes documented.
+It brings together established tools rather than inventing another virtualization engine.
+
+**For:** self-hosters who want declarative infrastructure with a browser-based way in.
+**Status:** single-host release candidate; physical-host commissioning remains required.
+
+| You want to… | Nixlab brings… |
+|---|---|
+| Get started without reconstructing a weekend of shell history | A resumable, single-command installer |
+| Run isolated workloads | Incus containers and KVM virtual machines |
+| Keep application stacks familiar | Docker Compose in a separate applications VM |
+| Understand the next change | A host portal, documentation, and explicit recovery boundaries |
+
 A declarative NixOS bare-metal host using Incus for system containers and KVM VMs,
 with Docker Compose isolated inside a NixOS applications VM.
 
@@ -153,4 +169,3 @@ Backups publish complete generations, recover each stopped guest group immediate
 and preserve two complete local generations. Shared writable volumes join their
 consumers. Maintenance exclusions remain visible and do not refresh full-host
 backup freshness. Legacy archives and CLI/API commands remain supported.
-
