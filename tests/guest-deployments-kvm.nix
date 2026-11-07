@@ -59,11 +59,19 @@ in pkgs.testers.runNixOSTest {
   };
   testScript = ''
     host.start()
-    host.wait_for_unit("nixlab-instances.service", timeout=900)
+    try:
+        host.wait_for_unit("nixlab-instances.service", timeout=300)
+    except Exception:
+        host.log(host.execute("journalctl --no-pager -n 100 -u nixlab-instances.service")[1])
+        raise
     assert host.succeed("systemctl show nixlab-kvm-check.service --property=Result --value").strip() == "success"
     assert host.succeed("systemctl show nixlab-kvm-check.service --property=ExecMainStatus --value").strip() == "0"
     host.succeed("test -c /dev/kvm")
-    host.wait_until_succeeds("timeout --kill-after=5s 15s incus exec apps --project lab --mode=non-interactive --disable-stdin -- test -e /etc/NIXOS", timeout=300)
+    try:
+        host.wait_until_succeeds("timeout --kill-after=5s 15s incus exec apps --project lab --mode=non-interactive --disable-stdin -- test -e /etc/NIXOS", timeout=300)
+    except Exception:
+        host.log(host.execute("timeout 20s incus console apps --project lab --show-log")[1])
+        raise
     host.wait_until_succeeds("timeout --kill-after=5s 15s incus exec worker --project lab --mode=non-interactive --disable-stdin -- systemctl is-active multi-user.target", timeout=180)
     host.succeed("PYTHONPATH=${../admin}:${../scripts} NIXLAB_STATE=/var/lib/nixlab-deployment-test python3 ${./guest-deployments-kvm-fixture.py}", timeout=600)
   '';
