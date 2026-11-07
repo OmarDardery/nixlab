@@ -58,11 +58,11 @@ in pkgs.testers.runNixOSTest {
       before = [ "nixlab-instances.service" ]; requiredBy = [ "nixlab-instances.service" ];
       after = [ "incus-preseed.service" ]; requires = [ "incus-preseed.service" ];
       path = [ pkgs.incus-lts.client ]; serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
-      script = "incus image import ${old.config.system.build.metadata}/tarball/${old.config.image.fileName} ${old.config.system.build.tarball}/tarball/${old.config.image.fileName} --alias deploy-fixture";
+      script = "incus image info deploy-fixture >/dev/null 2>&1 || incus image import ${old.config.system.build.metadata}/tarball/${old.config.image.fileName} ${old.config.system.build.tarball}/tarball/${old.config.image.fileName} --alias deploy-fixture";
     };
   };
   testScript = ''
-    host.start()
+    host.start(allow_reboot=True)
     host.wait_for_unit("nixlab-instances.service", timeout=300)
     for name in ("primary", "worker"):
         host.wait_until_succeeds(f"timeout --kill-after=5s 15s incus exec {name} --project lab --mode=non-interactive --disable-stdin -- systemctl is-active nixlab-test-data.service", timeout=180)
