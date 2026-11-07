@@ -70,6 +70,8 @@ class ReconcileTests(unittest.TestCase):
         with patch.object(reconcile, 'read_instance', return_value=(self.current, 'etag')), patch.object(reconcile, 'run', side_effect=fake):
             reconcile.reconcile(self.spec)
         self.assertFalse(any(c[0] in ('init', 'start', 'config', 'delete') for c in calls))
+        self.assertTrue(all('--columns=ns' in c for c in calls if c[0] == 'list'),
+                        'Reconciliation must not collect live VM agent state just to find names/power states')
 
     def test_existing_stopped_guest_stays_stopped(self):
         self.current.update(name='guest', status='Stopped')

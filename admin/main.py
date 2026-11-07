@@ -88,6 +88,9 @@ def backend():
                               'backupStatus': rt.read_json(Path('/var/lib/nixlab/backup-status.json'), {})}
                 elif self.path == '/guests':
                     result = {'guests': guests() if manager.settings()['ready'] else []}
+                elif self.path.startswith('/deployment/'):
+                    from deployments import Deployments
+                    result = Deployments().status(self.path.removeprefix('/deployment/'))
                 elif self.path == '/users':
                     import accounts
                     result = {'users': accounts.list_users()}
@@ -141,6 +144,10 @@ def backend():
                     result = manager.migrate_layout()
                 elif self.path == '/operation':
                     result = operations.submit(body, principal=actor)
+                elif self.path == '/deploy-guests':
+                    from deployments import Deployments
+                    deploy = Deployments()
+                    result = deploy.abandon(body['id']) if body.get('abandon') is True else deploy.submit(body['id'], resume=body.get('resume', False), principal=actor)
                 elif self.path == '/cancel-backup':
                     subprocess.run(['systemctl', 'stop', '--no-block', 'restic-backups-nixlab.service'], check=True, timeout=10)
                     result = {'ok': True, 'message': 'Cancellation requested; restart recovery remains active'}
@@ -339,6 +346,8 @@ def web():
                 if path == '/api/releases':
                     if session['role'] != 'admin': raise access_accounts.AuthorizationError('Administrator account required')
                     return reply(self, 200, broker_request('GET', '/releases'))
+                if path.startswith('/api/deployment/'):
+                    return reply(self, 200, broker_request('GET', path[4:]))
                 if path in ('/api/status', '/api/inventory', '/api/ca', '/api/operations', '/api/guests', '/api/health', '/api/recipes'):
                     result = broker_request('GET', path[4:])
                     if path == '/api/status' and session['role'] != 'admin' and result.get('job'):
@@ -385,7 +394,7 @@ def web():
                 if self.path in ('/api/recovery-export', '/api/users'):
                     if not accounts.matches(session['username'], body.pop('current', None)):
                         raise ValueError('Reauthenticate before exporting recovery material or changing accounts')
-                actions = {'/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/browser-certificate', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup'}
+                actions = {'/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/browser-certificate', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests'}
                 if self.path not in actions:
                     return reply(self, 404, {'error': 'Unknown action'})
                 body['_actor'] = session['username']
@@ -443,6 +452,23 @@ def config_cli(argv):
         result = broker_request('POST', '/review', request)
     else:
         result = broker_request('POST', '/' + args.command, {'id': args.id})
+    print(json.dumps(result, indent=2))
+
+
+def deploy_cli(argv):
+    import argparse
+    parser = argparse.ArgumentParser(prog='nixlab-admin deploy')
+    commands = parser.add_subparsers(dest='command', required=True)
+    commands.add_parser('status').add_argument('id', nargs='?')
+    for action in ('start', 'resume', 'abandon'): commands.add_parser(action).add_argument('id')
+    args = parser.parse_args(argv)
+    if args.command == 'status':
+        if args.id: result = broker_request('GET', '/deployment/' + args.id)
+        else:
+            job = broker_request('GET', '/status').get('job') or {}
+            result = {'plan': job.get('guestPlan'), 'deployment': job.get('guestDeployment')}
+    else:
+        result = broker_request('POST', '/deploy-guests', {'id': args.id, 'resume': args.command == 'resume', 'abandon': args.command == 'abandon'})
     print(json.dumps(result, indent=2))
 
 
@@ -559,6 +585,14 @@ if __name__ == '__main__':
     elif action == 'operation-job' and os.geteuid() == 0:
         from operations import Operations
         Operations().run(sys.argv[2])
+    elif action == 'deployment-job' and os.geteuid() == 0:
+        from deployments import Deployments
+        Deployments().run(sys.argv[2])
+    elif action == 'deploy' and os.geteuid() == 0:
+        try:
+            deploy_cli(sys.argv[2:])
+        except (ValueError, OSError) as exc:
+            sys.exit(str(exc))
     elif action == 'recovery' and os.geteuid() == 0:
         import recovery
         recovery.cli(sys.argv[2:])
@@ -595,5 +629,5 @@ if __name__ == '__main__':
         rt.durable_unlink(rt.STATE / 'setup-password')
         print('Password changed. Restart nixlab-ui to revoke existing sessions.')
     else:
-        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|portainer reset-password|backend|web|guard|renew|reset-password|config|guests|recovery|prune-jobs|disk prepare}')
+        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|portainer reset-password|backend|web|guard|renew|reset-password|config|deploy|guests|recovery|prune-jobs|disk prepare}')
 

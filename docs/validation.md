@@ -54,3 +54,15 @@ The installer is not run against a production machine from this development work
 The manual `hypervisor` output deliberately refuses incomplete inventory. Never
 install a `validation-*` configuration: its addresses, keys and hardware are fixtures.
 OS rollback does not roll back guest data or the Incus database schema.
+
+The `guest-deployments` check boots two real NixOS Incus containers and tests
+ordered in-place OS updates, preserved data, health rollback, dependency failure,
+a killed export/import worker, and resume after rebooting the controller. It does
+not establish apps-VM/KVM or authenticated Portainer qualification.
+
+The separate **Real apps guest deployment** workflow checks nested KVM on the
+runner that executes the test. When supported, it resolves and archives an actual
+Portainer image, deploys a new OS to the existing apps VM and a second NixOS
+guest, verifies preserved data/identities, and authenticates against real
+Portainer before and after. An unsupported runner skips the integration step;
+that is not a successful apps-VM qualification.

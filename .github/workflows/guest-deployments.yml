@@ -1,0 +1,63 @@
+name: Real apps guest deployment
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'admin/deployments.py'
+      - 'scripts/guest_deploy.py'
+      - 'modules/deployments.nix'
+      - 'tests/guest-deployments*'
+      - 'tests/guest-vm-diagnostics.py'
+      - '.github/workflows/guest-deployments.yml'
+permissions:
+  contents: read
+jobs:
+  apps-rollout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - id: check
+        shell: bash
+        run: |
+          nested=false
+          vendor=intel
+          if grep -q AuthenticAMD /proc/cpuinfo; then vendor=amd; fi
+          if test -c /dev/kvm && grep -Eq 'vmx|svm' /proc/cpuinfo; then
+            for setting in /sys/module/kvm_intel/parameters/nested /sys/module/kvm_amd/parameters/nested; do
+              if test -r "$setting" && grep -Eq '^(Y|1)$' "$setting"; then nested=true; fi
+            done
+          fi
+          echo "nested=$nested" >> "$GITHUB_OUTPUT"
+          echo "vendor=$vendor" >> "$GITHUB_OUTPUT"
+          if test "$nested" != true; then echo 'Nested KVM unavailable: the real apps-VM test will be skipped, not qualified.'; fi
+      - if: steps.check.outputs.nested == 'true'
+        uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
+      - if: steps.check.outputs.nested == 'true'
+        name: Resolve and archive a real immutable Portainer image
+        shell: bash
+        run: |
+          image="$(nix eval --raw .#nixlabDefaults.apps.portainerImage)"
+          nix shell --inputs-from . nixpkgs#skopeo --command skopeo --override-os linux --override-arch amd64 copy "docker://$image" "docker-archive:$RUNNER_TEMP/portainer.tar:$image"
+          python3 - "$RUNNER_TEMP/portainer.tar" "$RUNNER_TEMP/portainer-image-id" <<'PY'
+          import hashlib, json, sys, tarfile
+          with tarfile.open(sys.argv[1]) as archive:
+              manifest=json.load(archive.extractfile('manifest.json'))
+              content=archive.extractfile(manifest[0]['Config']).read()
+          with open(sys.argv[2], 'w') as output:
+              output.write('sha256:' + hashlib.sha256(content).hexdigest())
+          PY
+      - if: steps.check.outputs.nested == 'true'
+        name: Update the real apps VM and second NixOS guest
+        env:
+          CPU_VENDOR: ${{ steps.check.outputs.vendor }}
+        shell: bash
+        run: |
+          nix build --impure --no-link -L --expr '
+            { portainerArchive, portainerImage, cpuVendor }:
+            let flake = builtins.getFlake (toString ./.);
+                pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; };
+            in import ./tests/guest-deployments-kvm.nix {
+              inherit pkgs portainerArchive portainerImage cpuVendor;
+              apps = flake.nixosConfigurations.validation-setup-apps;
+            }' --arg portainerArchive "$RUNNER_TEMP/portainer.tar" --argstr portainerImage "$(cat "$RUNNER_TEMP/portainer-image-id")" --argstr cpuVendor "$CPU_VENDOR"

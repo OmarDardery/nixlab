@@ -96,7 +96,7 @@ def build(directory):
         run([str((directory / 'system').resolve()) + '/bin/switch-to-configuration', 'dry-activate'], log)
     result = subprocess.run(['nix', '--extra-experimental-features', 'nix-command flakes', 'eval', '--json',
         'path:' + str(source) + '#nixosConfigurations.hypervisor.config', '--apply',
-        'c: { settings = c.nixlab.settings; disks = c.nixlab.storage.disks; preseed = c.virtualisation.incus.preseed; instances = c.nixlab.incus.desiredInstances; }'],
+        'c: { settings = c.nixlab.settings; disks = c.nixlab.storage.disks; preseed = c.virtualisation.incus.preseed; instances = c.nixlab.incus.desiredInstances; deployments = c.nixlab.deployment.manifest; }'],
         check=True, capture_output=True, text=True, timeout=120)
     projection = json.loads(result.stdout)
     effective, disks = projection['settings'], projection['disks']
@@ -123,6 +123,8 @@ def build(directory):
     impact.prepare(directory, before, projection,
                    opaque=bool(rt.module_files(source) or job.get('moduleChanges') or job.get('platformRevision') or job['updateInputs']),
                    transition_error=transition_error)
+    import deployments
+    deployments.prepare(directory, projection.get('deployments', {}))
     update(directory, status='ready', builtAt=time.time(), effectiveSettings=effective, candidateDigest=rt.digest_source(source),
            inputChanges=changed_inputs, rebootRequired=bool(reboot))
     rt.audit('build-ready', job=directory.name)

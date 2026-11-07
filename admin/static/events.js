@@ -219,6 +219,10 @@ async function action(name, el) {
       shell();
       return;
     }
+    if (["deploy-guests", "abandon-deployment"].includes(name)) {
+      await api("deploy-guests", {id: state.status.job.id, resume: !!state.status.job.guestDeployment, abandon: name === "abandon-deployment"});
+      state.status = await api("status"); shell(); return;
+    }
     if (
       ["apply", "confirm", "rollback", "cancel", "rollback-confirmed"].includes(
         name,
