@@ -4,6 +4,62 @@ This checklist is acceptance testing for the implemented single-host release. Us
 spare installation disk or a verified recovery path. Record hardware model, firmware
 mode, CPU, NICs, disks, exact source revision, results and relevant redacted logs.
 
+## Record evidence
+
+Routine collection runs fixed, bounded read-only probes; it never installs an app,
+reboots, stops a guest, exports data or runs a disruptive test. It checks local
+management, the KVM ioctl, a running unprivileged container and (when enabled) the
+real apps VM agent/Docker plus authentication using existing Portainer credentials.
+It writes only its own report/lock under `/var/lib/nixlab-admin/commissioning`.
+No raw command output or credentials enter that report. Changed Portainer passwords
+must be supplied through the existing supported credential mechanism, not a report.
+
+```sh
+sudo nixlab commissioning collect --mode fresh
+sudo nixlab commissioning status --mode fresh
+```
+
+Use `--mode upgrade` to keep upgrade evidence separate. Run collect again after each
+of **two deliberate reboots** on the same configuration; the reboot result requires
+three distinct healthy boot observations plus a manual attestation that the
+documented access checks were completed. The command itself never reboots.
+
+After actually completing a procedure below, record its outcome explicitly:
+
+```sh
+sudo nixlab commissioning record --mode fresh \
+  --check install-resume --status passed --acknowledge
+```
+
+| Check | Procedure to perform before attesting |
+|---|---|
+| `install-resume` | The selected fresh-install/upgrade path, interrupted retry, preserved settings/data and stable credentials |
+| `management-auth` | Remote authenticated SSH, Incus enrollment/consoles and Cockpit login/terminal when enabled; confirm TLS identity |
+| `reboots` | Collect on the initial boot and two later boots, check actual access each time, no manual service repair |
+| `network-recovery` | Actual management network loss and unconfirmed-change rollback with local console/recovery available |
+| `offhost-restore` | Retrieve an independent off-host backup, restore to an isolated target and verify real application/database data |
+| `hardware-reconnect` | Real configured serial/USB device permissions, disconnect/reconnect, host reboot and actual workload behavior |
+
+Replace `--check` accordingly. Record `failed`, `skipped`, `unsupported` or `unknown`
+honestly; none satisfies a required check. An integrity check/upload alone does not
+satisfy `offhost-restore`. The initial gate requires hardware reconnect when stable
+serial aliases are declared; other device qualification is still part of the
+checklist and release review. For a host with no apps VM, app checks are optional
+and the report qualifies only the core profile.
+
+```sh
+sudo nixlab commissioning export --mode fresh > fresh-report.json
+```
+
+Export refreshes the current context; changed inputs/settings/source/kernel/storage
+or networking invalidate old results. Inspect before sharing. Reports are capped
+at 400 evidence records; archive the root-only report and start a new one for a
+new commissioning campaign before reaching that limit. Fresh/upgrade and test
+environment reports have separate filenames. Never relabel a fixture as physical
+evidence. Automated tests must use `--environment automated-fixture` or
+`--environment nested-integration`; virtualization is also detected independently.
+See the [qualification matrix](qualification.md) for publication and limits.
+
 ## Installation and reboot
 
 - Start with a plain installed NixOS system. Run the command in the
