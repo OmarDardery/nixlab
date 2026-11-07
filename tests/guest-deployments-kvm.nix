@@ -40,7 +40,7 @@ in pkgs.testers.runNixOSTest {
   node.specialArgs = { inherit site appImage; installedNetworking.networkManager = false; };
   nodes.host = { config, ... }: {
     imports = [ ../modules/storage.nix ../modules/networking.nix ../modules/virtualization.nix ../modules/incus.nix ../modules/instance-schema.nix ../modules/deployments.nix ];
-    virtualisation = { memorySize = 4096; diskSize = 32768; cores = 2; qemu.options = [ "-cpu host" ]; };
+    virtualisation = { memorySize = 6144; diskSize = 32768; cores = 4; qemu.options = [ "-cpu host" ]; };
     boot.extraModprobeConfig = "options kvm_intel nested=1\noptions kvm_amd nested=1";
     environment.systemPackages = [ pkgs.python3 pkgs.incus-lts.client pkgs.nix pkgs.openssl ];
     nixlab.incus.instances.worker = { image = "local:rollout-worker"; start = true; config."security.nesting" = "true"; };
@@ -63,6 +63,10 @@ in pkgs.testers.runNixOSTest {
         host.wait_for_unit("nixlab-instances.service", timeout=300)
     except Exception:
         host.log(host.execute("journalctl --no-pager -n 100 -u nixlab-instances.service")[1])
+        host.log(host.execute("timeout 20s incus console apps --project lab --show-log")[1])
+        host.log(host.execute("timeout 20s incus query '/1.0/operations?recursion=1'")[1])
+        host.log(host.execute("free -m")[1])
+        host.log(host.execute("ps -eo pid,ppid,stat,wchan:24,args --sort=-pcpu | head -n 25")[1])
         raise
     assert host.succeed("systemctl show nixlab-kvm-check.service --property=Result --value").strip() == "success"
     assert host.succeed("systemctl show nixlab-kvm-check.service --property=ExecMainStatus --value").strip() == "0"
