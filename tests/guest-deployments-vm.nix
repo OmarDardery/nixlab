@@ -57,7 +57,7 @@ in pkgs.testers.runNixOSTest {
     host.start()
     host.wait_for_unit("nixlab-instances.service", timeout=300)
     for name in ("primary", "worker"):
-        host.wait_until_succeeds(f"incus exec {name} --project lab -- systemctl is-active nixlab-test-data.service", timeout=180)
+        host.wait_until_succeeds(f"timeout --kill-after=5s 15s incus exec {name} --project lab --mode=non-interactive --disable-stdin -- systemctl is-active nixlab-test-data.service", timeout=180)
     run = "PYTHONPATH=${../admin}:${../scripts} NIXLAB_STATE=/var/lib/nixlab-deployment-test python3 ${./guest-deployment-fixture.py}"
     host.succeed(run + " failure", timeout=300)
     # Kill the real export/import worker, retain its journal, and reboot the controller.
@@ -68,7 +68,7 @@ in pkgs.testers.runNixOSTest {
     host.reboot()
     host.wait_for_unit("nixlab-instances.service", timeout=300)
     for name in ("primary", "worker"):
-        host.wait_until_succeeds(f"incus exec {name} --project lab -- systemctl is-active nixlab-test-data.service", timeout=180)
+        host.wait_until_succeeds(f"timeout --kill-after=5s 15s incus exec {name} --project lab --mode=non-interactive --disable-stdin -- systemctl is-active nixlab-test-data.service", timeout=180)
     host.wait_until_succeeds(run + " resume", timeout=360)
     host.succeed(run + " verify", timeout=60)
   '';

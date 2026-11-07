@@ -79,7 +79,10 @@ An unexpected native guest OS generation or replaced identity requires a new rev
 The journal is written before transfer, activation, reboot and rollback. Rollouts
 hold the existing host-mutation and Incus locks, serializing against scheduled
 backups and guest operations. A killed worker or controller reboot leaves its
-checkpoint on disk. Once its worker is confirmed stopped, resume it:
+checkpoint on disk. Guest profile publication and switching also share a guest-side
+lock and a 600-second deadline, preventing a lost controller from leaving an
+unbounded switch racing later recovery. Once the worker is confirmed stopped,
+resume it:
 
 ```sh
 sudo nixlab-admin deploy resume TRANSACTION_ID

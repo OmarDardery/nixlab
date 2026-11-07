@@ -59,10 +59,12 @@ in pkgs.testers.runNixOSTest {
   };
   testScript = ''
     host.start()
-    host.wait_for_unit("nixlab-kvm-check.service")
-    host.wait_for_unit("nixlab-instances.service", timeout=600)
-    host.wait_until_succeeds("incus exec apps --project lab -- test -e /etc/NIXOS", timeout=300)
-    host.wait_until_succeeds("incus exec worker --project lab -- systemctl is-active multi-user.target", timeout=180)
+    host.wait_for_unit("nixlab-instances.service", timeout=900)
+    assert host.succeed("systemctl show nixlab-kvm-check.service --property=Result --value").strip() == "success"
+    assert host.succeed("systemctl show nixlab-kvm-check.service --property=ExecMainStatus --value").strip() == "0"
+    host.succeed("test -c /dev/kvm")
+    host.wait_until_succeeds("timeout --kill-after=5s 15s incus exec apps --project lab --mode=non-interactive --disable-stdin -- test -e /etc/NIXOS", timeout=300)
+    host.wait_until_succeeds("timeout --kill-after=5s 15s incus exec worker --project lab --mode=non-interactive --disable-stdin -- systemctl is-active multi-user.target", timeout=180)
     host.succeed("PYTHONPATH=${../admin}:${../scripts} NIXLAB_STATE=/var/lib/nixlab-deployment-test python3 ${./guest-deployments-kvm-fixture.py}", timeout=600)
   '';
 }

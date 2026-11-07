@@ -103,8 +103,12 @@ class Transport:
     def activate(self, closure):
         closure = store_path(closure)
         self.execute('test', '-x', closure + '/bin/switch-to-configuration', timeout=10)
-        self.execute('nix-env', '--profile', '/nix/var/nix/profiles/system', '--set', closure, timeout=60)
-        self.execute(closure + '/bin/switch-to-configuration', 'switch', timeout=300)
+        # This deadline and lock survive a dead controller/Incus client. Profile
+        # publication and switching must serialize with a later recovery attempt.
+        script = 'nix-env --profile /nix/var/nix/profiles/system --set "$1"\nexec "$1/bin/switch-to-configuration" switch'
+        self.execute('timeout', '--kill-after=10s', '600', 'flock', '--exclusive', '--timeout', '300',
+                     '/run/lock/nixlab-guest-deployment.lock', 'sh', '-eu', '-c', script,
+                     'nixlab-guest-switch', closure, timeout=630)
 
     def reboot_required(self, current):
         if current['type'] != 'virtual-machine': return False
@@ -121,4 +125,7 @@ class Transport:
             raise DeploymentError('Guest reboot did not complete; no forced power-off was attempted') from None
 
     def healthy(self, probe, timeout):
-        return self.execute(store_path(probe) + '/bin/nixlab-guest-health', timeout=timeout, check=False).returncode == 0
+        import math
+        seconds = max(1, math.ceil(timeout))
+        return self.execute('timeout', '--kill-after=2s', str(seconds), store_path(probe) + '/bin/nixlab-guest-health',
+                            timeout=seconds + 3, check=False).returncode == 0

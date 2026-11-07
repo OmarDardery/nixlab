@@ -279,6 +279,18 @@ class ContractTests(unittest.TestCase):
              patch.object(gd.Transport, 'execute', return_value=subprocess.CompletedProcess([], 1, '', '')):
             with self.assertRaisesRegex(ValueError, 'Non-NixOS'): gd.Transport('lab', 'native').inspect()
 
+    def test_switch_timeout_and_lock_live_in_the_guest_after_client_loss(self):
+        transport = gd.Transport('lab', 'apps')
+        with patch.object(transport, 'execute') as execute:
+            transport.activate(NEW)
+        args = execute.call_args.args
+        self.assertEqual(args[:7], ('timeout', '--kill-after=10s', '600', 'flock', '--exclusive', '--timeout', '300'))
+        self.assertIn('/run/lock/nixlab-guest-deployment.lock', args)
+        self.assertEqual(args[-1], NEW)
+        self.assertIn('nix-env', args[-3])
+        self.assertIn('switch-to-configuration', args[-3])
+        self.assertGreater(execute.call_args.kwargs['timeout'], int(args[2]))
+
     def test_transfer_timeout_closes_parent_pipe_and_terminates_both_children(self):
         exporter, receiver = Mock(), Mock()
         exporter.poll.return_value = receiver.poll.return_value = None
