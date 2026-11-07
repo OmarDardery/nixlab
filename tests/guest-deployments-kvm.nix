@@ -7,7 +7,7 @@ let
   site = base // {
     inherit cpuVendor;
     setup = base.setup // { enable = true; };
-    apps = base.apps // { inherit portainerImage; cpu = "1"; };
+    apps = base.apps // { inherit portainerImage; };
     management = base.management // { interface = "eth1"; configure = true; };
   };
   initialApps = apps.extendModules { modules = [ {
@@ -53,12 +53,10 @@ in pkgs.testers.runNixOSTest {
     # Prepare an existing source-owned VM with a second, fixture-only QMP socket.
     # The normal reconciler still applies its settings and starts it; rollout
     # preparation happens later, after these initial settings are settled.
-    # Bound the firmware MMIO layout on the hosted nested AMD/Hyper-V stack;
-    # Linux guests do not need the default Hyper-V enlightenment passthrough.
     systemd.services.nixlab-instances.preStart = lib.mkAfter ''
       incus --force-local init local:nixlab-apps apps --vm --project lab --profile base \
         --config user.nixlab.managed=true --config user.nixlab.initializing=true \
-        --config "raw.qemu=-cpu host,host-phys-bits=on,host-phys-bits-limit=40 -qmp unix:/tmp/nixlab-apps-debug.qmp,server=on,wait=off"
+        --config "raw.qemu=-qmp unix:/tmp/nixlab-apps-debug.qmp,server=on,wait=off"
     '';
     systemd.services.nixlab-test-worker-image = {
       before = [ "nixlab-instances.service" ]; requiredBy = [ "nixlab-instances.service" ];
@@ -77,7 +75,10 @@ in pkgs.testers.runNixOSTest {
             "free -m",
             "ps -eo pid,ppid,stat,wchan:24,args --sort=-pcpu | head -n 25",
         ):
-            host.log(host.execute(command)[1])
+            try:
+                host.log(host.execute(command, timeout=30)[1])
+            except Exception:
+                host.log("Boot diagnostic exceeded its deadline: " + command)
 
     host.start()
     try:

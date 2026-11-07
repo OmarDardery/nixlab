@@ -1,6 +1,7 @@
 """Disposable pre-credential VM boot diagnostics; never installed on a live host."""
 import base64
 import json
+import re
 from pathlib import Path
 import socket
 
@@ -26,8 +27,14 @@ try:
 
         command('qmp_capabilities')
         print('VM status:', json.dumps(command('query-status')))
-        for query in ('info cpus', 'info registers', 'x /16i $rip', 'info block'):
-            print(query + ':', command('human-monitor-command', {'command-line': query}))
+        for query in ('info cpus', 'info registers', 'info block'):
+            output = command('human-monitor-command', {'command-line': query})
+            print(query + ':', output, flush=True)
+            if query == 'info registers':
+                address = re.search(r'\bRIP=([0-9a-fA-F]+)', output)
+                if address:
+                    print('instructions:', command('human-monitor-command',
+                        {'command-line': 'x /16i 0x' + address.group(1)}), flush=True)
         destination = '/tmp/nixlab-apps-boot.png'
         command('screendump', {'filename': destination, 'format': 'png'})
         screenshot = Path(destination)
