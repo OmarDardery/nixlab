@@ -24,6 +24,14 @@ let
   old = guest "v1";
   target = guest "v2";
   unhealthy = pkgs.writeShellApplication { name = "nixlab-guest-health"; text = "exit 1"; };
+  slowExport = pkgs.writeShellScriptBin "nix-store" ''
+    set -o pipefail
+    if test "$1" = --export; then
+      ${pkgs.nix}/bin/nix-store "$@" | ${pkgs.pv}/bin/pv --quiet --rate-limit 8m
+    else
+      exec ${pkgs.nix}/bin/nix-store "$@"
+    fi
+  '';
 in pkgs.testers.runNixOSTest {
   name = "nixlab-guest-deployments";
   globalTimeout = 1200;
@@ -58,12 +66,12 @@ in pkgs.testers.runNixOSTest {
     host.wait_for_unit("nixlab-instances.service", timeout=300)
     for name in ("primary", "worker"):
         host.wait_until_succeeds(f"timeout --kill-after=5s 15s incus exec {name} --project lab --mode=non-interactive --disable-stdin -- systemctl is-active nixlab-test-data.service", timeout=180)
-    run = "PYTHONPATH=${../admin}:${../scripts} NIXLAB_STATE=/var/lib/nixlab-deployment-test python3 ${./guest-deployment-fixture.py}"
+    run = "PYTHONPATH=${../admin}:${../scripts} NIXLAB_STATE=/var/lib/nixlab-deployment-test ${pkgs.python3}/bin/python3 ${./guest-deployment-fixture.py}"
     host.succeed(run + " failure", timeout=300)
     # Kill the real export/import worker, retain its journal, and reboot the controller.
     host.succeed(run + " queue")
-    host.succeed("systemd-run --unit=interrupted-guest-deployment --property=KillMode=control-group " + run.replace("PYTHONPATH=", "env PYTHONPATH=", 1) + " run")
-    host.wait_until_succeeds("python3 -c 'import json; p=json.load(open(\"/var/lib/nixlab-deployment-test/jobs/" + "b" * 32 + "/deployment.json\")); assert p[\"targets\"][\"primary\"][\"phase\"] == \"transferring\"'", timeout=120)
+    host.succeed("systemd-run --unit=interrupted-guest-deployment --property=KillMode=control-group --setenv=PATH=${slowExport}/bin:/run/current-system/sw/bin " + run.replace("PYTHONPATH=", "env PYTHONPATH=", 1) + " run")
+    host.wait_until_succeeds(run + " transferring", timeout=120)
     host.succeed("systemctl kill --signal=KILL interrupted-guest-deployment.service")
     host.reboot()
     host.wait_for_unit("nixlab-instances.service", timeout=300)

@@ -35,6 +35,7 @@ if action == 'failure':
     directory = create(failed_id, bad)
     result = manager.run(failed_id)
     assert result['targets']['primary']['phase'] == 'rolled-back', result
+    assert 'health checks failed' in result['targets']['primary']['error'], result
     assert result['targets']['worker']['phase'] == 'blocked', result
     for name in ('primary', 'worker'):
         assert Transport('lab', name).inspect()['profile'] == paths['previous']
@@ -42,6 +43,16 @@ elif action == 'queue':
     create(main_id, manifest)
 elif action == 'run':
     manager.run(main_id)
+elif action == 'transferring':
+    assert manager.status(main_id)['targets']['primary']['phase'] == 'transferring'
+    importing = False
+    for process in Path('/proc').iterdir():
+        if not process.name.isdigit(): continue
+        try: args = (process / 'cmdline').read_bytes().rstrip(b'\0').split(b'\0')
+        except (FileNotFoundError, PermissionError, ProcessLookupError): continue
+        if args[:4] == [b'incus', b'--force-local', b'exec', b'primary'] and args[-2:] == [b'nix-store', b'--import']:
+            importing = True; break
+    assert importing, 'Wait for the actual Incus import receiver before killing its worker'
 elif action == 'resume':
     manager.spawn = lambda _: None
     manager.submit(main_id, resume=True)
