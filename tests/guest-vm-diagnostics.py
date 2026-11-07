@@ -26,7 +26,7 @@ try:
 
         command('qmp_capabilities')
         print('VM status:', json.dumps(command('query-status')))
-        for query in ('info cpus', 'info registers', 'info block'):
+        for query in ('info cpus', 'info registers', 'x /16i $rip', 'info block'):
             print(query + ':', command('human-monitor-command', {'command-line': query}))
         destination = '/tmp/nixlab-apps-boot.png'
         command('screendump', {'filename': destination, 'format': 'png'})
