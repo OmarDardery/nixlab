@@ -36,7 +36,7 @@ let
   };
 in pkgs.testers.runNixOSTest {
   name = "nixlab-apps-and-guest-rollout";
-  globalTimeout = 1800;
+  globalTimeout = 2400;
   node.specialArgs = { inherit site appImage; installedNetworking.networkManager = false; };
   nodes.host = { config, ... }: {
     imports = [ ../modules/storage.nix ../modules/networking.nix ../modules/virtualization.nix ../modules/incus.nix ../modules/instance-schema.nix ../modules/deployments.nix ];
@@ -70,7 +70,9 @@ in pkgs.testers.runNixOSTest {
 
     host.start()
     try:
-        host.wait_for_unit("nixlab-instances.service", timeout=300)
+        # Extracting the real guest root filesystems on hosted nested storage
+        # can exceed five minutes while tar/xz are still making progress.
+        host.wait_for_unit("nixlab-instances.service", timeout=900)
     except Exception:
         diagnose_apps()
         raise
