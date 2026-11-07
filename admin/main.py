@@ -629,5 +629,5 @@ if __name__ == '__main__':
         rt.durable_unlink(rt.STATE / 'setup-password')
         print('Password changed. Restart nixlab-ui to revoke existing sessions.')
     else:
-        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|portainer reset-password|backend|web|guard|renew|reset-password|config|guests|recovery|prune-jobs|disk prepare}')
+        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|portainer reset-password|backend|web|guard|renew|reset-password|config|deploy|guests|recovery|prune-jobs|disk prepare}')
 

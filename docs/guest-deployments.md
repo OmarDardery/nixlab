@@ -116,3 +116,6 @@ sudo nixlab-admin deploy abandon TRANSACTION_ID
 After abandoning or exhausting retries, inspect the guest and build a new review.
 Journals follow configuration-history retention. Guest GC roots stay until an
 administrator reviews/removes them inside the guest; retain them during recovery.
+
+Native Incus administrators can bypass NixLab locks. Avoid concurrent guest edits
+during rollout; the precondition checks do not create a distributed transaction.

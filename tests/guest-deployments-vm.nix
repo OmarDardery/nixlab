@@ -54,7 +54,6 @@ in pkgs.testers.runNixOSTest {
     };
   };
   testScript = ''
-    import json
     host.start()
     host.wait_for_unit("nixlab-instances.service", timeout=300)
     for name in ("primary", "worker"):
