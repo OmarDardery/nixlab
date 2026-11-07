@@ -74,7 +74,10 @@ def main():
             assert page.locator('[data-guest-action]').count() == 0
             page.locator('nav [data-go="commands"]').click()
             page.get_by_role('heading', name='Commands & docs', exact=True).wait_for()
-            assert page.locator('[data-copy-command]').count() == 16
+            commands = page.locator('[data-copy-command]').evaluate_all("nodes => nodes.map(n => n.dataset.copyCommand)")
+            assert len(commands) == len(set(commands))
+            assert {'doctor', 'commissioning', 'helper-debian', 'compose-list'}.issubset(commands)
+            assert page.locator('#command-commissioning').inner_text() == 'sudo nixlab commissioning collect --mode fresh'
             assert page.locator('[data-action=build]').count() == 0
             assert page.locator('a[href="https://github.com/community-scripts/Incus"]').count() == 1
             page.locator('nav [data-go="network"]').click()
