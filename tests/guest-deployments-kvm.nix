@@ -7,7 +7,7 @@ let
   site = base // {
     inherit cpuVendor;
     setup = base.setup // { enable = true; };
-    apps = base.apps // { inherit portainerImage; };
+    apps = base.apps // { inherit portainerImage; cpu = "1"; };
     management = base.management // { interface = "eth1"; configure = true; };
   };
   initialApps = apps.extendModules { modules = [ {
@@ -50,6 +50,14 @@ in pkgs.testers.runNixOSTest {
       worker = { system = nextWorker.config.system.build.toplevel; dependsOn = [ "apps" ]; };
     };
     environment.etc."nixlab-test-deployments.json".text = builtins.toJSON config.nixlab.deployment.manifest;
+    # Prepare an existing source-owned VM with a second, fixture-only QMP socket.
+    # The normal reconciler still applies its settings and starts it; rollout
+    # preparation happens later, after these initial settings are settled.
+    systemd.services.nixlab-instances.preStart = lib.mkAfter ''
+      incus --force-local init local:nixlab-apps apps --vm --project lab --profile base \
+        --config user.nixlab.managed=true --config user.nixlab.initializing=true \
+        --config "raw.qemu=-qmp unix:/tmp/nixlab-apps-debug.qmp,server=on,wait=off"
+    '';
     systemd.services.nixlab-test-worker-image = {
       before = [ "nixlab-instances.service" ]; requiredBy = [ "nixlab-instances.service" ];
       after = [ "incus-preseed.service" ]; requires = [ "incus-preseed.service" ];
@@ -63,6 +71,7 @@ in pkgs.testers.runNixOSTest {
             "journalctl --no-pager -n 80 -u incus-preseed.service -u nixlab-instances.service",
             "timeout 20s incus console apps --project lab --show-log",
             "find /var/log/incus -maxdepth 2 -type f -name '*.log' -exec tail -n 60 {} +",
+            "python3 ${./guest-vm-diagnostics.py}",
             "free -m",
             "ps -eo pid,ppid,stat,wchan:24,args --sort=-pcpu | head -n 25",
         ):
