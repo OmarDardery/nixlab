@@ -160,6 +160,16 @@ class JournalTests(unittest.TestCase):
         self.queue(); self.assertEqual(self.manager.run(ID)['status'], 'healthy')
         self.assertIn(('reboot',), self.fakes['apps'].calls)
 
+    def test_health_failure_after_deferred_reboot_restores_previous_generation(self):
+        self.fakes['apps'].reboot_needed = True
+        self.queue(); self.manager.run(ID)
+        self.fakes['apps'].reboot_needed = False
+        self.fakes['apps'].good = False
+        self.queue(resume=True); report = self.manager.run(ID)
+        self.assertEqual(report['targets']['apps']['phase'], 'rolled-back')
+        self.assertEqual(self.fakes['apps'].current['active'], OLD)
+        self.assertEqual(report['targets']['worker']['phase'], 'blocked')
+
     def test_native_generation_or_identity_change_after_queue_refuses_all_mutation(self):
         for change in ({'uuid': 'replacement'}, {'profile': OTHER}, {'fingerprint': 'native-edit'}):
             self.fakes['apps'].current = dict(Fake('apps').current)

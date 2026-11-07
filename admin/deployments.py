@@ -245,7 +245,11 @@ class Deployments:
         if state['phase'] in ('rolling-back', 'rollback-failed'):
             self.rollback_target(directory, record, key, spec, transport)
             current = self.verify(transport, state, spec)
-        mutated = state['phase'] in ('activating', 'activated', 'checking', 'rebooting')
+        # A deferred reboot or stopped worker must not lose this rollout's
+        # rollback boundary when the next run already observes the target OS.
+        mutated = state['phase'] in ('activating', 'activated', 'checking', 'rebooting') or (
+            state.get('previousSystem') not in (None, spec['system'])
+            and spec['system'] in (current['profile'], current['active']))
         if current['profile'] != spec['system'] or current['active'] != spec['system']:
             if state['attempts'] >= spec['maxAttempts']:
                 if mutated and spec['rollbackOnFailure'] and state.get('previousSystem'):
