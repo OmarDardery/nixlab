@@ -58,6 +58,19 @@ jobs:
           for target in validation-minimal validation-file-disk validation-recipes validation-host validation-ethernet validation-ethernet-nm validation-ethernet-wifi validation-coupled-apps validation-apps validation-services validation-demo validation-zfs validation-inherited validation-bootstrap validation-setup validation-setup-apps; do
             nix eval ".#nixosConfigurations.$target.config.system.build.toplevel.drvPath"
           done
+      - name: Evaluate optional nested apps test wiring (no integration claim)
+        run: |
+          nix eval --impure --raw --expr '
+            let flake = builtins.getFlake (builtins.getEnv "PWD");
+                pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; };
+            in (import ./tests/apps-integration.nix {
+              inherit pkgs;
+              apps = flake.nixosConfigurations.validation-setup-apps;
+              sopsModule = flake.inputs.sops-nix.nixosModules.sops;
+              portainerArchive = pkgs.dockerTools.buildLayeredImage { name = "evaluation-only"; };
+              cpuVendor = "intel";
+              revision = "0000000000000000000000000000000000000000";
+            }).drvPath'
       - name: Verify lightweight defaults and declarative settings
         run: |
           nix eval --json .#nixlabDefaults > /tmp/nixlab-defaults.json

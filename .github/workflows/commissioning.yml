@@ -1,0 +1,61 @@
+name: Real apps commissioning
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  nested-apps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
+      - name: Require usable nested virtualization
+        run: |
+          test -c /dev/kvm
+          python3 - <<'PY'
+          import os, fcntl
+          fd = os.open('/dev/kvm', os.O_RDWR)
+          assert fcntl.ioctl(fd, 0xAE00, 0) == 12
+          os.close(fd)
+          PY
+          if grep -q AuthenticAMD /proc/cpuinfo; then
+            echo 'NIXLAB_TEST_CPU_VENDOR=amd' >> "$GITHUB_ENV"
+          elif grep -q GenuineIntel /proc/cpuinfo; then
+            echo 'NIXLAB_TEST_CPU_VENDOR=intel' >> "$GITHUB_ENV"
+          else
+            exit 1
+          fi
+      - name: Resolve and stage the actual Portainer image
+        run: |
+          mkdir -p qualification-artifacts
+          image="$(nix eval --raw .#nixosConfigurations.validation-setup-apps.config.nixlab.settings.apps.portainerImage)"
+          digest="$(nix shell --inputs-from . nixpkgs#skopeo --command skopeo inspect --override-os linux --override-arch amd64 --format '{{.Digest}}' "docker://$image")"
+          printf '%s@%s\n' "${image%:*}" "$digest" > qualification-artifacts/oci-source.txt
+          nix shell --inputs-from . nixpkgs#skopeo --command skopeo copy --override-os linux --override-arch amd64 \
+            "docker://${image%:*}@$digest" "docker-archive:$RUNNER_TEMP/portainer.tar:$image"
+          echo "NIXLAB_TEST_IMAGE=$RUNNER_TEMP/portainer.tar" >> "$GITHUB_ENV"
+      - name: Boot Incus apps VM and verify actual Portainer across two reboots
+        run: |
+          export NIXLAB_TEST_REVISION="$GITHUB_SHA"
+          nix build --impure --expr '
+            let flake = builtins.getFlake (builtins.getEnv "PWD");
+                pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; };
+            in import ./tests/apps-integration.nix {
+              inherit pkgs;
+              apps = flake.nixosConfigurations.validation-setup-apps;
+              sopsModule = flake.inputs.sops-nix.nixosModules.sops;
+              portainerArchive = builtins.path { path = builtins.toPath (builtins.getEnv "NIXLAB_TEST_IMAGE"); name = "portainer-test.tar"; };
+              cpuVendor = builtins.getEnv "NIXLAB_TEST_CPU_VENDOR";
+              revision = builtins.getEnv "NIXLAB_TEST_REVISION";
+            }' -o result-commissioning -L
+          find -L result-commissioning -name nested-apps.json -exec cp '{}' qualification-artifacts/ ';'
+          test -s qualification-artifacts/nested-apps.json
+          printf '%s\n' "$GITHUB_SHA" > qualification-artifacts/source-revision.txt
+      - name: Retain nested integration evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nested-apps-evidence
+          path: qualification-artifacts/
+          if-no-files-found: error

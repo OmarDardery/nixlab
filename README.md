@@ -48,6 +48,10 @@ See the [ownership contract](docs/ownership.md), [helper integration](docs/helpe
 This is a single-host release candidate. CI gates include source tests, real NixOS portal/UNIX
 permissions, password SSH, authenticated Cockpit terminals and DHCP/reboot startup checks. Physical-host installation,
 actual workloads, network-loss recovery and a restore drill remain commissioning requirements.
+Use `sudo nixlab commissioning collect --mode fresh` to record bounded probes;
+the [commissioning guide](docs/commissioning.md) separates these from manual trials.
+The [release qualification matrix](docs/qualification.md) lists the current evidence
+boundary. Missing, stale or simulated evidence cannot qualify a physical target.
 
 ## Selected stack
 
