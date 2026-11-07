@@ -26,6 +26,7 @@ let
   cp ${../scripts/backup_health.py} $out/admin/backup_health.py
   cp ${../scripts/reconcile.py} $out/admin/reconcile.py
   cp ${../scripts/infrastructure.py} $out/admin/infrastructure.py
+  cp ${../scripts/guest_deploy.py} $out/admin/guest_deploy.py
   cp ${pkgs.writeText "nixlab-default-settings.json" (builtins.toJSON (import ../site-defaults.nix))} $out/admin/default-settings.json
 '';
 in pkgs.writeShellApplication {

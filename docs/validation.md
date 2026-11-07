@@ -54,3 +54,8 @@ The installer is not run against a production machine from this development work
 The manual `hypervisor` output deliberately refuses incomplete inventory. Never
 install a `validation-*` configuration: its addresses, keys and hardware are fixtures.
 OS rollback does not roll back guest data or the Incus database schema.
+
+The `guest-deployments` check boots two real NixOS Incus containers and tests
+ordered in-place OS updates, preserved data, health rollback, dependency failure,
+a killed export/import worker, and resume after rebooting the controller. It does
+not establish apps-VM/KVM or authenticated Portainer qualification.

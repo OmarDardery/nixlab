@@ -33,6 +33,7 @@ jobs:
           node tests/test_homepage.js
           node tests/test_operations_ui.js
           node tests/test_foundation_ui.js
+          node tests/test_deployments_ui.js
       - name: Browser workflow checks
         run: |
           python3 -m venv "$RUNNER_TEMP/nixlab-browser"
@@ -53,6 +54,8 @@ jobs:
           nix build .#checks.x86_64-linux.management --no-link -L
       - name: Boot real Incus containers and verify host integration and restore
         run: nix build .#checks.x86_64-linux.foundation --no-link -L
+      - name: Verify NixOS guest rollout, health rollback and interrupted transfer recovery
+        run: nix build .#checks.x86_64-linux.guest-deployments --no-link -L
       - name: Evaluate configuration variants
         run: |
           for target in validation-minimal validation-file-disk validation-recipes validation-host validation-ethernet validation-ethernet-nm validation-ethernet-wifi validation-coupled-apps validation-apps validation-services validation-demo validation-zfs validation-inherited validation-bootstrap validation-setup validation-setup-apps; do
