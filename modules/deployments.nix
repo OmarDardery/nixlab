@@ -47,7 +47,7 @@ in {
       { assertion = cfg.apps.enable || lib.all (t: t.project != "lab" || t.name != "apps") (builtins.attrValues targets); message = "Use nixlab.deployment.apps.enable for lab/apps so onboarding does not deploy its OS twice."; }
       { assertion = lib.all (t: t.healthUnits != [ ] || t.httpChecks != [ ]) (builtins.attrValues targets); message = "Every deployment needs at least one health check."; }
       { assertion = !cfg.apps.enable || (site.apps.enable && site.setup.enable); message = "Coordinated apps deployment requires the managed apps VM and onboarding."; }
-      { assertion = !cfg.apps.enable || builtins.match ".+@sha256:[0-9a-f]{64}" site.apps.portainerImage != null; message = "Pin the Nix-owned Portainer image by immutable sha256 digest before coordinated deployment."; }
+      { assertion = !cfg.apps.enable || builtins.match "(.+@)?sha256:[0-9a-f]{64}" site.apps.portainerImage != null; message = "Pin the Nix-owned Portainer image by immutable sha256 digest before coordinated deployment."; }
       { assertion = !cfg.apps.enable || !site.apps.enableDemo; message = "The example demo has mutable upstream image tags; keep it outside coordinated deployment until its images are pinned."; }
     ];
   };

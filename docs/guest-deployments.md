@@ -48,7 +48,8 @@ For the built-in apps VM, set `nixlab.deployment.apps.enable = true`. It adds th
 `docker-portainer.service`, and disables the older automatic OS deployment in
 onboarding. Credential/TLS provisioning stays in onboarding. Before opting in, set
 `nixlab.settings.apps.portainerImage` to an image reference with a verified
-`@sha256:` digest. Mutable tags and the unpinned example demo are refused in this
+`@sha256:` digest (or an immutable local `sha256:` image ID with a declared
+image archive). Mutable tags and the unpinned example demo are refused in this
 mode. Pin images in other Nix-owned guest workloads too. Portainer/helper-owned
 stacks retain their native update tooling.
 
