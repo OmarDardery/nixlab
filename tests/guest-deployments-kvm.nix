@@ -12,7 +12,7 @@ let
   };
   initialApps = apps.extendModules { modules = [ {
     nixlab.settings.apps.portainerImage = portainerImage;
-    virtualisation.oci-containers.containers.portainer.imageFile = portainerArchive;
+    virtualisation.oci-containers.containers.portainer.imageFile = builtins.path { path = portainerArchive; name = "portainer-image.tar"; };
     environment.etc."nixlab-deploy-version".text = "v1";
   } ]; };
   nextApps = initialApps.extendModules { modules = [ ({ lib, ... }: {

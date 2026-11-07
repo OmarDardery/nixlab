@@ -62,7 +62,7 @@ class Manager:
             raise ValueError('Keep between 1 and 1000 recent jobs')
         with rt.locked(blocking=False):
             protected = {rt.read_json(self.state / name, {}).get('id')
-                         for name in ('active.json', 'pending.json', 'last-confirmed.json')}
+                         for name in ('active.json', 'pending.json', 'last-confirmed.json', 'deployment-active.json')}
             jobs = []
             for directory in (self.state / 'jobs').iterdir():
                 if directory.is_symlink() or not directory.is_dir() or not re.fullmatch(r'[0-9a-f]{32}', directory.name): continue

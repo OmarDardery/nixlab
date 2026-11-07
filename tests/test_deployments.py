@@ -37,6 +37,7 @@ class Fake:
                         'profile': OLD, 'active': OLD, 'type': 'container'}
         self.calls, self.fail_transfer, self.fail_activation = [], False, False
         self.good, self.reboot_needed, self.interrupt = True, False, False
+        self.fail_rollback = False
 
     def inspect(self): return copy.deepcopy(self.current)
     def transfer(self, *roots, **kwargs):
@@ -49,6 +50,7 @@ class Fake:
     def activate(self, closure):
         self.calls.append(('activate', closure)); self.current['profile'] = closure
         if self.fail_activation and closure == NEW: raise gd.DeploymentError('activation failure')
+        if self.fail_rollback and closure == OLD: raise gd.DeploymentError('rollback failure')
         self.current['active'] = closure
     def reboot_required(self, current): return self.reboot_needed
     def reboot(self): self.calls.append(('reboot',)); self.reboot_needed = False
@@ -212,6 +214,48 @@ class JournalTests(unittest.TestCase):
         self.fakes['apps'].current.update(profile=NEW, active=NEW)
         self.queue(); self.assertEqual(self.manager.run(ID)['status'], 'healthy')
         self.assertFalse(any(call[0] == 'activate' for call in self.fakes['apps'].calls))
+
+    def test_probe_import_failure_on_already_current_guest_has_a_finite_budget(self):
+        self.targets['apps']['maxAttempts'] = 1; d.prepare(self.directory, self.targets)
+        self.fakes['apps'].current.update(profile=NEW, active=NEW)
+        self.fakes['apps'].fail_transfer = True
+        self.queue(); self.manager.run(ID)
+        self.queue(resume=True); report = self.manager.run(ID)
+        self.assertEqual(report['targets']['apps']['attempts'], 1)
+        self.assertIn('budget', report['targets']['apps']['error'])
+        self.assertFalse(any(call[0] == 'activate' for call in self.fakes['apps'].calls))
+
+    def test_failed_rollback_is_completed_before_retrying_forward(self):
+        self.fakes['apps'].fail_activation = self.fakes['apps'].fail_rollback = True
+        self.queue(); report = self.manager.run(ID)
+        self.assertEqual(report['targets']['apps']['phase'], 'rollback-failed')
+        self.fakes['apps'].fail_activation = self.fakes['apps'].fail_rollback = False
+        self.fakes['apps'].calls.clear()
+        self.queue(resume=True); report = self.manager.run(ID)
+        self.assertEqual(report['status'], 'healthy')
+        activations = [call for call in self.fakes['apps'].calls if call[0] == 'activate']
+        self.assertEqual(activations, [('activate', OLD), ('activate', NEW)])
+
+    def test_exhausted_interrupted_activation_restores_previous_generation(self):
+        self.queue()
+        record = self.report(); state = record['targets']['apps']
+        state.update(phase='activating', attempts=3, previousSystem=OLD, targetSystem=NEW)
+        rt.write_json(self.directory / 'deployment.json', record)
+        self.fakes['apps'].current['profile'] = NEW
+        report = self.manager.run(ID)
+        self.assertEqual(report['targets']['apps']['phase'], 'rolled-back')
+        self.assertEqual(self.fakes['apps'].current['profile'], OLD)
+        self.assertIn('budget', report['targets']['apps']['error'])
+
+    def test_mutation_lock_and_journal_exist_before_transfer(self):
+        original = self.fakes['apps'].transfer
+        def inspect_lock(*roots):
+            with self.assertRaises(rt.BusyError):
+                with rt.locked(blocking=False): pass
+            self.assertEqual(self.report()['targets']['apps']['phase'], 'transferring')
+            original(*roots)
+        self.fakes['apps'].transfer = inspect_lock
+        self.queue(); self.assertEqual(self.manager.run(ID)['status'], 'healthy')
 
 
 class ContractTests(unittest.TestCase):

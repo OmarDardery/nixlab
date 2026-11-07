@@ -270,8 +270,13 @@ class Deployments:
                 raise
             self.phase(directory, record, key, 'activated')
         else:
-            # The target/probe closure may already exist after an interrupted import.
-            transport.transfer(spec['probe'])
+            # An already-current guest still needs the reviewed probe imported.
+            if state['phase'] in ('pending', 'failed', 'blocked', 'transferring-probe'):
+                if state['attempts'] >= spec['maxAttempts']: raise DeploymentError('Retry budget exhausted while importing the guest health probe')
+                self.phase(directory, record, key, 'transferring-probe', attempts=state['attempts'] + 1,
+                           previousSystem=state.get('previousSystem', current['profile']), targetSystem=spec['system'])
+                transport.transfer(spec['probe'])
+                self.phase(directory, record, key, 'transferred')
         try:
             current = self.verify(transport, state, spec)
             if current['active'] != spec['system']: raise DeploymentError('Guest activation did not reach its target generation')
