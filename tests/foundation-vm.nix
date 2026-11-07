@@ -45,7 +45,7 @@ in pkgs.testers.runNixOSTest {
   name = "nixlab-host-foundation";
   globalTimeout = 900;
   node.specialArgs = { inherit site; appImage = null; installedNetworking.networkManager = false; };
-  nodes.host = { ... }: {
+  nodes.host = { config, ... }: {
     imports = [ ../modules/storage.nix ../modules/networking.nix ../modules/incus.nix ../modules/instance-schema.nix ];
     virtualisation = { memorySize = 2048; diskSize = 4096; };
     networking.hostName = "foundation-test";
@@ -53,6 +53,10 @@ in pkgs.testers.runNixOSTest {
     # This fixture exercises real containers; it makes no KVM/VM-guest claim.
     systemd.services.nixlab-kvm-check = { serviceConfig.Type = "oneshot"; script = "true"; };
     environment.systemPackages = [ pkgs.python3 pkgs.incus-lts.client pkgs.util-linux ];
+    environment.etc."nixlab-impact-fixture.json".text = builtins.toJSON {
+      settings = site; disks = { }; instances = [ ];
+      preseed = config.virtualisation.incus.preseed;
+    };
   };
   nodes.client = { ... }: {
     networking.interfaces.eth1.ipv4.addresses = [ { address = "192.0.2.11"; prefixLength = 24; } ];
@@ -80,6 +84,10 @@ in pkgs.testers.runNixOSTest {
     host.succeed("systemctl restart incus-preseed.service nixlab-instances.service")
     assert host.succeed("incus config get native limits.cpu --project lab").strip() == "1"
     assert host.succeed("incus profile get native-profile user.example --project lab").strip() == "native"
+
+    host.succeed("incus init fixture impact-peer --project lab --profile base")
+    host.succeed("PYTHONPATH=${../admin}:${../scripts} python3 ${./impact-integration.py}")
+    host.succeed("incus delete impact-peer --project lab")
 
     # Synthetic mknod does not produce a USB uevent. Exercise explicit Incus
     # attachment/removal across restarts; physical hotplug is a hardware trial.

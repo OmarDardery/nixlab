@@ -38,7 +38,9 @@ let
     text = ''PYTHONPATH=${../scripts} exec python3 ${../scripts/reconcile.py} ${desired}'';
   };
 in {
+  nixlab.incus.desiredInstances = instances;
   environment.etc."nixlab/desired-instances.json".source = desired;
+  environment.etc."nixlab/owned-infrastructure.json".text = builtins.toJSON config.virtualisation.incus.preseed;
   virtualisation.incus = {
     enable = true;
     ui.enable = true;

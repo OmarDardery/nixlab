@@ -49,6 +49,11 @@ def main():
                     if endpoint == 'review':
                         status['job'] = {'id': 'a'*32, 'status': 'building', 'settings': copy.deepcopy(body['settings']),
                                          'changes': [], 'moduleChanges': [], 'secretChanges': [], 'log': ''}
+                    if endpoint == 'apply':
+                        status['job']['impactPlan']['blocked'] = True
+                        status['job']['impactPlan']['refreshedAfterDrift'] = True
+                        route.fulfill(status=400, json={'error': 'Runtime changed since review; inspect the refreshed plan'})
+                        return
                     response = {'csrf': 'example', 'username': 'admin', 'role': 'admin'} if endpoint == 'login' else {'id': 'a'*32}
                 else:
                     response = {'session': {'csrf': 'example', 'username': 'admin', 'role': 'admin'},
@@ -107,6 +112,23 @@ def main():
             assert request['secrets']['portainerPassword'] == 'test-portainer-password'
             assert request['settings']['connectivity']['bridges'][0]['interfaces'] == ['eth0']
             assert request['settings']['hardware']['serialAliases'][0]['serial'] == 'EXAMPLE'
+            status['job'].update(status='ready', impactPlan={
+                'format': 1, 'blocked': True, 'runtimeState': 'observed', 'preconditionCount': 3,
+                'changes': [{'scope': 'profile', 'identity': 'profiles:lab/base', 'kind': 'migration-required',
+                             'message': 'Review shared storage', 'fields': ['devices.root.pool'],
+                             'affected': ['lab/web', 'lab/dns'], 'blocked': True, 'resolution': 'Migrate consumers first'}],
+                'ownership': [{'identity': 'instance:lab/web', 'owner': 'Incus', 'fields': [], 'consumers': []}],
+                'boundaries': ['OS rollback does not restore guest data']})
+            page.evaluate('(value) => { state.status=value; shell(); }', status)
+            page.get_by_role('heading', name='Change impact', exact=True).wait_for()
+            assert page.get_by_text('Affects: lab/web, lab/dns', exact=True).is_visible()
+            assert page.get_by_role('button', name='Activate reviewed generation', exact=True).is_disabled()
+            status['job']['impactPlan']['blocked'] = False
+            page.evaluate('(value) => { state.status=value; shell(); }', status)
+            page.get_by_role('button', name='Activate reviewed generation', exact=True).click()
+            page.get_by_text('Runtime changed since review. This plan was refreshed; review it again before activation.', exact=True).wait_for()
+            assert page.get_by_role('button', name='Activate reviewed generation', exact=True).is_disabled()
+            page.screenshot(path=str(args.output / 'impact-review.png'), full_page=True)
             page.evaluate("state.principal.role='viewer';state.page='hardware';shell()")
             assert page.locator('[data-serial-pick]').is_disabled()
             assert page.locator('[data-record-add="hardware.serialAliases"]').is_disabled()

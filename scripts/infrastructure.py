@@ -36,10 +36,11 @@ def stable(value):
             for key, item in value.items() if key in ('config', 'devices', 'driver', 'type', 'description')}
 
 
-def check(preseed, state=STATE):
-    previous = json.loads(state.read_text()) if state.is_file() else {'objects': {}, 'declarations': {}}
+def conflicts(preseed, previous, observed):
+    """Pure drift decisions shared by activation and the change-impact preview."""
+    result = []
     for identity, path, declaration in objects(preseed):
-        current = query(path, missing_ok=True)
+        current = observed.get(identity)
         if identity not in previous['objects']:
             if current is None: continue
             actual = stable(current)
@@ -61,8 +62,17 @@ def check(preseed, state=STATE):
                 else: expected[key] = wanted
             if actual == expected: continue
         if current is not None or identity in previous['objects']:
-            raise ValueError('Incus drift in source-owned infrastructure: ' + identity
-                             + '. Restore the declared object in Incus or review its Nix declaration; refusing to reset native edits.')
+            result.append(identity)
+    return result
+
+
+def check(preseed, state=STATE):
+    previous = json.loads(state.read_text()) if state.is_file() else {'objects': {}, 'declarations': {}}
+    observed = {identity: query(path, missing_ok=True) for identity, path, _ in objects(preseed)}
+    drift = conflicts(preseed, previous, observed)
+    if drift:
+        raise ValueError('Incus drift in source-owned infrastructure: ' + drift[0]
+                         + '. Restore the declared object in Incus or review its Nix declaration; refusing to reset native edits.')
 
 
 def record(preseed, state=STATE):

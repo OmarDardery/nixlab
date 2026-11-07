@@ -124,6 +124,9 @@ class ModuleUploadTests(unittest.TestCase):
                 if args[0] == 'git': return original_run(args, **kwargs)
                 return subprocess.CompletedProcess(args,0,stdout='{}')
             with patch.object(rt,'ROOT',root),patch.object(rt,'STATE',state),patch.object(rt,'SECRET_PATHS',{}),patch('worker.subprocess.run',side_effect=fake_run),patch('diagnostics.wait_ready', return_value={'ok': True}),patch('worker.run') as run:
+                import impact
+                projection = {'settings': cfg, 'disks': {}, 'preseed': {}, 'instances': []}
+                impact.prepare(directory, projection, projection)
                 worker.apply(directory)
             self.assertTrue((root/'site-modules/archive.nix').exists())
             commands=[call.args[0] for call in run.call_args_list]
