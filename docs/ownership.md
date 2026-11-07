@@ -53,7 +53,7 @@ Example effects on an observed lab:
 | Proposed change | Affected resources | Plan result |
 |---|---|---|
 | Source-owned `lab/base` profile changes `limits.cpu` from 2 to 4 | `lab/web`, `lab/dns`, including native guests using that profile | Possible restart/live resource change; both consumers listed |
-| Remap the UUID backing `/srv/nixlab/ssd` | Pool `guests` and its guest consumers | Migration required; activation blocked |
+| Remap the UUID backing `/srv/nixlab/ssd` | Pool `guests`, its guests, Incus/instance services and enabled backup service | Migration required; activation blocked |
 | Native Incus edit conflicts with a recorded declared field | Named profile, pool, network or declared guest | Ownership conflict; resolution instructions shown |
 | Remove a guest declaration | Existing guest and disks | Retained; no deletion |
 

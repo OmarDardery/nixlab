@@ -294,15 +294,24 @@ def make_plan(before, after, snapshot, unit_changes=None, opaque=False, transiti
         fields = changed_fields(a, b)
         if not fields: continue
         path = a.get('path', '')
+        def on_mount(source):
+            return bool(path) and (source == path or source.startswith(path.rstrip('/') + '/'))
         pools = [key for key, value in {**snapshot['resources'], **{k: v['value'] or {} for k, v in snapshot['objects'].items()}}.items()
-                 if key.startswith('storage_pools:') and path and value.get('config', {}).get('source', '').startswith(path.rstrip('/') + '/')]
+                 if key.startswith('storage_pools:') and on_mount(value.get('config', {}).get('source', ''))]
         affected = set(pools)
         for pool in pools: affected.update(consumers(pool, snapshot))
         for identity, guest in guests.items():
-            if path and any(d.get('source', '').startswith(path.rstrip('/') + '/') or d.get('source') == path for d in guest.get('expanded_devices', guest.get('devices', {})).values()):
+            if any(on_mount(d.get('source', '')) for d in guest.get('expanded_devices', guest.get('devices', {})).values()):
                 affected.add(identity)
         critical = bool(a and (affected or a.get('role') in ('guests', 'pool') or name in before.get('disks', {})))
         critical &= any(f in ('uuid', 'path', 'fsType', 'role') for f in fields)
+        # Direct dependencies from modules/mounts.nix plus services requiring Incus.
+        if a.get('required'): affected.add('nixlab-storage.target')
+        incus_mount = bool(pools) or a.get('role') in ('guests', 'pool')
+        if incus_mount: affected.update(('incus.service', 'incus-preseed.service', 'nixlab-instances.service'))
+        backup = before['settings'].get('backup', {})
+        if backup.get('enable') and (incus_mount or a.get('role') == 'backup' or on_mount(backup.get('stagingDirectory', ''))):
+            affected.add('restic-backups-nixlab.service')
         add('mount', name, 'migration-required' if critical else 'restart-required',
             'Backing filesystem changes require reviewing dependent pools, guests and backup services.', sorted(affected), fields,
             resolution='Move dependent data/consumers before remapping or removing this filesystem.' if critical else None)

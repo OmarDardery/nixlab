@@ -70,16 +70,24 @@ class PlanningTests(unittest.TestCase):
         self.assertNotIn('DO-NOT-EXPORT', json.dumps(plan))
 
     def test_backing_mount_change_blocks_dependents(self):
-        before, after, runtime = projection(), projection(), snapshot()
-        mount = {'name': 'ssd', 'uuid': 'old-uuid', 'path': '/srv/nixlab/ssd', 'fsType': 'ext4', 'role': 'guests'}
-        before['settings']['mounts'] = [mount]
-        after['settings']['mounts'] = [dict(mount, uuid='new-uuid')]
-        plan = impact.make_plan(before, after, runtime)
-        row = next(c for c in plan['changes'] if c['scope'] == 'mount')
-        self.assertTrue(row['blocked'])
-        self.assertEqual(row['kind'], 'migration-required')
-        self.assertTrue({POOL, 'lab/one', 'lab/two'}.issubset(row['affected']))
-        self.assertNotIn('old-uuid', json.dumps(plan))
+        for source in ('/srv/nixlab/ssd/incus', '/srv/nixlab/ssd'):
+            with self.subTest(source=source):
+                before, after, runtime = projection(), projection(), snapshot()
+                for value in (before['preseed']['storage_pools'][0], after['preseed']['storage_pools'][0],
+                              runtime['objects'][POOL]['value'], runtime['resources'][POOL],
+                              runtime['owned']['objects'][POOL], runtime['owned']['declarations'][POOL]):
+                    value['config']['source'] = source
+                mount = {'name': 'ssd', 'uuid': 'old-uuid', 'path': '/srv/nixlab/ssd', 'fsType': 'ext4', 'role': 'guests', 'required': True}
+                before['settings']['mounts'] = [mount]
+                before['settings']['backup']['enable'] = True
+                after['settings']['mounts'] = [dict(mount, uuid='new-uuid')]
+                plan = impact.make_plan(before, after, runtime)
+                row = next(c for c in plan['changes'] if c['scope'] == 'mount')
+                self.assertTrue(row['blocked'])
+                self.assertEqual(row['kind'], 'migration-required')
+                self.assertTrue({POOL, 'lab/one', 'lab/two', 'incus.service', 'incus-preseed.service',
+                                 'nixlab-instances.service', 'restic-backups-nixlab.service', 'nixlab-storage.target'}.issubset(row['affected']))
+                self.assertNotIn('old-uuid', json.dumps(plan))
 
     def test_backing_pool_or_profile_device_remap_requires_migration(self):
         for kind in ('pool', 'device'):
