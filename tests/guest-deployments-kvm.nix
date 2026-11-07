@@ -58,15 +58,21 @@ in pkgs.testers.runNixOSTest {
     };
   };
   testScript = ''
+    def diagnose_apps():
+        for command in (
+            "journalctl --no-pager -n 80 -u incus-preseed.service -u nixlab-instances.service",
+            "timeout 20s incus console apps --project lab --show-log",
+            "find /var/log/incus -maxdepth 2 -type f -name '*.log' -exec tail -n 60 {} +",
+            "free -m",
+            "ps -eo pid,ppid,stat,wchan:24,args --sort=-pcpu | head -n 25",
+        ):
+            host.log(host.execute(command)[1])
+
     host.start()
     try:
         host.wait_for_unit("nixlab-instances.service", timeout=300)
     except Exception:
-        host.log(host.execute("journalctl --no-pager -n 100 -u nixlab-instances.service")[1])
-        host.log(host.execute("timeout 20s incus console apps --project lab --show-log")[1])
-        host.log(host.execute("timeout 20s incus query '/1.0/operations?recursion=1'")[1])
-        host.log(host.execute("free -m")[1])
-        host.log(host.execute("ps -eo pid,ppid,stat,wchan:24,args --sort=-pcpu | head -n 25")[1])
+        diagnose_apps()
         raise
     assert host.succeed("systemctl show nixlab-kvm-check.service --property=Result --value").strip() == "success"
     assert host.succeed("systemctl show nixlab-kvm-check.service --property=ExecMainStatus --value").strip() == "0"
@@ -74,7 +80,7 @@ in pkgs.testers.runNixOSTest {
     try:
         host.wait_until_succeeds("timeout --kill-after=5s 15s incus exec apps --project lab --mode=non-interactive --disable-stdin -- test -e /etc/NIXOS", timeout=300)
     except Exception:
-        host.log(host.execute("timeout 20s incus console apps --project lab --show-log")[1])
+        diagnose_apps()
         raise
     host.wait_until_succeeds("timeout --kill-after=5s 15s incus exec worker --project lab --mode=non-interactive --disable-stdin -- systemctl is-active multi-user.target", timeout=180)
     host.succeed("PYTHONPATH=${../admin}:${../scripts} NIXLAB_STATE=/var/lib/nixlab-deployment-test python3 ${./guest-deployments-kvm-fixture.py}", timeout=600)
