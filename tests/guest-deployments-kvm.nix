@@ -54,6 +54,10 @@ in pkgs.testers.runNixOSTest {
     # The normal reconciler still applies its settings and starts it; rollout
     # preparation happens later, after these initial settings are settled.
     systemd.services.nixlab-instances.preStart = lib.mkAfter ''
+      # Finish container extraction before starting the nested VM. This keeps
+      # firmware boot qualification independent of parallel provisioning I/O.
+      incus --force-local init local:rollout-worker worker --project lab --profile base \
+        --config user.nixlab.managed=true --config user.nixlab.initializing=true
       incus --force-local init local:nixlab-apps apps --vm --project lab --profile base \
         --config user.nixlab.managed=true --config user.nixlab.initializing=true \
         --config "raw.qemu=-qmp unix:/tmp/nixlab-apps-debug.qmp,server=on,wait=off"
