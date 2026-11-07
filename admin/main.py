@@ -412,6 +412,7 @@ def config_cli(argv):
     parser = argparse.ArgumentParser(prog='nixlab-admin config')
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('status')
+    commands.add_parser('plan')
     commands.add_parser('migrate-layout')
     review = commands.add_parser('review')
     review.add_argument('--module', action='append', default=[], metavar='NAME=FILE')
@@ -423,8 +424,11 @@ def config_cli(argv):
     args = parser.parse_args(argv)
     if args.command == 'migrate-layout':
         result = rt.migrate_idle_layout(rt.ROOT, rt.STATE)
-    elif args.command == 'status':
+    elif args.command in ('status', 'plan'):
         result = broker_request('GET', '/status')
+        if args.command == 'plan':
+            result = (result.get('job') or {}).get('impactPlan')
+            if result is None: raise ValueError('Build a new review to generate an impact plan')
     elif args.command == 'review':
         modules = {}
         for item in args.module:
@@ -570,7 +574,10 @@ if __name__ == '__main__':
         import recovery
         recovery.backup(Path(sys.argv[2]))
     elif action == 'config' and os.geteuid() == 0:
-        config_cli(sys.argv[2:])
+        try:
+            config_cli(sys.argv[2:])
+        except (ValueError, OSError) as exc:
+            sys.exit(str(exc))
     elif action == 'prune-jobs' and os.geteuid() == 0:
         import argparse
         from controller import Manager

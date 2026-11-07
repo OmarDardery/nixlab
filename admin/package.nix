@@ -7,6 +7,7 @@ let
     cp ${../scripts/preflight.py} $out/preflight.py
     cp ${../scripts/backup.py} $out/backup.py
     cp ${../scripts/reconcile.py} $out/reconcile.py
+    cp ${../scripts/infrastructure.py} $out/infrastructure.py
     cp ${../scripts/locking.py} $out/locking.py
     cp ${../scripts/foundation.py} $out/foundation.py
     cp ${../scripts/backup_health.py} $out/backup_health.py

@@ -114,7 +114,7 @@ explicitly describe the FORWARD-policy conflict. Neither firewall nor Docker's r
 | Reserved projects, profiles, pools, bridge and server bind address | Native `virtualisation.incus.preseed`; source-named infrastructure is checked for native drift before applying; omitted resources are never removed |
 | Named instance desired state | Ownership-aware reconciler; compares before updating; refuses unowned name collisions or type changes; never deletes |
 | Instance image creation | Nix-built apps VM image imported automatically; image alias updates do not replace disks |
-| Config/device overlays | Declared keys overwrite matching keys; other keys survive. Removing an overlay key does not remove its previous Incus value; remove explicitly after review |
+| Config/device overlays | Three-way last-applied tracking removes previously managed keys when runtime has not diverged; unowned keys survive. Whole-device removal/backing changes require migration |
 | Profiles on owned instances | Authoritative ordered list; changes may affect live guests |
 | Guest processes, disks, snapshots, custom volumes, UI-created instances | Mutable Incus runtime state; exports/backup required |
 | Portainer users, endpoints, stacks, Git credentials | Mutable `/srv/portainer` state; bootstrap admin secret is used only on first creation |

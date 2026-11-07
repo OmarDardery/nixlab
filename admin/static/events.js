@@ -248,6 +248,10 @@ async function action(name, el) {
       return;
     }
   } catch (err) {
+    if (name === "apply") {
+      // The broker may have refreshed a stale runtime plan while rejecting apply.
+      try { state.status = await api("status"); shell(); } catch (_) {}
+    }
     toast(err.message);
   } finally {
     if (el.isConnected) el.disabled = false;

@@ -1,5 +1,14 @@
 "use strict";
 
+function impactReview() {
+  const plan = state.status.job?.impactPlan;
+  if (!plan) return state.status.job?.status === "ready"
+    ? card("Change impact", '<p>An older candidate has no impact plan. Build a new review before activation.</p>') : "";
+  const rows = plan.changes.map(item => `<tr><td><code>${esc(item.identity)}</code><br><small>${esc(item.scope)}</small></td><td>${esc(item.kind)}${item.blocked ? ' · blocked' : ''}</td><td>${esc(item.message)}${item.fields.length ? `<p><small>Fields: ${esc(item.fields.join(", "))}</small></p>` : ""}${item.affected.length ? `<p><small>Affects: ${esc(item.affected.join(", "))}</small></p>` : ""}${item.resolution ? `<p>${esc(item.resolution)}</p>` : ""}</td></tr>`).join("");
+  const owners = plan.ownership.map(item => `<tr><td><code>${esc(item.identity)}</code></td><td>${esc(item.owner)}</td><td>${esc(item.fields.join(", ") || "Native/external configuration")}${item.consumers.length ? `<br><small>Consumers: ${esc(item.consumers.join(", "))}</small>` : ""}</td></tr>`).join("");
+  return card("Change impact", `<p>${plan.blocked ? "Resolve the blocking changes before activation." : "Review affected resources and activation output before applying."} Runtime: ${esc(plan.runtimeState)} · ${esc(plan.preconditionCount)} observed preconditions.</p>${plan.refreshedAfterDrift ? '<p class="error">Runtime changed since review. This plan was refreshed; review it again before activation.</p>' : ""}${state.status.job.rebootRequired ? '<p class="note">The candidate requires a host reboot.</p>' : ""}<div class="table-scroll"><table><thead><tr><th>Resource</th><th>Change</th><th>Impact & resolution</th></tr></thead><tbody>${rows || '<tr><td colspan="3">No modeled resource changes.</td></tr>'}</tbody></table></div><details><summary>Who owns what</summary><div class="table-scroll"><table><thead><tr><th>Resource</th><th>Owner</th><th>Fields & consumers</th></tr></thead><tbody>${owners}</tbody></table></div></details>${plan.boundaries.map(value => `<p class="note">${esc(value)}</p>`).join("")}<p><a href="/docs/ownership.md">Ownership and review boundaries →</a></p>`);
+}
+
 function hostOverview() {
   const s = state.status.effectiveSettings || state.status.settings;
   const health = operationView.health;

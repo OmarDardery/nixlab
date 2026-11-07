@@ -181,16 +181,8 @@ class Manager:
                 raise ValueError('Provide the tunnel-specific credentials JSON')
             initialized = Path('/var/lib/incus/database').exists()
             runtime_settings = previous['settings'] if initialized and not current['ready'] and active.get('id') and previous.get('previousSystem') else current
-            owned = current['ready'] or (active.get('id') and previous.get('previousSystem'))
-            if initialized and owned and candidate['storage'] != runtime_settings['storage']:
-                raise ValueError('Incus storage is initialized; migrate pools before changing their source/driver')
-            if initialized and owned and (candidate['guests'] != runtime_settings['guests']):
-                raise ValueError('Existing guest address space requires an explicit migration, not a live setup edit')
-            if initialized:
-                old = {m['name']: m for m in runtime_settings['mounts'] if m['role'] in ('guests', 'pool')}
-                new = {m['name']: m for m in candidate['mounts'] if m['role'] in ('guests', 'pool')}
-                if any(new.get(k) != v for k, v in old.items()):
-                    raise ValueError('Do not remove/remap an initialized Incus storage mount; migrate its pool first')
+            # Valid migration proposals can be built and explained, but the
+            # evaluated impact gate must refuse them before any activation.
             # Detect overlaps with real host routes, ignoring the bridge we own and the default route.
             guest_net = __import__('ipaddress').ip_network(candidate['guests']['cidr'])
             for route in inventory()['routes']:
@@ -205,6 +197,9 @@ class Manager:
                 rt.atomic(rt.machine_path(directory / 'source', 'modules') / name, content, mode=0o644)
             rt.write_json(rt.machine_path(directory / 'source', 'settings'), candidate)
             rt.write_json(directory / 'secrets.json', encoded)
+            import impact
+            before = self.effective_settings() if current['ready'] else runtime_settings
+            rt.write_json(directory / 'impact-base.json', impact.baseline(before))
             job = {'id': job_id, 'status': 'building', 'created': time.time(), 'baseDigest': rt.digest_source(self.root),
                    'settings': candidate, 'changes': differences(current, candidate), 'principal': principal,
                    'moduleChanges': [{'path': name, 'before': (rt.machine_path(self.root, 'modules') / name).read_text() if (rt.machine_path(self.root, 'modules') / name).exists() else None, 'after': content} for name, content in modules.items()],
@@ -238,6 +233,9 @@ class Manager:
                 raise ValueError('Source/settings changed since review; build a new transaction')
             if job.get('candidateDigest') != rt.digest_source(directory / 'source'):
                 raise ValueError('Reviewed snapshot changed; refusing activation')
+            import impact
+            impact.recheck(directory)
+            job = rt.read_json(directory / 'job.json')
             job['status'] = 'applying'; job['appliedAt'] = time.time()
             rt.write_json(directory / 'job.json', job)
             try:
