@@ -66,6 +66,7 @@ def baseline(settings):
             preseed.setdefault(kind, []).append(item)
     return {'settings': settings, 'hostSystem': str(Path('/run/current-system').resolve()),
             'hostSettingsDigest': digest(rt.read_json(Path('/etc/nixlab/effective-settings.json'), {})),
+            'expectedIncus': bool(rt.read_json(Path('/etc/nixlab/effective-settings.json'), {}).get('ready')),
             'disks': rt.read_json(Path('/etc/nixlab/effective-disks.json'), {}),
             'instances': rt.read_json(Path('/etc/nixlab/desired-instances.json'), []), 'preseed': preseed}
 
@@ -77,8 +78,15 @@ def api(path, deadline, missing=False):
     try:
         connection.request('GET', path)
         response = connection.getresponse()
-        data = response.read(MAX_BYTES + 1)
-        if len(data) > MAX_BYTES: raise ValueError('Inventory exceeds size limit')
+        data = bytearray()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0: raise ValueError('Inventory deadline exceeded')
+            if connection.sock is not None: connection.sock.settimeout(min(5, remaining))
+            chunk = response.read1(min(65536, MAX_BYTES + 1 - len(data)))
+            if not chunk: break
+            data.extend(chunk)
+            if len(data) > MAX_BYTES: raise ValueError('Inventory exceeds size limit')
         if response.status == 404 and missing: return None, None
         if response.status != 200: raise ValueError('Incus inventory unavailable')
         payload = json.loads(data)
@@ -208,6 +216,9 @@ def make_plan(before, after, snapshot, unit_changes=None, opaque=False, transiti
     if snapshot['state'] == 'unavailable':
         add('runtime', 'incus', 'unknown', 'Runtime inventory is incomplete or unavailable.', blocked=True,
             resolution='Restore local Incus access and build a new review; an empty inventory is not assumed.')
+    if snapshot['state'] == 'absent' and before.get('expectedIncus', before['settings'].get('ready', False)):
+        add('runtime', 'missing-incus-state', 'unknown', 'This host previously expected Incus, but its database/socket are absent.', blocked=True,
+            resolution='Check backing storage and recover Incus state. Do not initialize empty replacement guests as a recovery shortcut.')
     if original_host and any(snapshot[k] != original_host[k] for k in ('system', 'settingsDigest', 'state')):
         add('host', 'active-generation', 'unknown', 'The active host generation, settings or Incus availability changed.', blocked=True,
             resolution='Build a new candidate against the active host.')
@@ -318,6 +329,7 @@ def make_plan(before, after, snapshot, unit_changes=None, opaque=False, transiti
 
 
 def save(directory, bundle, plan):
+    if len((json.dumps(bundle, indent=2, sort_keys=True) + '\n').encode()) > 8 * MAX_BYTES: raise ValueError('Impact inventory exceeds size limit')
     rt.write_json(directory / 'impact.json', bundle)
     job = rt.read_json(directory / 'job.json')
     job.update(impactPlan=plan, impactDigest=digest(bundle))

@@ -135,6 +135,14 @@ class PlanningTests(unittest.TestCase):
         self.assertTrue(plan['blocked'])
         self.assertTrue(any(c['kind'] == 'unknown' and c['blocked'] for c in plan['changes']))
 
+    def test_lost_database_is_not_treated_as_a_fresh_install(self):
+        before, after, runtime = projection(), projection(), snapshot()
+        runtime.update(state='absent', guests=[], objects={}, resources={}, owned={'objects': {}, 'declarations': {}})
+        self.assertTrue(impact.make_plan(before, after, runtime)['blocked'])
+        before['expectedIncus'] = False
+        before['settings']['ready'] = False
+        self.assertFalse(impact.make_plan(before, after, runtime)['blocked'])
+
     def test_opaque_code_has_explicit_unknown_effects(self):
         plan = impact.make_plan(projection(), projection(), snapshot(), opaque=True)
         self.assertTrue(any(c['kind'] == 'unknown' for c in plan['changes']))
@@ -238,7 +246,7 @@ class RevalidationTests(unittest.TestCase):
 class ObservationTests(unittest.TestCase):
     def test_api_is_get_only_and_rejects_oversized_responses(self):
         conn = Mock(); conn.getresponse.return_value.status = 200
-        conn.getresponse.return_value.read.return_value = b'x' * (impact.MAX_BYTES + 1)
+        conn.getresponse.return_value.read1.return_value = b'x' * (impact.MAX_BYTES + 1)
         with patch.object(reconcile, 'LocalConnection', return_value=conn):
             with self.assertRaisesRegex(ValueError, 'size limit'): impact.api('/1.0', time.monotonic() + 10)
         self.assertEqual(conn.request.call_args.args, ('GET', '/1.0'))
