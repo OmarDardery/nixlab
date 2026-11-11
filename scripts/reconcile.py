@@ -140,10 +140,12 @@ def reconcile(spec):
             raise ValueError(f"Invalid {k}")
     project, name = spec["project"], spec["name"]
     # List is checked first: an API/permission error is never mistaken for absence.
-    existing = json.loads(run("list", "--project", project, "--format=json"))
+    # Default columns request live VM agent state. Provisioning only needs names
+    # and power states and must not wait for another guest's agent to boot.
+    existing = json.loads(run("list", "--project", project, "--columns=ns", "--format=json"))
     found = next((i for i in existing if i["name"] == name), None)
     if found is None and spec.get("manageExistingOnly"):
-        print(f"absent {project}/{name}; no VM created")
+        print(f"absent {project}/{name}; no VM created", flush=True)
         return
     if found is None:
         args = ["init", spec["image"], name, "--project", project,
@@ -158,15 +160,15 @@ def reconcile(spec):
         run(*args)
     current, etag = read_instance(project, name)
     if spec.get("manageExistingOnly") and current.get("config", {}).get(OWNER) != "true":
-        print(f"unowned {project}/{name}; left untouched")
+        print(f"unowned {project}/{name}; left untouched", flush=True)
         return
     update = plan(current, spec)
     if update is not None:
         write_instance(project, name, update, etag)
-        print(f"updated {project}/{name}")
+        print(f"updated {project}/{name}", flush=True)
     else:
-        print(f"unchanged {project}/{name}")
-    state = json.loads(run("list", "--project", project, "--format=json"))
+        print(f"unchanged {project}/{name}", flush=True)
+    state = json.loads(run("list", "--project", project, "--columns=ns", "--format=json"))
     status = next(i["status"] for i in state if i["name"] == name)
     if spec.get("stop", False) and status == "Running":
         run("stop", name, "--project", project, "--timeout", "120")

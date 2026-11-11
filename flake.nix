@@ -173,6 +173,7 @@
         management = import ./tests/management-vm.nix { inherit pkgs; };
         portal = import ./tests/portal-vm.nix { inherit pkgs; };
         foundation = import ./tests/foundation-vm.nix { inherit pkgs; };
+        guest-deployments = import ./tests/guest-deployments-vm.nix { inherit pkgs; };
         host = self.nixosConfigurations.validation-host.config.system.build.toplevel;
         apps = testApps.config.system.build.toplevel;
         helpers = self.packages.x86_64-linux.homelab;

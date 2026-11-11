@@ -50,6 +50,9 @@ class Manager:
                 stream.seek(max(0, log.stat().st_size - 65536))
                 job['log'] = stream.read(65536).decode(errors='replace')
         else: job['log'] = ''
+        if job.get('guestPlan'):
+            from deployments import Deployments
+            job['guestDeployment'] = Deployments(self.root, self.state).status(job_id)
         # Credentials never enter this metadata or its log.
         return job
 
@@ -59,7 +62,7 @@ class Manager:
             raise ValueError('Keep between 1 and 1000 recent jobs')
         with rt.locked(blocking=False):
             protected = {rt.read_json(self.state / name, {}).get('id')
-                         for name in ('active.json', 'pending.json', 'last-confirmed.json')}
+                         for name in ('active.json', 'pending.json', 'last-confirmed.json', 'deployment-active.json')}
             jobs = []
             for directory in (self.state / 'jobs').iterdir():
                 if directory.is_symlink() or not directory.is_dir() or not re.fullmatch(r'[0-9a-f]{32}', directory.name): continue
@@ -132,6 +135,8 @@ class Manager:
 
     def review(self, changes, secret_values=None, update_inputs=False, modules=None, revision=None, principal='root'):
         with rt.locked(blocking=False):
+            from deployments import check_idle
+            check_idle(self.state)
             if revision is not None and (not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{40}', revision)):
                 raise ValueError('Specify the full reviewed platform commit SHA')
             modules = rt.validate_modules({} if modules is None else modules)
@@ -223,6 +228,8 @@ class Manager:
 
     def apply(self, job_id):
         with rt.locked(blocking=False):
+            from deployments import check_idle
+            check_idle(self.state)
             directory = self.job_path(job_id)
             job = rt.read_json(directory / 'job.json')
             if rt.read_json(self.state / 'active.json', {}).get('id') != job_id:
@@ -274,6 +281,8 @@ class Manager:
 
     def rollback(self, job_id):
         with rt.locked(blocking=False):
+            from deployments import check_idle
+            check_idle(self.state)
             job = self.job(job_id)
             if job['status'] not in ('awaiting-confirmation', 'confirmed', 'failed') or not job.get('previousSystem'):
                 raise ValueError('This transaction has no recoverable previous generation')

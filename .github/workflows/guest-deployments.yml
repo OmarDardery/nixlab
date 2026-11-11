@@ -1,0 +1,82 @@
+name: Real apps guest deployment
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'admin/deployments.py'
+      - 'scripts/guest_deploy.py'
+      - 'modules/deployments.nix'
+      - 'tests/guest-deployments*'
+      - 'tests/test_deployments.py'
+      - 'tests/guest-vm-diagnostics.py'
+      - '.github/workflows/guest-deployments.yml'
+permissions:
+  contents: read
+jobs:
+  apps-rollout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - id: check
+        shell: bash
+        run: |
+          nested=false
+          vendor=intel
+          if grep -q AuthenticAMD /proc/cpuinfo; then vendor=amd; fi
+          if test -c /dev/kvm && grep -Eq 'vmx|svm' /proc/cpuinfo; then
+            for setting in /sys/module/kvm_intel/parameters/nested /sys/module/kvm_amd/parameters/nested; do
+              if test -r "$setting" && grep -Eq '^(Y|1)$' "$setting"; then nested=true; fi
+            done
+          fi
+          echo "nested=$nested" >> "$GITHUB_OUTPUT"
+          echo "vendor=$vendor" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Real apps-VM qualification environment"
+            echo "- CPU vendor: $vendor"
+            echo "- CPU model: $(sed -n 's/^model name[[:space:]]*:[[:space:]]*//p' /proc/cpuinfo | head -n 1)"
+            echo "- Host kernel: $(uname -r)"
+            echo "- Nested KVM available: $nested"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if test "$nested" != true; then
+            echo '::error::Nested KVM unavailable; real apps-VM deployment is NOT qualified on this runner.'
+            exit 1
+          fi
+      - if: steps.check.outputs.nested == 'true'
+        uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
+      - if: steps.check.outputs.nested == 'true'
+        name: Resolve and archive a real immutable Portainer image
+        shell: bash
+        run: |
+          image="$(nix eval --raw .#nixlabDefaults.apps.portainerImage)"
+          # Docker 29's containerd store identifies images by manifest digest,
+          # not the configuration hash used by the legacy image store. Keep the
+          # OCI manifest intact instead of regenerating it from a Docker archive.
+          nix shell --inputs-from . nixpkgs#skopeo --command skopeo --override-os linux --override-arch amd64 copy --format oci "docker://$image" "oci-archive:$RUNNER_TEMP/portainer.tar"
+          python3 - "$RUNNER_TEMP/portainer.tar" "$RUNNER_TEMP/portainer-image-id" <<'PY'
+          import hashlib, json, sys, tarfile
+          with tarfile.open(sys.argv[1]) as archive:
+              index=json.load(archive.extractfile('index.json'))
+              assert len(index['manifests']) == 1
+              digest=index['manifests'][0]['digest']
+              assert digest.startswith('sha256:') and len(digest) == 71
+              content=archive.extractfile('blobs/sha256/' + digest[7:]).read()
+              assert digest == 'sha256:' + hashlib.sha256(content).hexdigest()
+              assert json.loads(content)['mediaType'] == 'application/vnd.oci.image.manifest.v1+json'
+          with open(sys.argv[2], 'w') as output:
+              output.write(digest)
+          PY
+      - if: steps.check.outputs.nested == 'true'
+        name: Update the real apps VM and second NixOS guest
+        env:
+          CPU_VENDOR: ${{ steps.check.outputs.vendor }}
+        shell: bash
+        run: |
+          nix build --impure --no-link -L --expr '
+            { portainerArchive, portainerImage, cpuVendor }:
+            let flake = builtins.getFlake (toString ./.);
+                pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; };
+            in import ./tests/guest-deployments-kvm.nix {
+              inherit pkgs portainerArchive portainerImage cpuVendor;
+              apps = flake.nixosConfigurations.validation-setup-apps;
+            }' --arg portainerArchive "$RUNNER_TEMP/portainer.tar" --argstr portainerImage "$(cat "$RUNNER_TEMP/portainer-image-id")" --argstr cpuVendor "$CPU_VENDOR"

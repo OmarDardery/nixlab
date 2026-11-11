@@ -166,6 +166,10 @@ networks and volumes. Nixlab supplies reviewed Ethernet bridges/VLANs, host
 firewall integration, stable USB serial prerequisites and recoverable host changes.
 The portal does not duplicate those guest editors.
 
+Opt-in [guest deployments](docs/guest-deployments.md) update existing source-owned
+NixOS guests in dependency order, with health gates and resumable journals. Host
+access confirmation and guest/application health remain separate.
+
 `nixlab-helpers` packages the upstream Community Scripts Incus wizard with both
 source repositories pinned. Run it from SSH/the console; the portal only links
 and reports compatibility. No application, including Klipper, is installed by
