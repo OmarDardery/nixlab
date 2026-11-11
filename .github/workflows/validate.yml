@@ -53,6 +53,7 @@ jobs:
               apps = flake.nixosConfigurations.validation-setup-apps;
               sopsModule = flake.inputs.sops-nix.nixosModules.sops;
               portainerArchive = pkgs.dockerTools.buildLayeredImage { name = "evaluation-only"; };
+              portainerImage = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
               cpuVendor = "intel";
               revision = "0000000000000000000000000000000000000000";
             }).drvPath'
