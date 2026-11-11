@@ -23,6 +23,11 @@ in {
       };
     }));
   };
+  options.nixlab.incus.desiredInstances = mkOption {
+    type = types.listOf types.attrs;
+    readOnly = true;
+    description = "Internal evaluated reconciliation input, shared with impact planning.";
+  };
   config.assertions = [
     { assertion = builtins.length identities == builtins.length (lib.unique identities);
       message = "Instance project/name identities must be unique across machine files and legacy inventory."; }

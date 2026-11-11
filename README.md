@@ -43,6 +43,9 @@ virtualization enabled in firmware.
 The portal handles host settings, reviewed file uploads and source upgrades, Ethernet/hardware prerequisites,
 independent backups/recovery, accounts and offline guides. Incus handles guest operations, consoles, networks and snapshots. Optional recipes
 include laptop lid policy, SMART health, private SSH access, monitoring and the applications VM.
+The Changes page previews affected services/guests and configuration ownership.
+`sudo nixlab-admin config plan` returns the same JSON; runtime drift refreshes the
+review before activation, and unresolved migrations/conflicts remain blocked.
 See the [ownership contract](docs/ownership.md), [helper integration](docs/helpers.md), [hardware support](docs/hardware.md) and [commissioning checklist](docs/commissioning.md).
 
 This is a single-host release candidate. CI gates include source tests, real NixOS portal/UNIX

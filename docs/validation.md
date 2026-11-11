@@ -22,7 +22,8 @@ The workflow runs these checks on every pull request:
   Incus/Portainer HTTPS backends are controlled fixtures in this test.
 - `checks.x86_64-linux.management`: Docker forwarding boundaries, including restart.
 - `checks.x86_64-linux.foundation`: real Incus containers, guest preservation,
-  network access, backup/export and isolated restore data integrity.
+  network access, shared-profile impact/ETag observation and drift refusal,
+  backup/export and isolated restore data integrity.
 - Complete host, apps guest disk/metadata, installer and administration tool builds.
 
 Run the lightweight source checks locally:

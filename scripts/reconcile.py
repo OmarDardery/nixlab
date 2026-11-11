@@ -92,7 +92,7 @@ def plan(current, spec):
 class LocalConnection(http.client.HTTPConnection):
     def connect(self):
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.settimeout(120)
+        self.sock.settimeout(self.timeout)
         self.sock.connect('/var/lib/incus/unix.socket')
 
 

@@ -25,7 +25,7 @@ The installer imports a conventional `/etc/nixos` installation, copies `.nix` fi
 
 ## Runtime and data
 
-Incus preseed configures reserved infrastructure. A drift guard refuses native edits to source-owned infrastructure; ordinary Incus objects remain native-owned. The instance reconciler refuses unowned instances and does not delete a guest whose declaration is removed. It merges declared config and devices into existing objects, so removed keys are not pruned; profiles are assigned from the declaration. Apps VM, Docker and Portainer are optional. Guest disks, databases, runtime Incus state and Portainer-only changes are mutable data, not recoverable from Nix configuration alone.
+Incus preseed configures reserved infrastructure. A drift guard refuses native edits to source-owned infrastructure; ordinary Incus objects remain native-owned. The instance reconciler refuses unowned instances and does not delete a guest whose declaration is removed. Last-applied tracking removes previously managed config/device keys only without conflicting runtime drift; unowned keys survive. Whole-device removal/backing changes require migration, and profiles are assigned from the declaration. Apps VM, Docker and Portainer are optional. Guest disks, databases, runtime Incus state and Portainer-only changes are mutable data, not recoverable from Nix configuration alone.
 
 Mounts use existing filesystem UUIDs; automatic formatting is unsupported. An Incus backing mount must exist before dependent services start. Storage and guest network changes require an explicit migration. A rebuild must not erase data.
 
@@ -34,6 +34,12 @@ Mounts use existing filesystem UUIDs; automatic formatting is unsupported. An In
 The HTTPS frontend runs unprivileged and forwards structured requests to a restricted root broker. Browser requests require authentication and mutation requests require CSRF validation. Issued Incus browser certificates are administrative credentials; the SSH operator has full sudo. Secret contents remain in runtime paths rather than ordinary settings.
 
 A transaction snapshots an approved source set, hashes it, builds and reviews the candidate, switches in a separate worker, and requires confirmation. The snapshot includes tracked/manifest source plus reviewed machine settings, modules and installed `.nix` files. Platform source and machine state are published and recovered together. Arbitrary files outside the approved tree are excluded. Recovery also preserves selected secret files and TLS material and restores the prior OS generation. It cannot undo guest data or incompatible Incus database changes. Direct `nixos-rebuild switch` does not invoke the portal confirmation guard.
+
+The evaluated preseed and `nixlab.incus.desiredInstances` input are shared with the
+impact planner. Each new candidate binds a root-only runtime snapshot and public
+versioned plan to its transaction. Apply rechecks in both the broker and worker;
+drift refreshes the plan and refuses that attempt, while migration/conflict/unknown
+observation blockers cannot be retried past. See [ownership](ownership.md#preview-the-change).
 
 Scheduled backup stops/exports/recovers one consistency group at a time. Shared writable volumes join consumers, including projects sharing the default volume namespace. Explicit groups extend that boundary. Excluded/manual guests skip their whole group and produce partial coverage. A completed generation publishes atomically after exports, checksums and recovery kits, retains two completed local generations, and leaves legacy archives untouched. Restic transfers completed generations independently; interrupted staging is excluded. Backups and restore drills remain separate from system configuration.
 

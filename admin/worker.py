@@ -7,6 +7,7 @@ import signal
 import subprocess
 import time
 import runtime as rt
+import impact
 
 
 def save_operator_password(recovery):
@@ -95,7 +96,7 @@ def build(directory):
         run([str((directory / 'system').resolve()) + '/bin/switch-to-configuration', 'dry-activate'], log)
     result = subprocess.run(['nix', '--extra-experimental-features', 'nix-command flakes', 'eval', '--json',
         'path:' + str(source) + '#nixosConfigurations.hypervisor.config', '--apply',
-        'c: { settings = c.nixlab.settings; disks = c.nixlab.storage.disks; }'],
+        'c: { settings = c.nixlab.settings; disks = c.nixlab.storage.disks; preseed = c.virtualisation.incus.preseed; instances = c.nixlab.incus.desiredInstances; }'],
         check=True, capture_output=True, text=True, timeout=120)
     projection = json.loads(result.stdout)
     effective, disks = projection['settings'], projection['disks']
@@ -105,8 +106,13 @@ def build(directory):
     validation = json.loads(json.dumps(effective))
     validation['mounts'] += list(disks.values())
     validate_settings(validation, validation, inventory())
-    validate_effective_transition(effective, disks, rt.read_json(Path('/etc/nixlab/effective-settings.json'), {}),
-        rt.read_json(Path('/etc/nixlab/effective-disks.json'), {}), Path('/var/lib/incus/database').exists())
+    before = rt.read_json(directory / 'impact-base.json')
+    if before is None: raise ValueError('Candidate has no baseline inventory; build a new review')
+    transition_error = False
+    try:
+        validate_effective_transition(effective, disks, before['settings'], before['disks'], Path('/var/lib/incus/database').exists())
+    except ValueError:
+        transition_error = True
     new_inputs = rt.read_json(source / 'flake.lock', {}).get('nodes', {})
     changed_inputs = [{'input': key, 'before': old_inputs.get(key, {}).get('locked', {}).get('rev'),
                        'after': value.get('locked', {}).get('rev')} for key, value in new_inputs.items()
@@ -114,6 +120,9 @@ def build(directory):
     booted = Path('/run/booted-system/kernel')
     kernel = directory / 'system/kernel'
     reboot = booted.exists() and kernel.exists() and booted.resolve() != kernel.resolve()
+    impact.prepare(directory, before, projection,
+                   opaque=bool(rt.module_files(source) or job.get('moduleChanges') or job.get('platformRevision') or job['updateInputs']),
+                   transition_error=transition_error)
     update(directory, status='ready', builtAt=time.time(), effectiveSettings=effective, candidateDigest=rt.digest_source(source),
            inputChanges=changed_inputs, rebootRequired=bool(reboot))
     rt.audit('build-ready', job=directory.name)
@@ -249,6 +258,7 @@ def apply(directory):
     job = rt.read_json(directory / 'job.json')
     if job['baseDigest'] != rt.digest_source(rt.ROOT) or job['candidateDigest'] != rt.digest_source(directory / 'source'):
         raise ValueError('Source changed since review')
+    impact.recheck(directory)  # repeat after queueing, before saving/publishing anything
     old_settings = rt.read_json(Path('/etc/nixlab/effective-settings.json'), rt.read_json(rt.machine_path(rt.ROOT, 'settings')))
     effective = job.get('effectiveSettings', job['settings'])
     previous = str(Path('/run/current-system').resolve())
@@ -321,6 +331,9 @@ def job(phase, job_id):
                 rollback(directory)
         else:
             raise ValueError('Unsupported transaction action')
+    except impact.ReviewRequired as exc:
+        update(directory, status='ready', error=str(exc))
+        rt.audit('impact-review-required', job=job_id)
     except Exception as exc:
         current = rt.read_json(directory / 'job.json')
         if current.get('status') != 'rolled-back':
