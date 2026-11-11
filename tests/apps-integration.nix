@@ -1,6 +1,6 @@
 # Optional, expensive qualification test. The OCI archive is fetched/resolved by
 # the workflow before building, so the nested VM itself requires no registry.
-{ pkgs, apps, sopsModule, portainerArchive, cpuVendor, revision }:
+{ pkgs, apps, sopsModule, portainerArchive, portainerImage, cpuVendor, revision }:
 let
   base = import ./site.nix;
   site = base // {
@@ -11,6 +11,7 @@ let
   };
   guest = apps.extendModules {
     modules = [ {
+      nixlab.settings.apps.portainerImage = portainerImage;
       virtualisation.oci-containers.containers.portainer.imageFile = portainerArchive;
       virtualisation.oci-containers.containers.portainer.pull = "never";
     } ];
