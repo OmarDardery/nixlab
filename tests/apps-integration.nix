@@ -10,7 +10,10 @@ let
     management = base.management // { interface = "eth1"; configure = true; };
   };
   guest = apps.extendModules {
-    modules = [ { virtualisation.oci-containers.containers.portainer.imageFile = portainerArchive; } ];
+    modules = [ {
+      virtualisation.oci-containers.containers.portainer.imageFile = portainerArchive;
+      virtualisation.oci-containers.containers.portainer.pull = "never";
+    } ];
   };
   appImage = {
     system = guest.config.system.build.toplevel;
