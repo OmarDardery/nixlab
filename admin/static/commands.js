@@ -68,6 +68,7 @@ function commandGroups() {
       ["failed-units", "Find failed services", "Host terminal", "List failed systemd units on the host.", "systemctl --failed"],
       ["cockpit-boot", "Read Cockpit’s boot logs", "Host terminal", "Collect evidence before restarting a service.", "sudo journalctl -b -u cockpit.socket -u cockpit.service -u nixlab-management-identity.service --no-pager"],
       ["ssh", "Connect to this host", "Your laptop", "Use the operator Linux password or an enrolled client key.", "ssh operator@" + host],
+      ["commissioning", "Collect commissioning evidence", "Host terminal", "Read-only probes record revision-bound results. Reboots, installation retry and restore drills remain separate procedures in the commissioning guide.", "sudo nixlab commissioning collect --mode fresh"],
     ] },
     { id: "guests", title: "Guest & Docker examples", guide: "administration.md", items: [
       ["list-guests", "List every Incus project’s guests", "Host terminal", "Read-only inventory. Guest lifecycle and consoles remain in Incus.", "sudo incus list --all-projects"],

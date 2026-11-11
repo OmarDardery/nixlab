@@ -43,6 +43,20 @@ jobs:
         run: find . -name '*.nix' -exec nix-instantiate --parse '{}' ';' >/dev/null
       - name: Evaluate direct conversion from an installed NixOS configuration
         run: python3 tests/evaluate_direct_install.py
+      - name: Evaluate optional nested apps test wiring (no integration claim)
+        run: |
+          nix eval --impure --raw --expr '
+            let flake = builtins.getFlake (builtins.getEnv "PWD");
+                pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; };
+            in (import ./tests/apps-integration.nix {
+              inherit pkgs;
+              apps = flake.nixosConfigurations.validation-setup-apps;
+              sopsModule = flake.inputs.sops-nix.nixosModules.sops;
+              portainerArchive = pkgs.dockerTools.buildLayeredImage { name = "evaluation-only"; };
+              portainerImage = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+              cpuVendor = "intel";
+              revision = "0000000000000000000000000000000000000000";
+            }).drvPath'
       - name: Verify production firewall and DHCP management across reboot
         run: nix build .#checks.x86_64-linux.startup --no-link -L
       - name: Boot portal and verify real NixOS permissions

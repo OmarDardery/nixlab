@@ -562,6 +562,12 @@ if __name__ == '__main__':
     elif action == 'recovery' and os.geteuid() == 0:
         import recovery
         recovery.cli(sys.argv[2:])
+    elif action == 'commissioning':
+        import commissioning
+        try:
+            commissioning.cli(sys.argv[2:])
+        except (ValueError, OSError, subprocess.SubprocessError):
+            sys.exit('Commissioning report unavailable or invalid; see docs/commissioning.md for prerequisites and procedures')
     elif action == 'guests' and os.geteuid() == 0:
         guests_cli(sys.argv[2:])
     elif action == 'disk' and os.geteuid() == 0 and sys.argv[2:] == ['prepare']:
@@ -595,5 +601,5 @@ if __name__ == '__main__':
         rt.durable_unlink(rt.STATE / 'setup-password')
         print('Password changed. Restart nixlab-ui to revoke existing sessions.')
     else:
-        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|portainer reset-password|backend|web|guard|renew|reset-password|config|guests|recovery|prune-jobs|disk prepare}')
+        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|portainer reset-password|backend|web|guard|renew|reset-password|config|guests|recovery|commissioning|prune-jobs|disk prepare}')
 
