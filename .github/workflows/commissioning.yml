@@ -53,6 +53,7 @@ jobs:
               output.write(digest + "\n")
           PY
           echo "NIXLAB_TEST_IMAGE=$RUNNER_TEMP/portainer.tar" >> "$GITHUB_ENV"
+          echo "NIXLAB_TEST_IMAGE_DIGEST=$(cat qualification-artifacts/oci-source.txt)" >> "$GITHUB_ENV"
       - name: Boot Incus apps VM and verify actual Portainer across two reboots
         run: |
           export NIXLAB_TEST_REVISION="$GITHUB_SHA"
@@ -64,6 +65,7 @@ jobs:
               apps = flake.nixosConfigurations.validation-setup-apps;
               sopsModule = flake.inputs.sops-nix.nixosModules.sops;
               portainerArchive = builtins.path { path = builtins.toPath (builtins.getEnv "NIXLAB_TEST_IMAGE"); name = "portainer-test.tar"; };
+              portainerImage = builtins.getEnv "NIXLAB_TEST_IMAGE_DIGEST";
               cpuVendor = builtins.getEnv "NIXLAB_TEST_CPU_VENDOR";
               revision = builtins.getEnv "NIXLAB_TEST_REVISION";
             }' -o result-commissioning -L
