@@ -17,7 +17,7 @@ SOURCE = ROOT / 'website'
 DOMAIN = 'https://nixlab.dardery.work'
 REPO = 'https://github.com/OmarDardery/nixlab'
 GROUPS = [
-    ('GET STARTED', [('index', 'Overview'), ('plain-nixos', 'Install Nixlab'), ('start', 'First steps'), ('architecture', 'Architecture'), ('homelab', 'Meet the stack')]),
+    ('GET STARTED', [('index', 'Overview'), ('plain-nixos', 'Install Nixlab'), ('start', 'First steps'), ('home-server-scenario', 'Homelab acceptance'), ('architecture', 'Architecture'), ('homelab', 'Meet the stack')]),
     ('USE YOUR SERVER', [('administration', 'Accounts & access'), ('networking', 'Networking'), ('guest-deployments', 'Guest updates'), ('file-modules', 'File configuration'), ('hardware', 'Hardware & disks'), ('helpers', 'Application helpers'), ('setup', 'Optional web wizard')]),
     ('WHEN THINGS HAPPEN', [('troubleshooting', 'Troubleshooting'), ('recovery', 'Backups & recovery'), ('operations', 'Operations & updates'), ('commissioning', 'Commissioning'), ('trial', 'Trial checklist'), ('validation', 'What is tested')]),
     ('PROJECT NOTES', [('deployment', 'Manual deployment'), ('configuration-contract', 'Configuration contract'), ('ownership', 'Ownership'), ('migration', 'Migration'), ('qualification', 'Release qualification'), ('roadmap', 'Roadmap'), ('website', 'Website & DNS')]),

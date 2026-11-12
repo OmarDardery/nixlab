@@ -68,6 +68,10 @@ python3 -m venv .venv-website
 The output is `_site/`. Preview it with any static server. To check the project-site
 layout, pass `--base-path /nixlab --output /tmp/nixlab-project-site --check`.
 The build checks internal links, anchors, assets and the canonical install command.
+Root and `/nixlab` layouts are validated independently of Pages configuration on
+every matching PR/push. Publishing is a separate job: a missing Pages site fails
+deployment explicitly, without suppressing website validation. Only that job needs
+Pages write and OIDC permissions.
 Search runs in the browser against a generated index; no analytics, login or backend
 is required for the public website.
 
