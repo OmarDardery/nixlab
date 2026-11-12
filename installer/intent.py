@@ -167,10 +167,12 @@ def plan(answers, host, settings, *, remote=False):
         reasons[1] = "Requested LAN networking is deferred for guarded local-console review; initial guest topology stays NAT"
     if a["adguard"] and a["network"] == "nat":
         reasons.append("NAT alone does NOT serve DNS to LAN clients; AdGuard needs an explicit LAN reachability step")
+    vm_memory = settings["apps"]["memory"]
+    memory_mib = int(vm_memory[:-3]) * (1024 if vm_memory.endswith("GiB") else 1)
     return dict(version=VERSION, answers=a, apps=apps, laptop=a["laptop"],
                 monitoring=a["monitoring"], guestSubnet=a["guestSubnet"],
                 reasons=reasons, pending=pending, networkRequiresReview=deferred_network,
-                estimatedAppMemoryMiB=(int(settings["apps"]["memory"].replace("GiB", "")) * 1024 if apps else 0),
+                estimatedAppMemoryMiB=(memory_mib if apps else 0),
                 managementAddress=m["address"], guestCidr=proposed_cidr)
 
 
