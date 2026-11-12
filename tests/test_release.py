@@ -85,6 +85,22 @@ class ReleaseTests(unittest.TestCase):
                        {'durationSeconds': float('nan')}, {'durationSeconds': float('inf')}):
             with self.assertRaises(ValueError): release.recovery_evidence({**record, **change}, 'a' * 40, 'b' * 64)
 
+    def test_recovery_export_fractional_timestamps_preserve_freshness_boundaries(self):
+        now = NOW + 0.75
+        # replacement.release/export_report emits time.time() floats over JSON.
+        record = json.loads(json.dumps({'format': 1, 'evidenceType': 'operator-attestation',
+            'phase': 'complete', 'restore': 'operator-attested', 'coverage': {'complete': True},
+            'verifiedAt': now - 0.25, 'backupCreated': now - c.MAX_AGE - 60.5,
+            'sourceRevision': 'a' * 40, 'sourceInputsDigest': 'b' * 64, 'durationSeconds': 42.5}))
+        with patch.object(release.time, 'time', return_value=now):
+            self.assertEqual(release.recovery_evidence(record, 'a' * 40, 'b' * 64), 42.5)
+        for timestamp in (now + 0.01, now - c.MAX_AGE - 0.01, True, None, '123',
+                          float('nan'), float('inf'), -float('inf')):
+            with self.subTest(timestamp=timestamp), self.assertRaises(ValueError):
+                release.recovery_evidence({**record, 'verifiedAt': timestamp}, 'a' * 40, 'b' * 64, now=now)
+        self.assertEqual(release.recovery_evidence({**record, 'verifiedAt': now - c.MAX_AGE},
+                                                  'a' * 40, 'b' * 64, now=now), 42.5)
+
     def test_tag_must_match_beta_version_without_accepting_stable_or_rc(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'VERSION'
