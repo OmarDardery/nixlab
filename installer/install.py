@@ -102,6 +102,19 @@ def parser_args():
     parser.add_argument('--no-apps', action='store_true', help='Skip the Docker/Portainer VM')
     parser.add_argument('--adopt-incus', action='store_true', help='Back up existing Incus guests and add an isolated Nixlab namespace')
     parser.add_argument('--no-update', action='store_true', help='Keep the current platform source on retry')
+    interaction = parser.add_mutually_exclusive_group()
+    interaction.add_argument('--interactive', action='store_true', help='Interview on a terminal and review planned services')
+    interaction.add_argument('--non-interactive', action='store_true', help='Keep unattended defaults and never prompt')
+    parser.add_argument('--answers', type=Path, help='Versioned, non-secret JSON answers file (for unattended use)')
+    parser.add_argument('--plan-only', action='store_true', help='Preview the plan; never publish or activate changes')
+    parser.add_argument('--workloads', choices=['containers', 'compose', 'both'])
+    parser.add_argument('--access-mode', choices=['lan', 'private', 'public'])
+    parser.add_argument('--guest-network', choices=['nat', 'lan', 'vlan'])
+    parser.add_argument('--adguard', action='store_true', help='Include AdGuard DNS manual provisioning checklist')
+    parser.add_argument('--klipper', action='store_true', help='Include Klipper serial passthrough checklist')
+    parser.add_argument('--aiostreams', action='store_true', help='Include AIOStreams Compose checklist')
+    parser.add_argument('--laptop-mode', action='store_true', help='Enable always-on laptop lid policy')
+    parser.add_argument('--no-monitoring', action='store_true', help='Disable host metric collection')
     return parser, parser.parse_args()
 
 
@@ -198,7 +211,8 @@ def main():
     import tempfile
     import direct
     import workflow
-    from model import inventory, merge
+    import intent
+    from model import inventory, merge, validate_settings
     from controller import Manager
     parser, args = parser_args()
     if not installed_host():
@@ -206,6 +220,12 @@ def main():
     if os.uname().machine != 'x86_64':
         parser.error('This release supports Intel/AMD x86_64 NixOS hosts')
     remote = workflow.remote_session()
+    if args.interactive and not sys.stdin.isatty():
+        parser.error('--interactive requires a terminal; use --answers for unattended provisioning')
+    if args.non_interactive and args.answers is None and args.plan_only:
+        parser.error('--plan-only in unattended mode requires --answers or explicit CLI selections')
+    if args.answers and args.interactive:
+        parser.error('Choose either --answers or --interactive, not both')
     if TARGET.exists() and not rt.machine_path(TARGET, 'installation').is_file():
         parser.error('Existing checkout has no intact installation inventory; inspect it before proceeding (no configuration changed)')
     if TARGET.exists():
@@ -235,6 +255,7 @@ def main():
     if not any(ipaddress.ip_address(address) in ipaddress.ip_network(network) for network in trusted):
         trusted.append(address + '/32')  # local endpoint probes also need access
     host = inventory()
+    host['memoryKiB'] = int(next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemTotal:')))
     if host['cpuVendor'] not in ('intel', 'amd'):
         parser.error('CPU vendor could not be identified safely')
     existing = TARGET.exists()
@@ -284,6 +305,39 @@ def main():
             default['management'].update(interface=interface, address=address, prefixLength=prefix, gateway=gateway, trustedCIDRs=trusted)
         if adoption:
             workflow.adoption_settings(default, adoption)
+        # A fresh terminal installation offers the interview automatically.
+        # Unattended installations keep historical flags/defaults; no prompt.
+        flags = {}
+        for arg, field in (('workloads', 'workloads'), ('access_mode', 'access'), ('guest_network', 'network')):
+            if getattr(args, arg) is not None:
+                flags[field] = getattr(args, arg)
+        for arg, field in (('adguard', 'adguard'), ('klipper', 'klipper'),
+                           ('aiostreams', 'aiostreams'), ('laptop_mode', 'laptop')):
+            if getattr(args, arg): flags[field] = True
+        if args.no_monitoring: flags['monitoring'] = False
+        if args.guest_subnet: flags['guestSubnet'] = args.guest_subnet
+        explicit_intent = (args.answers is not None or args.interactive or bool(flags) or args.plan_only or
+                           (not existing and sys.stdin.isatty() and not args.non_interactive))
+        proposal = None
+        if explicit_intent:
+            chosen = intent.load(args.answers) if args.answers else intent.defaults()
+            if args.interactive or (not existing and sys.stdin.isatty() and not args.non_interactive and not args.answers):
+                chosen = intent.interview(existing=chosen)
+            chosen.update(flags)  # Explicit CLI flags override an answers file.
+            # Legacy --no-apps remains an explicit override.
+            if args.no_apps: chosen['workloads'] = 'containers'
+            chosen = intent.normalize(chosen)
+            if existing and default['ready'] and ((chosen['workloads'] != 'containers') != default['apps']['enable']):
+                raise ValueError('Do not change existing apps VM ownership via the installer; use the reviewed Changes page')
+            proposal = intent.plan(chosen, host, default, remote=remote)
+            intent.preview(proposal)
+            if args.plan_only:
+                print('Plan only: no source, network, guest, or system changes were made.')
+                return
+            if (args.interactive or (not existing and sys.stdin.isatty() and not args.non_interactive and not args.answers)):
+                if input('Apply this reviewed plan using the guarded NixLab installer? [y/N] ').strip().lower() not in ('y', 'yes'):
+                    print('Cancelled before publishing any configuration.')
+                    return
         rt.write_json(rt.machine_path(stage, 'settings'), default)
         overview = evaluate(stage, 'nixlabOverview')
         # Reuse client keys already authorized for the installer account. Server
@@ -302,9 +356,15 @@ def main():
         candidate = None
         effective_candidate = None
         if args.switch:
-            candidate = direct.prepare(default, overview, host, args.ssh_key, args.guest_subnet,
-                not args.no_apps if not default['ready'] else default['apps']['enable'], previous_guests=previous_guests,
-                remote=remote, password_login=args.ssh_password_login)
+            candidate = direct.prepare(default, overview, host, args.ssh_key,
+                proposal['guestSubnet'] if proposal else args.guest_subnet,
+                proposal['apps'] if proposal and not default['ready'] else
+                (not args.no_apps if not default['ready'] else default['apps']['enable']),
+                previous_guests=previous_guests, remote=remote,
+                password_login=args.ssh_password_login)
+            if proposal:
+                candidate = intent.apply(candidate, proposal)
+                candidate = validate_settings(candidate, default, host)
             validate_keys(candidate['adminKeys'])
             validate_kvm(candidate['cpuVendor'])
             import local_access
@@ -324,6 +384,11 @@ def main():
                 raise ValueError('File-owned Cockpit settings require an existing usable Linux password or managePassword=true')
             print('SSH policy after activation: ' + ('password login retained for existing non-root accounts' if effective_candidate['access']['sshPasswordLogin'] else 'password login disabled; keys/console remain available'))
         installation.update(interface=interface, trustedCIDRs=trusted, legacyWpaProfiles=overview['wpaProfiles'])
+        if proposal:
+            # Root-owned machine state; only typed non-secret choices and pending
+            # manual tasks. Kept with installation inventory for retriable setup.
+            installation['intent'] = proposal['answers']
+            installation['pendingTasks'] = proposal['pending']
         if not existing:
             installation.update(installedAt=time.time(), originalSystem=str(Path('/run/current-system').resolve()), repository=args.repo, ref=args.ref)
         rt.write_json(rt.machine_path(stage, 'installation'), installation)
