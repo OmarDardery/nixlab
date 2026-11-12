@@ -161,6 +161,34 @@ class BackupGenerationTests(unittest.TestCase):
         self.assertFalse(status['capacity']['sufficientForEstimate'])
         self.assertFalse(status['coverage']['complete'])
 
+    def test_restart_intent_cannot_start_a_different_guest_reusing_the_name(self):
+        backup.save_pending([{'project': 'lab', 'name': 'one', 'uuid': 'original-uuid'}])
+        self.calls.clear()
+        def replaced(*args, **kwargs):
+            self.calls.append(args)
+            return json.dumps({'config': {'volatile.uuid': 'replacement-uuid'}})
+        with patch.object(backup, 'incus', side_effect=replaced), self.assertRaisesRegex(RuntimeError, 'could not be restarted'):
+            backup.recover()
+        self.assertFalse(any(call[0] == 'start' for call in self.calls))
+        self.assertEqual(json.loads(backup.PENDING.read_text())[0]['uuid'], 'original-uuid')
+
+    def test_current_restart_intent_retains_identity_and_recovers_the_original_guest(self):
+        original = self.incus
+        def identified(*args, **kwargs):
+            if args[0] == 'list':
+                guests = json.loads(original(*args))
+                for guest in guests: guest['config'] = {'volatile.uuid': guest['name'] + '-uuid'}
+                return json.dumps(guests)
+            if args[0] == 'query' and args[1].startswith('/1.0/instances/') and '/state?' not in args[1]:
+                return json.dumps({'config': {'volatile.uuid': args[1].split('/')[3].split('?')[0] + '-uuid'}})
+            return original(*args)
+        with patch.object(backup, 'incus', side_effect=identified), patch.object(backup, 'save_pending', wraps=backup.save_pending) as pending:
+            backup.backup()
+        intents = [item for call in pending.call_args_list for item in call.args[0]]
+        self.assertTrue(intents)
+        self.assertTrue(all(item['uuid'] == item['name'] + '-uuid' for item in intents))
+        self.assertEqual(self.states['one'], 'Running')
+
     def test_shared_volume_and_explicit_groups_join_consumers_across_projects(self):
         device = {'data': {'type': 'disk', 'pool': 'guests', 'path': '/data', 'source': 'shared'}}
         guests = [{'project': p, 'name': n, 'expanded_devices': device if n != 'three' else {}}

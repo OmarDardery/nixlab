@@ -49,6 +49,11 @@ def recover():
     failed = []
     for guest in pending:
         try:
+            if guest.get('uuid'):
+                current = json.loads(incus('query', '/1.0/instances/' + quote(guest['name'], safe='')
+                                          + '?project=' + quote(guest['project'], safe=''), timeout=15))
+                if current.get('config', {}).get('volatile.uuid') != guest['uuid']:
+                    raise RuntimeError('Guest identity changed after backup; refusing to start a replacement')
             state = query('/1.0/instances/' + quote(guest['name'], safe='') + '/state?project=' + quote(guest['project'], safe=''))
             if state['status'] == 'Stopped':
                 incus('start', guest['name'], '--project', guest['project'])
@@ -278,7 +283,8 @@ def backup(with_recovery=False):
         windows = []
         for index, group in enumerate(selected):
             members = [g['project'] + '/' + g['name'] for g in group['guests']]
-            pending = [{'project': g['project'], 'name': g['name']} for g in group['guests'] if g['status'] == 'Running']
+            pending = [{'project': g['project'], 'name': g['name'], 'uuid': g.get('config', {}).get('volatile.uuid')}
+                       for g in group['guests'] if g['status'] == 'Running']
             save_pending(pending)
             started = time.time()
             try:
