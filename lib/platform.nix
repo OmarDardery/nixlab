@@ -27,6 +27,7 @@
     ../modules/connectivity.nix
     ../modules/hardware-support.nix
     ../modules/helpers.nix
+    ../modules/recovery-mode.nix
     ../modules/cloudflared.nix
     ../modules/backups.nix
     ../modules/admin-ui.nix

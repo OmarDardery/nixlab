@@ -143,6 +143,131 @@ backup before guest shutdown.
 
 ## Host-loss restore
 
+### Guided, checkpointed imports
+
+The replacement-host CLI restores a complete version-2 generation into a fresh
+Incus project, using a pre-existing reviewed local storage pool. It stages source
+and credentials for review, imports separate custom volumes and stopped guests,
+then removes network/passthrough access before validation. It never formats disks,
+activates archived Nix modules, overwrites runtime credentials, starts a guest or
+reconnects production addresses. This is a local-backend recovery increment;
+privileged/raw guests, unmanaged NICs, passthrough and missing attached data stop
+with a required separate review. Source material is never modified or deleted.
+
+1. Install fresh NixOS on the replacement machine with console recovery available.
+   Preserve its own boot/hardware configuration. Use the normal single-command
+   NixLab installer, initially selecting containers only and no scheduled backups
+   or public ingress. Do not import old guest declarations yet.
+2. Before enabling recovered services, add this reviewed machine module to the
+   installed source (`/var/lib/nixlab/config/machine/modules/recovery.nix` on the
+   modern layout), then build/review/activate through the usual host workflow:
+
+   ```nix
+   { ... }: { nixlab.recovery.enable = true; }
+   ```
+
+   This disables instance reconciliation, apps onboarding, backup/restart timers
+   and configured Cloudflare ingress. Verify the resulting marker and units:
+
+   ```sh
+   test "$(cat /etc/nixlab/recovery-mode)" = 1
+   systemctl is-enabled nixlab-instances.service nixlab-apps-onboarding.service
+   ip -br link
+   ls -l /dev/disk/by-uuid
+   incus storage list
+   ```
+
+   Disabled/not-found units are expected here. Review any additional timers,
+   tunnels or jobs introduced by custom modules separately. Preserve working SSH
+   and management addressing while reviewing NIC/disk replacements.
+3. On the replacement host, obtain restic credentials from **independent** storage
+   and restore the chosen off-host snapshot to a root-only directory. Locate its
+   complete `generations/GENERATION` directory containing `inventory.json` and
+   configuration, secret, instance and custom-volume archives. `restic check`
+   alone is not a restore. Do not put decryption credentials only inside the
+   repository they unlock.
+4. Select an existing local Incus pool on reviewed replacement storage. Do not
+   point at an unmounted disk path, erase a device or reuse production storage.
+   Write a root-owned mapping file, substituting actual discovered identifiers:
+
+   ```json
+   {"pool":"replacement","interfaces":{"old-uplink":"eno1"},"disks":{"OLD-UUID":"NEW-UUID"}}
+   ```
+
+   The pool receives recovered data; it must already exist. Supported backends
+   are dir, ZFS, Btrfs and LVM with portable Incus exports. NIC/disk mappings must
+   refer to existing replacement hardware. They are review records, not network,
+   filesystem or boot mutations; adapt old source against the replacement's own
+   configuration manually. Empty mappings are allowed when no hardware remap is
+   needed. The initial increment maps all recovered objects to one selected pool.
+5. Plan, inspect and explicitly confirm the imports:
+
+   ```sh
+   sudo nixlab-admin recovery plan /root/offhost/generations/GENERATION --mappings /root/recovery-mappings.json
+   sudo nixlab-admin recovery status
+   sudo nixlab-admin recovery resume --confirm
+   ```
+
+   Planning hashes every archive, checks both recovery kits and records source
+   identity and destination pool configuration. No Incus resource is changed by
+   planning. The new journal is `/var/lib/nixlab-admin/replacement-recovery.json`;
+   source and credentials are staged under its reported recovery ID at
+   `/var/lib/nixlab-admin/recovery-ID/{config,secrets}`. These files stay root-only.
+   Compare source files and restore reviewed credentials individually, with their
+   required owners/modes; never copy old hardware configuration or secrets over
+   the replacement wholesale. Metadata/trust/network definitions remain available
+   in the original inventory for review; old listening addresses are not applied.
+6. Resume using the same command after a controller interruption or reboot.
+   Changed checksums, pool configuration or recovered objects stop execution.
+   An interruption after volume import but before ownership was recorded leaves
+   an **uncertain import**, not permission to overwrite it. Inspect that stopped
+   target, verify it against the archive, and only then explicitly set its
+   `user.nixlab.recovery-id` to the journal ID using native Incus before resuming.
+   If it cannot be verified, retain it and investigate; do not delete user data to
+   make retry pass. No existing unmarked object is automatically adopted.
+7. Validate restored data using Incus exec/console on the isolated targets.
+   Guests have no NICs/profiles, autostart or snapshot schedule. Their imported
+   root disks and separate recovered custom volumes remain attached. Start and
+   stop selected guests explicitly for the drill, check application records,
+   Portainer state/credentials and Compose definitions, then stop them again.
+   Runtime jobs inside a guest still need review before any connectivity is added.
+   Archived snapshots retain their original configuration; review isolation before
+   restoring one. Do not claim success merely because imports succeeded.
+8. Review and perform cutover through **native Incus**. Recreate only reviewed
+   projects, profiles and networks from the inventory. Keep the replacement's
+   own pool source, NIC names, addresses and disk UUIDs. Move verified custom
+   volumes to their reviewed original namespaces, and move stopped guests to
+   their original project/name. Detach/re-attach custom volumes as required for
+   cross-project moves; never attach a surviving production writer's volume.
+   Check installed `incus move --help` and `incus storage volume move --help` for
+   backend restrictions. Preserve the recovery ID and imported instance UUID.
+   Review desired declarations against these restored objects, including explicit
+   ownership adoption if managing them through NixLab. Do not enable onboarding
+   against unreviewed credentials or an old guest OS target.
+9. Release the automation guard only after the application-data drill and reviewed
+   source inventory match the restored identities:
+
+   ```sh
+   sudo nixlab-admin recovery release --confirm --data-verified
+   ```
+
+   Every desired guest that could be created must be among the recovered original
+   identities, present and stopped with its recorded UUID/recovery ID. Legacy or
+   partial coverage additionally requires `--acknowledge-exclusions` and is recorded
+   as selected-data evidence. Release records an **operator attestation**, backup
+   time and recovery duration; it never starts guests or changes networking.
+   Only then remove the recovery-mode module through a reviewed host activation.
+   An unfinished/corrupt journal continues to block reconciliation, deployment,
+   backups and portal guest mutations even if the mode module is removed early.
+
+If interrupted, rollback means retaining the quarantine and original backup while
+returning to the known replacement host configuration. There is no automatic
+delete/overwrite cleanup. The CLI does not claim arbitrary backend, device,
+custom-module secret or application-consistency coverage. Its two-node CI drill
+uses synthetic configuration kits; an independently supplied real off-host
+generation, mapped hardware and application checks are still mandatory for #11
+and release qualification.
+
 1. Install NixOS safely, restore the reviewed repository revision, generate hardware configuration
    for the replacement host, and verify the network/storage inventory. Do not restore test fixtures.
 2. Restore age identities and backup access credentials from offline recovery material. Recreate

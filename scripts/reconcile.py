@@ -130,6 +130,8 @@ def write_instance(project, name, data, etag):
 
 
 def reconcile(spec):
+    from recovery_guard import require_normal
+    require_normal()
     desired_state(spec)
     if INITIALIZING in spec.get("config", {}):
         raise ValueError("The Nixlab initialization marker is reserved")

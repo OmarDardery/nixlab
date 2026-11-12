@@ -139,6 +139,8 @@ class Deployments:
         return record
 
     def submit(self, job_id, resume=False, principal='root'):
+        from recovery_guard import require_normal
+        require_normal()
         if type(resume) is not bool: raise ValueError('Resume must be a boolean')
         with rt.locked(blocking=False):
             directory = self.directory(job_id)
@@ -313,6 +315,8 @@ class Deployments:
             raise
 
     def run(self, job_id):
+        from recovery_guard import require_normal
+        require_normal()
         directory = self.directory(job_id)
         with rt.locked(), open_lock(INCUS_LOCK) as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)

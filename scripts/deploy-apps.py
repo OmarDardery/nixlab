@@ -6,6 +6,8 @@ from locking import open_lock
 
 
 def main(closure):
+    from recovery_guard import require_normal
+    require_normal()
     transport = Transport('lab', 'apps')
     with open_lock('/run/lock/nixlab-incus.lock') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)

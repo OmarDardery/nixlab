@@ -102,6 +102,13 @@ jobs:
           for target in validation-minimal validation-file-disk validation-recipes validation-host validation-ethernet validation-ethernet-nm validation-ethernet-wifi validation-coupled-apps validation-apps validation-services validation-demo validation-zfs validation-inherited validation-bootstrap validation-setup validation-setup-apps; do
             nix eval ".#nixosConfigurations.$target.config.system.build.toplevel.drvPath"
           done
+      - name: Verify replacement recovery suppresses ordinary guest automation
+        run: |
+          nix eval .#nixosConfigurations.validation-recovery.config.system.build.toplevel.drvPath
+          for unit in nixlab-instances nixlab-apps-onboarding nixlab-backup-recover restic-backups-nixlab; do
+            test "$(nix eval --json ".#nixosConfigurations.validation-recovery.config.systemd.services.$unit.enable")" = false
+          done
+          test "$(nix eval --json .#nixosConfigurations.validation-recovery.config.systemd.timers.restic-backups-nixlab.enable)" = false
       - name: Verify lightweight defaults and declarative settings
         run: |
           nix eval --json .#nixlabDefaults > /tmp/nixlab-defaults.json

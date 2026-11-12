@@ -220,6 +220,8 @@ def cancellable():
 
 
 def backup(with_recovery=False):
+    from recovery_guard import require_normal
+    require_normal()
     ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
     if ROOT.resolve() != ROOT.absolute() or ROOT.stat().st_uid != os.geteuid() or ROOT.stat().st_mode & 0o022:
         raise ValueError('Backup staging must be owned by root and cannot traverse symlinks or be writable by others')
