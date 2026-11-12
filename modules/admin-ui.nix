@@ -29,7 +29,19 @@ in {
     ];
     # During bootstrap retain the existing firewall implementation. The HTTPS process
     # also enforces source CIDRs; after conversion the host uses nftables.
-    networking.firewall.interfaces."${if site.ready then site.management.interface else install.interface}".allowedTCPPorts = [ site.setup.port ];
+    networking.firewall.interfaces."${if site.ready then site.management.interface else install.interface}".allowedTCPPorts = [ 80 site.setup.port ];
+    # Port 80 is an entry point only. Authenticate over the existing private
+    # HTTPS portal, never a plaintext HTTP login/session. Keep the NixLab host
+    # UI separate from guest applications which may also use port 80 on their IP.
+    services.nginx = {
+      enable = true;
+      virtualHosts.nixlab-entry = {
+        serverName = "_";
+        default = true;
+        listen = [ { addr = "0.0.0.0"; port = 80; } ];
+        locations."/".return = "308 https://$host:${toString site.setup.port}$request_uri";
+      };
+    };
     systemd.services.nixlab-admin-backend = {
       description = "Nixlab typed configuration and transaction broker";
       wantedBy = [ "multi-user.target" ]; after = [ "local-fs.target" ];
@@ -92,9 +104,9 @@ in {
     systemd.services.nixlab-management-health = lib.mkIf site.ready {
       description = "Verify enabled management interfaces after boot";
       wantedBy = [ "multi-user.target" ];
-      after = [ "nixlab-management-identity.service" "nixlab-ui.service" ]
+      after = [ "nixlab-management-identity.service" "nixlab-ui.service" "nginx.service" ]
         ++ lib.optional site.cockpit.enable "cockpit.socket"
-        ++ lib.optionals site.apps.enable [ "nixlab-apps-onboarding.service" "nginx.service" ];
+        ++ lib.optional site.apps.enable "nixlab-apps-onboarding.service";
       path = [ pkgs.iproute2 ];
       serviceConfig = {
         Type = "oneshot"; RemainAfterExit = true;
