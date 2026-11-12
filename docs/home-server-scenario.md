@@ -54,6 +54,11 @@ After installation:
 Confirm the NixLab HTTPS portal, Incus and Cockpit access. The apps VM and
 Portainer should be checked separately. Record the real CA fingerprint.
 
+After installation, `sudo nixlab install-plan` prints the saved non-secret
+choices and outstanding physical commissioning steps. This checklist is not
+proof that a service has been deployed; actual commissioning is recorded
+separately with `sudo nixlab commissioning`.
+
 ## AdGuard Home: LAN DNS
 
 Use the pinned Incus Community Scripts runner only after inspecting the
