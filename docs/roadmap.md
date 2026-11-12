@@ -14,8 +14,8 @@ virtualization UI. See the [ownership contract](ownership.md).
 
 The portal has no guest lifecycle/console/snapshot editor, application store or
 arbitrary script runner. Legacy guest CLI/API actions remain for compatibility.
-Docker and metrics history stay optional. Klipper is an example, not a default
-recipe or product focus.
+Docker and metrics history stay optional. NixLab does not ship
+application-specific guests or install recipes as core features.
 
 Source checks/Nix evaluation are distinct from live evidence. CI includes a real
 container/firewall/device-attachment/restore test and builds the helper runner.

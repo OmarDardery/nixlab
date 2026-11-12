@@ -13,16 +13,16 @@ VERSION = 1
 WORKLOADS = ("containers", "compose", "both")
 ACCESS = ("lan", "private", "public")
 NETWORKS = ("nat", "lan", "vlan")
-KNOWN = frozenset(("version", "workloads", "access", "network", "adguard",
-                  "klipper", "aiostreams", "laptop", "monitoring", "backup",
-                  "guestSubnet"))
+KNOWN = frozenset(("version", "workloads", "access", "network",
+                  "laptop", "monitoring", "backup", "guestSubnet"))
+# Read and discard old workload-specific flags when resuming stored v1 drafts.
+# No workload is inferred or deployed from these deprecated fields.
+LEGACY_KEYS = frozenset(("adguard", "klipper", "aiostreams"))
 QUESTIONS = (
     ("workloads", "Workloads [containers/compose/both]", "both", WORKLOADS),
     ("access", "Access [lan/private/public]", "lan", ACCESS),
     ("network", "Guest connectivity [nat/lan/vlan]", "nat", NETWORKS),
-    ("adguard", "Plan an AdGuard Home DNS guest? [y/N]", "no", ("yes", "no")),
-    ("klipper", "Plan a Klipper printer guest? [y/N]", "no", ("yes", "no")),
-    ("aiostreams", "Plan an AIOStreams Compose stack? [y/N]", "no", ("yes", "no")),
+    ("backup", "Plan independent off-host backups? [y/N]", "no", ("yes", "no")),
     ("laptop", "Enable always-on laptop lid policy? [y/N]", "no", ("yes", "no")),
     ("monitoring", "Collect basic host metrics? [Y/n]", "yes", ("yes", "no")),
 )
@@ -30,21 +30,22 @@ QUESTIONS = (
 
 def defaults():
     return dict(version=VERSION, workloads="both", access="lan", network="nat",
-                adguard=False, klipper=False, aiostreams=False,
                 laptop=False, monitoring=True, backup=False, guestSubnet=None)
 
 
 def normalize(raw):
-    if not isinstance(raw, dict) or set(raw) - KNOWN:
+    if not isinstance(raw, dict) or set(raw) - (KNOWN | LEGACY_KEYS):
         raise ValueError("Installer answers must be an object with documented keys only")
+    if any(type(raw[key]) is not bool for key in LEGACY_KEYS & raw.keys()):
+        raise ValueError("Deprecated workload flags must be booleans")
     result = defaults()
-    result.update(raw)
+    result.update({key: value for key, value in raw.items() if key in KNOWN})
     if type(result["version"]) is not int or result["version"] != VERSION:
         raise ValueError("Unsupported installer answers version")
     for field, choices in (("workloads", WORKLOADS), ("access", ACCESS), ("network", NETWORKS)):
         if result[field] not in choices:
             raise ValueError(field + " must be one of: " + ", ".join(choices))
-    for field in ("adguard", "klipper", "aiostreams", "laptop", "monitoring", "backup"):
+    for field in ("laptop", "monitoring", "backup"):
         if type(result[field]) is not bool:
             raise ValueError(field + " must be true or false")
     subnet = result["guestSubnet"]
@@ -55,8 +56,6 @@ def normalize(raw):
         if net.version != 4 or net.prefixlen != 24 or not any(net.subnet_of(p) for p in private):
             raise ValueError("guestSubnet must be an unused RFC1918 IPv4 /24")
         result["guestSubnet"] = str(net)
-    if result["aiostreams"] and result["workloads"] == "containers":
-        raise ValueError("AIOStreams needs the Compose apps VM; choose workloads=both or compose")
     return result
 
 
@@ -128,23 +127,11 @@ def plan(answers, host, settings, *, remote=False):
     pending = []
     if deferred_network:
         pending.append("Review an existing Ethernet bridge/VLAN and switch configuration in Connectivity; no host NIC is modified by this installer")
-    if a["adguard"]:
-        pending.extend((
-            "Install a supported AdGuard Home Incus container with the pinned nixlab-helpers wizard; this installer never runs community scripts without review",
-            "Assign AdGuard an actual stable LAN-reachable IP (wired bridge/VLAN or individually reviewed forwarding); verify TCP+UDP 53 before changing router DHCP DNS",
-            "After a successful DNS+restore test, set router DHCP DNS to the verified AdGuard address and retain a recovery resolver",
-        ))
-    if a["klipper"]:
-        pending.extend((
-            "Install Klipper in a dedicated container; inspect the actual MCU USB vendor/product/serial and declare a stable hardware alias",
-            "Pass the serial character device through Incus, verify /dev/klipper-mcu ownership, and validate Mainsail/Moonraker LAN access",
-            "Never expose the printer control API publicly; confirm printer power-loss and restart recovery",
-        ))
-    if a["aiostreams"]:
-        pending.extend((
-            "Deploy the supplied AIOStreams Compose example in the apps VM only after setting private app credentials and an explicitly selected upstream image",
-            "Verify the stack locally before exposing an application hostname through a reviewed Cloudflare tunnel",
-        ))
+    pending.append("Create and manage workload-agnostic Incus guests using Incus UI or reviewed helper scripts; configure persistent storage and resource limits separately")
+    if apps:
+        pending.append("Deploy any Compose application in the isolated apps VM through Portainer after supplying reviewed images and private credentials; test persistence and restore")
+    pending.append("For guests needing physical USB/serial devices, inspect stable device IDs and explicitly review Incus passthrough; do not assume a particular peripheral")
+    pending.append("For LAN-facing services such as DNS, validate stable guest reachability and firewall rules before changing router or client settings")
     if a["access"] == "private":
         pending.append("Enable/enroll Tailscale through the Private Access recipe; verify private SSH without publishing management dashboards")
     if a["access"] == "public":
@@ -165,8 +152,8 @@ def plan(answers, host, settings, *, remote=False):
     ]
     if a["network"] != "nat":
         reasons[1] = "Requested LAN networking is deferred for guarded local-console review; initial guest topology stays NAT"
-    if a["adguard"] and a["network"] == "nat":
-        reasons.append("NAT alone does NOT serve DNS to LAN clients; AdGuard needs an explicit LAN reachability step")
+    if a["network"] == "nat":
+        reasons.append("NAT guests do not automatically expose services to LAN clients; review port forwarding, routing or a separate LAN network as needed")
     vm_memory = settings["apps"]["memory"]
     memory_mib = int(vm_memory[:-3]) * (1024 if vm_memory.endswith("GiB") else 1)
     return dict(version=VERSION, answers=a, apps=apps, laptop=a["laptop"],

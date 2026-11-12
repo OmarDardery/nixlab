@@ -135,7 +135,7 @@ function hostHardware() {
     ) +
     card(
       "Use the device in Incus",
-      '<p>An alias such as <code>/dev/nixlab/serial-device</code> identifies one selected device. In Incus, add a unix-char device with that source, an appropriate guest path, <code>required=false</code>, and the application’s guest UID/GID and mode.</p><p>Do not pass all of /dev or make the container privileged. Reconnect and reboot behavior must be tested with the actual device. Klipper and similar services are examples, not bundled applications.</p><a href="/docs/hardware.md">Attachment and hardware qualification guide</a>',
+      '<p>An alias such as <code>/dev/nixlab/serial-device</code> identifies one selected device. In Incus, add a unix-char device with that source, an appropriate guest path, <code>required=false</code>, and the application’s guest UID/GID and mode.</p><p>Do not pass all of /dev or make the container privileged. Reconnect and reboot behavior must be tested with the actual device. No application-specific service is bundled.</p><a href="/docs/hardware.md">Attachment and hardware qualification guide</a>',
     ) +
     storage()
   );

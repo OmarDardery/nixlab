@@ -1,8 +1,8 @@
 # Hardware prerequisites for Incus workloads
 
 Hardware & Disks reports USB serial identifiers, unique serial numbers, stable
-paths and bound drivers through sysfs. Nothing is assigned automatically. Klipper
-is an example workload, not a default installation or special portal feature.
+paths and bound drivers through sysfs. Nothing is assigned automatically.
+All peripheral-backed applications use the same generic passthrough workflow.
 
 Use an existing unique `/dev/serial/by-id/...` path directly in Incus, or declare
 an optional alias through the reviewed portal form or a Nix module:

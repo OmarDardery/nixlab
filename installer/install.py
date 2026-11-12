@@ -110,9 +110,6 @@ def parser_args():
     parser.add_argument('--workloads', choices=['containers', 'compose', 'both'])
     parser.add_argument('--access-mode', choices=['lan', 'private', 'public'])
     parser.add_argument('--guest-network', choices=['nat', 'lan', 'vlan'])
-    parser.add_argument('--adguard', action='store_true', help='Include AdGuard DNS manual provisioning checklist')
-    parser.add_argument('--klipper', action='store_true', help='Include Klipper serial passthrough checklist')
-    parser.add_argument('--aiostreams', action='store_true', help='Include AIOStreams Compose checklist')
     parser.add_argument('--laptop-mode', action='store_true', help='Enable always-on laptop lid policy')
     parser.add_argument('--no-monitoring', action='store_true', help='Disable host metric collection')
     return parser, parser.parse_args()
@@ -223,7 +220,6 @@ def main():
     if args.interactive and not sys.stdin.isatty():
         parser.error('--interactive requires a terminal; use --answers for unattended provisioning')
     selected_flags = any((args.workloads, args.access_mode, args.guest_network,
-                          args.adguard, args.klipper, args.aiostreams,
                           args.laptop_mode, args.no_monitoring,
                           args.guest_subnet, args.no_apps))
     if args.plan_only and not sys.stdin.isatty() and args.answers is None and not selected_flags:
@@ -232,7 +228,6 @@ def main():
         parser.error('Choose either --answers or --interactive, not both')
     if not args.switch and (args.interactive or args.answers or args.plan_only or
                             args.workloads or args.access_mode or args.guest_network or
-                            args.adguard or args.klipper or args.aiostreams or
                             args.laptop_mode or args.no_monitoring):
         parser.error('--wizard bootstraps only the web UI; use --switch for a reviewed home-server plan')
     if TARGET.exists() and not rt.machine_path(TARGET, 'installation').is_file():
@@ -326,8 +321,7 @@ def main():
         for arg, field in (('workloads', 'workloads'), ('access_mode', 'access'), ('guest_network', 'network')):
             if getattr(args, arg) is not None:
                 flags[field] = getattr(args, arg)
-        for arg, field in (('adguard', 'adguard'), ('klipper', 'klipper'),
-                           ('aiostreams', 'aiostreams'), ('laptop_mode', 'laptop')):
+        for arg, field in (('laptop_mode', 'laptop'),):
             if getattr(args, arg): flags[field] = True
         if args.no_monitoring: flags['monitoring'] = False
         if args.guest_subnet: flags['guestSubnet'] = args.guest_subnet
