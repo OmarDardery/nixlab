@@ -191,7 +191,9 @@ class ReadinessTests(unittest.TestCase):
         cfg = initial(); cfg['apps']['enable'] = True; cfg['cockpit']['enable'] = True
         def response(address, port, path):
             return (404 if path == '/api/users/admin/check' else 200), b'{}'
-        with patch('diagnostics.management_address', return_value='192.0.2.20'), patch('diagnostics.request', side_effect=response):
+        with patch('diagnostics.management_address', return_value='192.0.2.20'), \
+             patch('diagnostics.request', side_effect=response), \
+             patch('diagnostics.http_entry', return_value=(308, True)):
             report = diagnostics.probe(cfg)
         self.assertFalse(report['ok'])
         self.assertEqual([c['name'] for c in report['checks'] if not c['ok']], ['Portainer administrator'])

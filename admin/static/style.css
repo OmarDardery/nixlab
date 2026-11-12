@@ -29,6 +29,13 @@ button.small { font-size: 11px; padding: 8px 11px; }
 .nav button:hover { background: var(--panel2); color: var(--text); }
 .nav button.active { background: #272016; color: var(--accent); border-left-color: var(--accent); }
 .nav-icon { font: 16px/1 var(--mono); width: 20px; text-align: center; }
+.sidebar-shortcuts { display: grid; gap: 5px; padding: 0 4px; }
+.sidebar-shortcuts .nav-label { margin-bottom: 5px; }
+.sidebar-shortcuts a, .sidebar-shortcuts button { display: flex; align-items: center; justify-content: space-between; padding: 8px 11px; border: 1px solid transparent; background: transparent; color: var(--text); font: 12px/1.45 var(--body); text-align: left; width: 100%; }
+.sidebar-shortcuts a:hover, .sidebar-shortcuts button:hover { border-color: var(--line); background: var(--panel2); text-decoration: none; }
+.sidebar-shortcuts span { color: var(--accent); }
+.service-shortcuts { display: flex; flex-wrap: wrap; align-items: center; gap: 15px; padding: 12px 0; border-top: 1px solid var(--line); }
+.service-shortcuts a { font-size: 11px; }
 .sidebar-bottom { margin-top: auto; border-top: 1px solid var(--line); padding: 20px 12px 0; font-size: 11px; line-height: 1.9; overflow-wrap: anywhere; }
 .sidebar-bottom b { color: var(--text); display: block; font-weight: 550; }
 .sidebar-bottom button { margin-top: 12px; }

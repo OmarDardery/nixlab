@@ -58,6 +58,16 @@ function commandGroups() {
   const address = state.status.managementAddress || settings.management.address;
   const host = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(address) && address.split('.').every(n => Number(n) <= 255) ? address : "HOST_IP";
   return [
+    { id: "cheatsheet", title: "Everyday homelab cheatsheet", guide: "administration.md", items: [
+      ["quick-doctor", "NixLab health", "Host terminal", "Check host and management endpoint readiness.", "sudo nixlab doctor"],
+      ["quick-guests", "Show all guests", "Host terminal", "Instances and their current states across Incus projects.", "sudo incus list --all-projects"],
+      ["quick-failures", "Failed services", "Host terminal", "Inspect failed systemd units.", "systemctl --failed"],
+      ["quick-log", "Follow NixLab web logs", "Host terminal", "Investigate authentication or startup problems.", "sudo journalctl -u nixlab-ui -f"],
+      ["quick-apps", "Check apps VM", "Host terminal", "Check Docker from inside the isolated guest.", "sudo incus exec apps --project lab -- docker ps"],
+      ["quick-klipper", "Klipper service logs", "Host terminal", "Inspect the printer guest without exposing Moonraker publicly.", "sudo incus exec klipper --project lab -- journalctl -u klipper -n 50 --no-pager"],
+      ["quick-recovery", "Show pending install checklist", "Host terminal", "See unfinished DNS, printer and backup commissioning steps.", "sudo nixlab install-plan"],
+      ["quick-config", "Current change status", "Host terminal", "View reviewed configuration transactions.", "sudo nixlab-admin config status"],
+    ] },
     { id: "updates", title: "Install & update", guide: "plain-nixos.md", items: [
       ["platform-update", "Update Nixlab", "Host terminal", "Fetch current platform source, preserve machine configuration and use the installer’s health checks. Local platform edits are preserved and reported.", "sudo nix --extra-experimental-features 'nix-command flakes' run --refresh github:OmarDardery/nixlab#install"],
       ["package-review", "Review a package refresh", "Host terminal", "Build a candidate with refreshed pinned inputs. This does not activate it; inspect and apply it under Changes.", "sudo nixlab-admin config review --update-inputs"],

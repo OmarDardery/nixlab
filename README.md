@@ -45,6 +45,12 @@ supported adoption boundaries and the installation issue regression checklist.
 Start with an ordinary minimal NixOS installation, working networking and hardware
 virtualization enabled in firmware.
 
+The portal is also reachable from trusted LAN clients at `http://HOST_IP/` on port 80,
+which redirects immediately to the authenticated HTTPS host console (default
+`https://HOST_IP:9440/`). Its sidebar links directly to enabled Incus UI,
+Cockpit, and Portainer, plus a copy-only commands cheatsheet. Credentials never
+traverse plaintext HTTP.
+
 The portal handles host settings, reviewed file uploads and source upgrades, Ethernet/hardware prerequisites,
 independent backups/recovery, accounts and offline guides. Incus handles guest operations, consoles, networks and snapshots. Optional recipes
 include laptop lid policy, SMART health, private SSH access, monitoring and the applications VM.

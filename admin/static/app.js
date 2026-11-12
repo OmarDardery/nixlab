@@ -114,9 +114,21 @@ function pendingBanner() {
   if (!p) return "";
   return `<div class="banner warn status-banner"><div><h3>Confirm your connection after activation</h3><p>${j?.status === "awaiting-confirmation" ? "Your previous generation will be restored unless you confirm." : "Activation is in progress; recovery is armed."} <span id="countdown"></span></p></div><button class="primary" data-action="confirm" ${j?.status !== "awaiting-confirmation" ? "disabled" : ""}>Confirm access</button></div>`;
 }
+function quickManagementLinks(settings) {
+  const address = state.status.managementAddress || settings.management.address;
+  if (!state.status.setupComplete) return "";
+  const links = [
+    ["Incus UI", 8443],
+    ...(settings.cockpit?.enable ? [["Cockpit", settings.cockpit.port]] : []),
+    ...(settings.apps?.enable ? [["Portainer", settings.apps.portainerPort]] : []),
+  ];
+  return `<div class="sidebar-shortcuts"><div class="nav-label">OPEN MANAGEMENT</div>${links.map(([name, port]) =>
+    `<a href="https://${esc(address)}:${esc(port)}" target="_blank" rel="noopener noreferrer">${esc(name)} <span aria-hidden="true">↗</span></a>`).join("")}
+    <button type="button" data-go="commands">Commands cheatsheet <span aria-hidden="true">→</span></button></div>`;
+}
 function shell() {
   const settings = state.status.effectiveSettings || state.status.settings;
-  app.innerHTML = `<div class="layout"><aside class="sidebar">${brandLogo()}<div><div class="nav-label">YOUR INFRASTRUCTURE</div><nav class="nav">${pages.map(([id, icon, label]) => `<button data-go="${id}" class="${primaryPage() === id ? "active" : ""}"><span class="nav-icon">${icon}</span>${label}</button>`).join("")}</nav></div><div class="sidebar-bottom"><b><span class="dot"></span>${esc(settings.hostName)}</b>Declarative host · NixOS<br><span class="mono">${esc(state.status.managementAddress || settings.management.address)}</span><div class="sidebar-links"><a href="/docs/troubleshooting.md">Offline help</a><a href="https://nixlab.dardery.work/" target="_blank" rel="noopener noreferrer">Website ↗</a></div><button class="small" data-action="logout">Sign out</button></div></aside><div class="content"><header class="topbar"><div class="breadcrumb">Host console <span class="muted">/</span> <b>${esc(hostPages.find((p) => p[0] === state.page)?.[1] || pages.find((p) => p[0] === state.page)?.[2])}</b></div><div class="top-actions"><span class="pill"><span class="dot"></span>${settings.ready ? "Configured host" : "Initial setup"}</span><span class="mono muted">${esc(state.principal.username)} · ${esc(state.principal.role)}</span></div></header><main class="page">${pendingBanner()}${ownershipBanner()}${hostTabs()}${renderPage()}<footer class="footer-note">Declarative infrastructure. Ordinary human consequences.</footer></main></div></div>`;
+  app.innerHTML = `<div class="layout"><aside class="sidebar">${brandLogo()}<div><div class="nav-label">YOUR INFRASTRUCTURE</div><nav class="nav">${pages.map(([id, icon, label]) => `<button data-go="${id}" class="${primaryPage() === id ? "active" : ""}"><span class="nav-icon">${icon}</span>${label}</button>`).join("")}</nav></div>${quickManagementLinks(settings)}<div class="sidebar-bottom"><b><span class="dot"></span>${esc(settings.hostName)}</b>Declarative host · NixOS<br><span class="mono">${esc(state.status.managementAddress || settings.management.address)}</span><div class="sidebar-links"><a href="/docs/troubleshooting.md">Offline help</a><a href="https://nixlab.dardery.work/" target="_blank" rel="noopener noreferrer">Website ↗</a></div><button class="small" data-action="logout">Sign out</button></div></aside><div class="content"><header class="topbar"><div class="breadcrumb">Host console <span class="muted">/</span> <b>${esc(hostPages.find((p) => p[0] === state.page)?.[1] || pages.find((p) => p[0] === state.page)?.[2])}</b></div><div class="top-actions"><span class="pill"><span class="dot"></span>${settings.ready ? "Configured host" : "Initial setup"}</span><span class="mono muted">${esc(state.principal.username)} · ${esc(state.principal.role)}</span></div></header><main class="page">${pendingBanner()}${ownershipBanner()}${hostTabs()}${renderPage()}<footer class="footer-note">Declarative infrastructure. Ordinary human consequences.</footer></main></div></div>`;
   bind();
   bindOperations();
   bindFoundation();
@@ -175,6 +187,7 @@ function homepageTools() {
     incus +
       cockpit +
       portainer +
+      `<div class="service-shortcuts"><button class="small" type="button" data-go="commands">Open commands cheatsheet →</button><a href="/docs/administration.md" target="_blank" rel="noopener noreferrer">Host administration guide ↗</a></div>` +
       `<div class="service-enrollment"><p class="note">Incus browser access uses a separate client certificate.</p><button class="small" data-action="certificate" ${ready ? "" : "disabled"}>Create browser certificate</button><div id="certificate-result"></div></div>`,
     "Private management",
   );
