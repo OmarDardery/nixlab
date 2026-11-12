@@ -68,6 +68,7 @@ in pkgs.testers.runNixOSTest {
     nixlab.recovery.enable = true;
     virtualisation = { memorySize = 1536; diskSize = 4096; };
     virtualisation.incus.enable = true;
+    networking.nftables.enable = true;
     environment.systemPackages = [ pkgs.python3 pkgs.incus-lts.client ];
   };
   testScript = ''
