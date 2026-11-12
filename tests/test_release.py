@@ -42,7 +42,8 @@ class ReleaseTests(unittest.TestCase):
                 for item in result['evidence']:
                     item.update(contextDigest=c.digest(result['context']), time=int(time.time()))
                 rt.write_json(path, result)
-            rt.write_json(evidence / 'recovery.json', {'phase': 'complete', 'restore': 'operator-attested',
+            rt.write_json(evidence / 'recovery.json', {'format': 1, 'evidenceType': 'operator-attestation',
+                'phase': 'complete', 'restore': 'operator-attested', 'verifiedAt': int(time.time()), 'backupCreated': int(time.time()) - 60,
                 'coverage': {'complete': True}, 'sourceRevision': revision, 'sourceInputsDigest': c.digest('{}'), 'durationSeconds': 42})
             (evidence / 'limitations.md').write_text('Synthetic test evidence only; never physical qualification.')
             run_ids = {key: index for index, key in enumerate(release.WORKFLOWS, 1)}
@@ -73,11 +74,14 @@ class ReleaseTests(unittest.TestCase):
             self.assertFalse(args.output.exists()); network.assert_not_called()
 
     def test_restore_requires_full_recorded_data_recovery_on_the_candidate(self):
-        record = {'phase': 'complete', 'restore': 'operator-attested', 'coverage': {'complete': True},
+        record = {'format': 1, 'evidenceType': 'operator-attestation', 'phase': 'complete', 'restore': 'operator-attested',
+                  'coverage': {'complete': True}, 'verifiedAt': int(time.time()), 'backupCreated': int(time.time()) - 60,
                   'sourceRevision': 'a' * 40, 'sourceInputsDigest': 'b' * 64, 'durationSeconds': 42.5}
         self.assertEqual(release.recovery_evidence(record, 'a' * 40, 'b' * 64), 42.5)
         for change in ({'phase': 'isolated'}, {'restore': 'unverified'}, {'restore': 'operator-attested-selected'},
                        {'coverage': {'complete': False}}, {'sourceRevision': 'c' * 40}, {'durationSeconds': True},
+                       {'verifiedAt': int(time.time()) - c.MAX_AGE - 1}, {'verifiedAt': int(time.time()) + 60},
+                       {'backupCreated': int(time.time()) + 60}, {'evidenceType': 'unverified'},
                        {'durationSeconds': float('nan')}, {'durationSeconds': float('inf')}):
             with self.assertRaises(ValueError): release.recovery_evidence({**record, **change}, 'a' * 40, 'b' * 64)
 

@@ -86,9 +86,11 @@ candidate SHA they identify:
 - `qualification/fresh.json` and `upgrade.json`: strict commissioning exports,
   current for the candidate version, source and pinned inputs, with all mandatory
   checks passed. Simulated, stale, skipped or other-revision reports are rejected.
-- `qualification/recovery.json`: sanitized `nixlab-admin recovery status` after a
+- `qualification/recovery.json`: redacted `nixlab-admin recovery export-report` after a
   completed data-verified independent recovery, with full coverage, source/input
-  identity and measured duration. Selected-data recovery is insufficient.
+  identity, attestation time and measured duration. Selected-data, future-dated
+  or older-than-30-day recovery evidence is insufficient. Operational `status`
+  includes private mappings and should not be committed as public evidence.
 - `qualification/limitations.md`: tested hardware/software and storage/network
   compatibility; backup coverage and measured recovery procedure; actual reboot
   count and representative-operation duration; remaining limitations and evidence

@@ -67,12 +67,16 @@ def gh_json(*args):
     return json.loads(subprocess.check_output(['gh', 'api', *args], text=True, timeout=60))
 
 
-def recovery_evidence(restored, revision, inputs):
-    if (restored.get('phase') != 'complete' or restored.get('restore') != 'operator-attested'
+def recovery_evidence(restored, revision, inputs, now=None):
+    now = int(time.time() if now is None else now)
+    if (restored.get('format') != 1 or restored.get('evidenceType') != 'operator-attestation'
+            or restored.get('phase') != 'complete' or restored.get('restore') != 'operator-attested'
             or restored.get('coverage', {}).get('complete') is not True
             or restored.get('sourceRevision') != revision or restored.get('sourceInputsDigest') != inputs
+            or type(restored.get('verifiedAt')) is not int or not 0 <= now - restored['verifiedAt'] <= commissioning.MAX_AGE
+            or type(restored.get('backupCreated')) not in (int, float) or not 0 <= restored['backupCreated'] <= restored['verifiedAt']
             or type(restored.get('durationSeconds')) not in (int, float) or not 0 <= restored['durationSeconds'] < float('inf')):
-        raise ValueError('Require completed full-coverage recovery evidence for this source/inputs with recorded duration')
+        raise ValueError('Require current full-coverage recovery evidence for this source/inputs with recorded duration')
     return restored['durationSeconds']
 
 
