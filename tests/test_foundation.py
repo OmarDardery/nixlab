@@ -121,6 +121,88 @@ class BackupGenerationTests(unittest.TestCase):
             backup.backup()
         self.assertFalse(any(args[0] == 'stop' for args in self.calls))
 
+    def test_predicted_exports_refuse_before_stopping_guests_even_with_reserve_available(self):
+        with patch.object(backup, 'staging_plan', return_value={'sufficientForEstimate': False}), \
+                self.assertRaisesRegex(ValueError, 'estimated exports'):
+            backup.backup()
+        self.assertFalse(any(args[0] == 'stop' for args in self.calls))
+
+    def test_external_data_is_not_reported_as_full_coverage(self):
+        original = self.incus
+        def external(*args, **kwargs):
+            result = original(*args)
+            if args[0] == 'list':
+                guests = json.loads(result)
+                guests[0]['expanded_devices'] = {'data': {'type': 'disk', 'path': '/data', 'source': '/srv/outside'}}
+                return json.dumps(guests)
+            return result
+        with patch.object(backup, 'incus', side_effect=external):
+            directory = backup.backup()
+        manifest = json.loads((directory / 'inventory.json').read_text())
+        self.assertEqual(manifest['coverage'], 'selected')
+        self.assertFalse(manifest['coverageDetails']['complete'])
+        status = json.loads((self.root / 'backup-status.json').read_text())
+        self.assertEqual(status['phase'], 'complete-with-exclusions')
+        self.assertEqual(status['restore'], 'unverified')
+
+    def test_missing_recovery_secrets_refuse_before_stopping_guests(self):
+        response = subprocess.CompletedProcess([], 0, stdout='{"format":1,"complete":false}')
+        with patch.dict(os.environ, {'NIXLAB_RECOVERY_TOOL': '/fake/admin'}), \
+                patch.object(backup.subprocess, 'run', return_value=response), \
+                self.assertRaisesRegex(ValueError, 'credentials'):
+            backup.backup(with_recovery=True)
+        self.assertFalse(any(args[0] == 'stop' for args in self.calls))
+
+    def test_failure_reporting_retains_current_capacity_and_coverage(self):
+        backup.progress('preflight', capacity={'sufficientForEstimate': False}, coverage={'complete': False})
+        backup.progress('failed', error='Insufficient space')
+        status = json.loads((self.root / 'backup-status.json').read_text())
+        self.assertEqual(status['phase'], 'failed')
+        self.assertFalse(status['capacity']['sufficientForEstimate'])
+        self.assertFalse(status['coverage']['complete'])
+
+    def test_restart_intent_cannot_start_a_different_guest_reusing_the_name(self):
+        backup.save_pending([{'project': 'lab', 'name': 'one', 'uuid': 'original-uuid'}])
+        self.calls.clear()
+        def replaced(*args, **kwargs):
+            self.calls.append(args)
+            return json.dumps({'config': {'volatile.uuid': 'replacement-uuid'}})
+        with patch.object(backup, 'incus', side_effect=replaced), self.assertRaisesRegex(RuntimeError, 'could not be restarted'):
+            backup.recover()
+        self.assertFalse(any(call[0] == 'start' for call in self.calls))
+        self.assertEqual(json.loads(backup.PENDING.read_text())[0]['uuid'], 'original-uuid')
+
+    def test_current_restart_intent_retains_identity_and_recovers_the_original_guest(self):
+        original = self.incus
+        def identified(*args, **kwargs):
+            if args[0] == 'list':
+                guests = json.loads(original(*args))
+                for guest in guests: guest['config'] = {'volatile.uuid': guest['name'] + '-uuid'}
+                return json.dumps(guests)
+            if args[0] == 'query' and args[1].startswith('/1.0/instances/') and '/state?' not in args[1]:
+                return json.dumps({'config': {'volatile.uuid': args[1].split('/')[3].split('?')[0] + '-uuid'}})
+            return original(*args)
+        with patch.object(backup, 'incus', side_effect=identified), patch.object(backup, 'save_pending', wraps=backup.save_pending) as pending:
+            backup.backup()
+        intents = [item for call in pending.call_args_list for item in call.args[0]]
+        self.assertTrue(intents)
+        self.assertTrue(all(item['uuid'] == item['name'] + '-uuid' for item in intents))
+        self.assertEqual(self.states['one'], 'Running')
+
+    def test_identity_drift_before_shutdown_cannot_stop_a_replacement(self):
+        original = self.incus
+        def changed(*args, **kwargs):
+            if args[0] == 'list':
+                guests = json.loads(original(*args))
+                for guest in guests: guest['config'] = {'volatile.uuid': 'original'}
+                return json.dumps(guests)
+            if args[0] == 'query' and args[1].startswith('/1.0/instances/') and '/state?' not in args[1]:
+                return '{"config":{"volatile.uuid":"replacement"}}'
+            return original(*args)
+        with patch.object(backup, 'incus', side_effect=changed), self.assertRaises(RuntimeError): backup.backup()
+        self.assertFalse(any(call[0] == 'stop' for call in self.calls))
+        self.assertFalse((self.root / 'latest.json').exists())
+
     def test_shared_volume_and_explicit_groups_join_consumers_across_projects(self):
         device = {'data': {'type': 'disk', 'pool': 'guests', 'path': '/data', 'source': 'shared'}}
         guests = [{'project': p, 'name': n, 'expanded_devices': device if n != 'three' else {}}

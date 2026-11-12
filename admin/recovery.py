@@ -45,7 +45,7 @@ def health():
     except OSError:
         result['rootStorage'] = None
     status = rt.read_json(Path('/var/lib/nixlab/backup-status.json'), {})
-    result['backup'] = {key: status[key] for key in ('phase', 'updated', 'generation', 'group', 'groups', 'members', 'excluded') if key in status}
+    result['backup'] = {key: status[key] for key in ('phase', 'updated', 'generation', 'group', 'groups', 'members', 'excluded', 'coverage', 'capacity', 'restore') if key in status}
     import backup_health
     settings = rt.read_json(Path('/etc/nixlab/effective-settings.json'), rt.read_json(rt.machine_path(rt.ROOT, 'settings'), {}))
     result['backup']['health'] = backup_health.status(settings.get('backup', {}).get('enable', False))
@@ -54,19 +54,61 @@ def health():
     return result
 
 
+def settings():
+    return rt.read_json(Path('/etc/nixlab/effective-settings.json'), rt.read_json(rt.machine_path(rt.ROOT, 'settings'), {}))
+
+
+def secret_source(path):
+    """Follow configured SOPS links, then archive the regular root-owned target."""
+    try:
+        resolved = Path(path).resolve(strict=True)
+        stat = resolved.stat()
+        if resolved.is_file() and stat.st_uid == os.geteuid() and not stat.st_mode & 0o022:
+            return resolved
+    except (OSError, RuntimeError):
+        pass
+    return None
+
+
+def coverage():
+    configured = settings()
+    required = {}
+    for section, key in (('backup', 'passwordFile'), ('backup', 'environmentFile'), ('tunnel', 'credentialsFile')):
+        value = configured.get(section, {}).get(key)
+        if configured.get(section, {}).get('enable') and value:
+            required[section + '-' + key] = Path(value)
+    if configured.get('secrets', {}).get('enable'):
+        required['sops-age-key'] = Path(configured['secrets'].get('ageKeyFile', '/var/lib/sops-nix/key.txt'))
+    if configured.get('setup', {}).get('enable'):
+        for name in ('ca.key', 'ca.crt', 'tls.key', 'tls.crt'):
+            required['management-' + name] = rt.STATE / name
+        required['management-account'] = rt.STATE / ('users.json' if (rt.STATE / 'users.json').exists() else 'auth.json')
+        if configured.get('apps', {}).get('enable'):
+            # Account metadata is created only by an explicit password reset.
+            # A fresh bootstrap uses admin and legitimately has no such file.
+            for name in ('apps-tls.key', 'apps-tls.crt'):
+                required['apps-' + name] = rt.STATE / name
+            required['apps-bootstrap'] = rt.SECRET_PATHS['portainerPassword']
+    files = secret_files()
+    archived = set(files.values())
+    missing = [name for name, path in required.items() if secret_source(path) is None or secret_source(path) not in archived]
+    return {'format': 1, 'complete': not missing, 'missing': sorted(missing),
+            'included': sorted(files), 'restore': 'unverified'}
+
+
 def secret_files():
     files = {}
     for name in ('auth.json', 'users.json', 'setup-password', 'operator-password', 'portainer-account.json',
                  'ca.key', 'ca.crt', 'tls.key', 'tls.crt', 'apps-tls.key', 'apps-tls.crt'):
         files['admin/' + name] = rt.STATE / name
     for name, path in rt.SECRET_PATHS.items(): files['runtime/' + name] = path
-    settings = rt.read_json(Path('/etc/nixlab/effective-settings.json'), rt.read_json(rt.machine_path(rt.ROOT, 'settings'), {}))
+    configured = settings()
     for section, key in (('backup', 'passwordFile'), ('backup', 'environmentFile'), ('tunnel', 'credentialsFile')):
-        value = settings.get(section, {}).get(key)
+        value = configured.get(section, {}).get(key)
         if value: files['runtime/' + section + '-' + key] = Path(value)
     notification = rt.read_json(Path('/etc/nixlab/notification-settings.json'), {})
     if notification.get('webhookFile'): files['runtime/notification-url'] = Path(notification['webhookFile'])
-    key = Path(settings.get('secrets', {}).get('ageKeyFile', '/var/lib/sops-nix/key.txt'))
+    key = Path(configured.get('secrets', {}).get('ageKeyFile', '/var/lib/sops-nix/key.txt'))
     if key.is_file(): files['sops/age-key.txt'] = key
     for path in Path('/var/lib/nixlab-secrets').rglob('*'):
         if path.is_file() and not any(p.is_symlink() for p in (path, *path.parents)):
@@ -74,7 +116,7 @@ def secret_files():
     for parent in (Path('/etc/NetworkManager/system-connections'), Path('/run/NetworkManager/system-connections')):
         for path in parent.glob('*.nmconnection'):
             files['network/' + path.name] = path
-    return {n: p for n, p in files.items() if p.is_file() and not p.is_symlink()}
+    return {name: source for name, path in files.items() if (source := secret_source(path)) is not None}
 
 
 def write_archive(stream, files, kind):
@@ -134,6 +176,8 @@ def export(directory, recipient=None, include_secrets=False):
 def backup(directory):
     """Called under the backup prepare lock. Restic encrypts these root-only files off-host."""
     directory = Path(directory)
+    if not coverage()['complete']:
+        raise ValueError('Required recovery credentials are missing or unsafe; run nixlab-admin recovery coverage')
     result = export(directory)
     secrets = directory / 'nixlab-secrets.tar.gz'
     stream = io.BytesIO(); write_archive(stream, secret_files(), 'secrets')
@@ -194,6 +238,7 @@ def cli(argv):
     import argparse
     parser = argparse.ArgumentParser(prog='nixlab-admin recovery')
     commands = parser.add_subparsers(dest='command', required=True)
+    commands.add_parser('coverage')
     create = commands.add_parser('export'); create.add_argument('directory', type=Path)
     create.add_argument('--recipient'); create.add_argument('--include-secrets', action='store_true')
     verify = commands.add_parser('inspect'); verify.add_argument('archive', type=Path)
@@ -202,6 +247,7 @@ def cli(argv):
     if args.command == 'export':
         with rt.locked(blocking=False): result = export(args.directory, args.recipient, args.include_secrets)
     elif args.command == 'inspect': result = inspect(args.archive)[0]
+    elif args.command == 'coverage': result = coverage()
     else: result = stage(args.archive, args.destination)
     print(json.dumps(result, indent=2))
 

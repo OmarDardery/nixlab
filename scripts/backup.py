@@ -20,12 +20,13 @@ import uuid
 from urllib.parse import quote
 from locking import open_lock
 import incus_client
+import backup_plan
 
 ROOT = Path(os.environ.get('NIXLAB_EXPORT_DIRECTORY', '/var/lib/nixlab/exports'))
 PENDING = Path('/var/lib/nixlab/restart-pending.json')
 
-def incus(*args):
-    return incus_client.run(args, 43200, RuntimeError, 'Incus exited {code}')
+def incus(*args, timeout=43200):
+    return incus_client.run(args, timeout, RuntimeError, 'Incus exited {code}')
 
 def query(path):
     return json.loads(incus('query', path))
@@ -43,11 +44,26 @@ def save_pending(pending):
     finally:
         os.close(directory)
 
+def instance_identity(guest):
+    return {'project': guest['project'], 'name': guest['name'], 'uuid': guest.get('config', {}).get('volatile.uuid')}
+
+
+def verify_identity(guest):
+    # Legacy restart records have no UUID; preserve their existing recovery
+    # behavior. All current Incus inventories provide the stable identity.
+    if not guest.get('uuid'): return
+    current = json.loads(incus('query', '/1.0/instances/' + quote(guest['name'], safe='')
+                              + '?project=' + quote(guest['project'], safe=''), timeout=15))
+    if current.get('config', {}).get('volatile.uuid') != guest['uuid']:
+        raise RuntimeError('Guest identity changed after inventory; refusing backup lifecycle changes')
+
+
 def recover():
     pending = json.loads(PENDING.read_text()) if PENDING.exists() else []
     failed = []
     for guest in pending:
         try:
+            verify_identity(guest)
             state = query('/1.0/instances/' + quote(guest['name'], safe='') + '/state?project=' + quote(guest['project'], safe=''))
             if state['status'] == 'Stopped':
                 incus('start', guest['name'], '--project', guest['project'])
@@ -99,6 +115,13 @@ def sync_directory(directory):
 
 def progress(phase, **fields):
     PENDING.parent.mkdir(parents=True, exist_ok=True)
+    if phase == 'failed':
+        try:
+            previous = json.loads(PENDING.with_name('backup-status.json').read_text())
+            retained = {key: previous[key] for key in ('generation', 'coverage', 'capacity', 'excluded') if key in previous}
+            fields = {**retained, **fields}
+        except (OSError, ValueError, TypeError):
+            pass
     atomic_json(PENDING.with_name('backup-status.json'), {'phase': phase, 'updated': time.time(), **fields})
 
 
@@ -147,6 +170,43 @@ def consistency_groups(guests, volumes, configured, namespaces=None):
     groups = list(result.values())
     if standalone: groups.append({'guests': [], 'volumes': standalone})
     return groups
+
+
+def previous_sizes():
+    try:
+        pointer = json.loads((ROOT / 'latest.json').read_text())
+        generation = pointer['generation']
+        if not re.fullmatch(r'[0-9]+-[0-9a-f]{32}', generation): return {}
+        directory = ROOT / 'generations' / generation
+        if directory.resolve() != directory.absolute(): return {}
+        inventory = json.loads((directory / 'inventory.json').read_text())
+        return {name: (directory / name).stat().st_size for name in inventory['archiveSHA256']
+                if re.fullmatch(r'(instance|volume)-[0-9a-f]{64}\.tar\.gz', name)
+                and (directory / name).is_file() and not (directory / name).is_symlink()}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+
+
+def staging_plan(guests, volumes, reserve, with_recovery):
+    previous = previous_sizes()
+    objects = []
+    for guest in guests:
+        path = '/1.0/instances/' + quote(guest['name'], safe='') + '/state?project=' + quote(guest['project'], safe='')
+        objects.append((guest['archive'], path, 'instance'))
+    for volume in volumes:
+        path = '/1.0/storage-pools/' + quote(volume['pool'], safe='') + '/volumes/custom/' + quote(volume['name'], safe='') + '/state?project=' + quote(volume['project'], safe='')
+        objects.append((volume['archive'], path, 'volume'))
+    estimates = []
+    for name, path, kind in objects:
+        try:
+            state = json.loads(incus('query', path, timeout=15))
+            usage = state.get('disk', {}).get('root', {}).get('usage') if kind == 'instance' else state.get('usage', {}).get('used')
+        except (RuntimeError, OSError, ValueError, TypeError, AttributeError, subprocess.SubprocessError):
+            usage = None
+        estimates.append((name, usage, previous.get(name)))
+    # Each recovery kit already has a 100 MiB uncompressed hard bound.
+    return backup_plan.capacity(estimates, shutil.disk_usage(ROOT).free, reserve,
+                                202 * 1024**2 if with_recovery else 0)
 
 
 @contextlib.contextmanager
@@ -208,11 +268,21 @@ def backup(with_recovery=False):
         else: selected.append(group)
     selected_guests = [g for group in selected for g in group['guests']]
     selected_volumes = [v for group in selected for v in group['volumes']]
+    coverage = backup_plan.coverage(guests, volumes, selected_guests, selected_volumes, namespaces)
+    if with_recovery:
+        checked = subprocess.run([os.environ['NIXLAB_RECOVERY_TOOL'], 'recovery-coverage'],
+                                 check=True, capture_output=True, text=True, timeout=60)
+        recovery_coverage = json.loads(checked.stdout)
+        if recovery_coverage.get('format') != 1 or recovery_coverage.get('complete') is not True:
+            raise ValueError('Required recovery credentials are missing or unsafe; run nixlab-admin recovery coverage before backup')
+        coverage['recovery'] = recovery_coverage
+    reserve = policy.get('reserveMiB', 1024) * 1024**2
+    capacity = staging_plan(selected_guests, selected_volumes, reserve, with_recovery)
+    progress('preflight', coverage=coverage, capacity=capacity)
+    if not capacity['sufficientForEstimate']:
+        raise ValueError('Insufficient free backup staging space for estimated exports plus reserve; no guests stopped')
     if os.environ.get('NIXLAB_DEMO_BACKUP') == '1' and any(g['project'] == 'lab' and g['name'] == 'apps' for g in selected_guests):
         incus('exec', 'apps', '--project', 'lab', '--', 'nixlab-project', 'backup', 'demo')
-    reserve = policy.get('reserveMiB', 1024) * 1024**2
-    if shutil.disk_usage(ROOT).free < reserve:
-        raise ValueError('Insufficient free backup staging space; no guests stopped')
     generation = str(time.time_ns()) + '-' + uuid.uuid4().hex
     incomplete = ROOT / '.incomplete'; incomplete.mkdir(mode=0o700, exist_ok=True)
     published = ROOT / 'generations'; published.mkdir(mode=0o700, exist_ok=True)
@@ -223,14 +293,16 @@ def backup(with_recovery=False):
         windows = []
         for index, group in enumerate(selected):
             members = [g['project'] + '/' + g['name'] for g in group['guests']]
-            pending = [{'project': g['project'], 'name': g['name']} for g in group['guests'] if g['status'] == 'Running']
+            pending = [instance_identity(g) for g in group['guests'] if g['status'] == 'Running']
             save_pending(pending)
             started = time.time()
             try:
                 progress('exporting', generation=generation, group=index + 1, groups=len(selected), members=members)
                 for guest in pending:
+                    verify_identity(guest)
                     incus('stop', guest['name'], '--project', guest['project'], '--timeout', '180')
                 for guest in group['guests']:
+                    verify_identity(instance_identity(guest))
                     export(['export', guest['name'], '--project', guest['project']], guest['archive'], destination)
                 for volume in group['volumes']:
                     export(['storage', 'volume', 'export', volume['pool'], volume['name'], '--project', volume['project']], volume['archive'], destination)
@@ -239,7 +311,8 @@ def backup(with_recovery=False):
                 progress('recovering', generation=generation, members=members)
                 recover()
         manifest = {'format': 2, 'generation': generation, 'created': time.time(), 'consistencyGroups': windows,
-                    'excluded': skipped, 'coverage': 'selected' if skipped else 'all',
+                    'excluded': skipped, 'coverage': 'all' if coverage['complete'] else 'selected',
+                    'coverageDetails': coverage, 'capacity': capacity,
                     'guests': selected_guests, 'projects': projects, 'pools': pools, 'customVolumes': selected_volumes,
                     'profiles': profiles, 'networks': networks, 'trustedCertificates': trusted, 'serverConfiguration': server}
         if with_recovery:
@@ -253,6 +326,7 @@ def backup(with_recovery=False):
                 os.fsync(stream.fileno())
             checksums[path.name] = digest.hexdigest()
         manifest['archiveSHA256'] = checksums
+        manifest['archiveBytes'] = {name: (destination / name).stat().st_size for name in checksums}
         atomic_json(destination / 'inventory.json', manifest)
         os.rename(destination, published / generation)
         sync_directory(incomplete); sync_directory(published)
@@ -261,8 +335,9 @@ def backup(with_recovery=False):
         complete = sorted((p for p in published.iterdir() if p.is_dir() and not p.is_symlink()
                            and re.fullmatch(r'[0-9]+-[0-9a-f]{32}', p.name) and (p / 'inventory.json').is_file()), reverse=True)
         for path in complete[2:]: shutil.rmtree(path)
-        progress('complete-with-exclusions' if skipped else 'complete', generation=generation,
-                 guests=len(selected_guests), groups=len(selected), excluded=skipped)
+        progress('complete' if coverage['complete'] else 'complete-with-exclusions', generation=generation,
+                 guests=len(selected_guests), groups=len(selected), excluded=skipped,
+                 coverage=coverage, capacity=capacity, restore='unverified')
         return published / generation
     finally:
         recover()

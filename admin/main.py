@@ -619,6 +619,9 @@ if __name__ == '__main__':
     elif action == 'recovery-backup' and os.geteuid() == 0:
         import recovery
         recovery.backup(Path(sys.argv[2]))
+    elif action == 'recovery-coverage' and os.geteuid() == 0:
+        import recovery
+        print(json.dumps(recovery.coverage()))
     elif action == 'config' and os.geteuid() == 0:
         try:
             config_cli(sys.argv[2:])

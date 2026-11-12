@@ -191,3 +191,41 @@ including after cancellation/failure. Shared writable volumes require their
 consumers to stop together. Excluded groups are explicitly omitted and do not
 advance the full-host success timestamp. Exports do not protect external host
 writers or devices; apply workload-specific maintenance policies.
+
+## Coverage and staging preflight
+
+Before stopping guests, scheduled backup checks required configured recovery
+credentials and estimates the **new** generation in addition to retained files.
+Observed Incus usage and previous archive sizes are estimates, with 25% headroom
+and 16 MiB per archive; unavailable current usage is listed as unknown even if a
+previous archive size exists. Recovery kits add their bounded maximum. Known
+insufficient capacity refuses before guest shutdown. Estimates do not guarantee
+snapshot size, compression ratio or space under concurrent writes.
+
+Guest disks and separately exported custom volumes are distinguished from host
+bind mounts, raw attached disks and other external sources. A read-only attachment
+still needs its source data to be recoverable. Uncovered or excluded data keeps
+coverage partial and does not refresh the full-host success timestamp. The root-only
+`inventory.json` retains `coverageDetails`, `capacity` and actual `archiveBytes`;
+`/var/lib/nixlab/backup-status.json` retains the most recent preflight/result.
+Existing version-2 inventories remain readable. Older inventories without these
+fields have no evidence for this additional coverage assessment.
+
+```sh
+sudo nixlab-admin recovery coverage
+sudo cat /var/lib/nixlab/backup-status.json
+```
+
+The credential check reports identifiers, never secret contents. Configured SOPS
+symlinks are resolved to checked regular root-owned targets before archiving;
+missing or writable-by-others required targets refuse scheduled backup. Keep
+restic decryption/access credentials independently available: a copy **inside**
+the repository cannot unlock that repository after total host loss.
+
+A completed export is not an off-host transfer, `restic check` is not an application
+restore, and these new records initially say `restore: unverified`. Prove actual
+Portainer state, Compose definitions, Docker volume records and any external data
+through an isolated restore drill. Incus server identity/administrator enrollment,
+external writers, arbitrary custom module secrets and application-specific
+consistency still require review; this change alone does not close #12 or qualify
+a whole-host release. No new application integration or retention policy is added.
