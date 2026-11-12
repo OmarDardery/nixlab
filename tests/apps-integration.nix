@@ -55,7 +55,7 @@ in pkgs.testers.runNixOSTest {
   };
   testScript = ''
     import json
-    host.start()
+    host.start(allow_reboot=True)
     host.wait_for_unit("nixlab-kvm-check.service")
     for boot in range(3):
         host.wait_for_unit("nixlab-instances.service", timeout=600)
