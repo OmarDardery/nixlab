@@ -153,6 +153,9 @@ activates archived Nix modules, overwrites runtime credentials, starts a guest o
 reconnects production addresses. This is a local-backend recovery increment;
 privileged/raw guests, unmanaged NICs, passthrough and missing attached data stop
 with a required separate review. Source material is never modified or deleted.
+The planner accepts existing dir, ZFS, Btrfs and LVM pools; automated recovery
+coverage currently exercises only dir. Other backends, VM recovery and application
+consistency require separate qualification before relying on them.
 
 1. Install fresh NixOS on the replacement machine with console recovery available.
    Preserve its own boot/hardware configuration. Use the normal single-command
@@ -185,7 +188,19 @@ with a required separate review. Source material is never modified or deleted.
    complete `generations/GENERATION` directory containing `inventory.json` and
    configuration, secret, instance and custom-volume archives. `restic check`
    alone is not a restore. Do not put decryption credentials only inside the
-   repository they unlock.
+   repository they unlock. From a root shell with repository/password credentials
+   loaded through protected runtime files, replace `SNAPSHOT` with the reviewed ID:
+
+   ```sh
+   restic snapshots
+   restic check
+   install -d -m 0700 /root/offhost
+   restic restore SNAPSHOT --target /root/offhost
+   ```
+
+   Restic preserves original paths below the target; use the located generation's
+   full path in the commands below. Keep the restored material root-owned and its
+   generation directory mode 0700.
 4. Select an existing local Incus pool on reviewed replacement storage. Do not
    point at an unmounted disk path, erase a device or reuse production storage.
    Write a root-owned mapping file, substituting actual discovered identifiers:
@@ -195,7 +210,8 @@ with a required separate review. Source material is never modified or deleted.
    ```
 
    The pool receives recovered data; it must already exist. Supported backends
-   are dir, ZFS, Btrfs and LVM with portable Incus exports. NIC/disk mappings must
+   accepted by the planner are dir, ZFS, Btrfs and LVM with portable Incus exports;
+   only dir has automated restore evidence. NIC/disk mappings must
    refer to existing replacement hardware. They are review records, not network,
    filesystem or boot mutations; adapt old source against the replacement's own
    configuration manually. Empty mappings are allowed when no hardware remap is
@@ -278,28 +294,6 @@ custom-module secret or application-consistency coverage. Its two-node CI drill
 uses synthetic configuration kits; an independently supplied real off-host
 generation, mapped hardware and application checks are still mandatory for #11
 and release qualification.
-
-1. Install NixOS safely, restore the reviewed repository revision, generate hardware configuration
-   for the replacement host, and verify the network/storage inventory. Do not restore test fixtures.
-2. Restore age identities and backup access credentials from offline recovery material. Recreate
-   the non-destructive host storage layout or explicitly initialize replacement disks only after review.
-3. Temporarily set `apps.enable = false` and `instances = []` in the inventory so a fresh blank VM
-   cannot claim the name before you import the backup. Keep the same native pool/project/profile names.
-4. Rebuild the host, initialize/import the independent restic repository as documented by restic,
-   inspect snapshots, run `restic check` and restore the chosen snapshot into a root-only staging path.
-   With the runtime environment/password set, use `restic snapshots`, then
-   `restic restore SNAPSHOT --target /root/nixlab-restore`.
-5. Read `latest.json` and inspect `generations/<generation>/inventory.json` (or the legacy flat inventory). Import custom volume archives into their original pool/project first,
-   using `incus storage volume import POOL ARCHIVE --project PROJECT`. Create any additional
-   projects/pools/networks from the inventory before import. Do not overwrite an existing volume.
-6. Import each instance archive with `incus import ARCHIVE --project PROJECT` into the correctly
-   named pool. Restore pools/volume associations first; name collisions must be resolved explicitly.
-7. Restore/verify guest secret files, Portainer state, IP reservations, application configs and
-   external datasets. Preserve old host server TLS material only through a reviewed secure process,
-   otherwise re-enroll and independently re-verify clients. Never copy a live Incus database blindly.
-8. Re-enable desired instances in Nix. Imported owned instances retain their marker; reconcile will
-   compare/update them. Verify limits/NICs before starting, especially in a recovery test network.
-9. Start guests, verify DB/application state and metrics, reconnect ingress last, and run a new backup.
 
 The instance manifest assists reconstruction; it is not an automatic restore of every possible
 Incus server object. UI-created non-default networks/profiles, remote storage and external account
