@@ -189,6 +189,20 @@ class BackupGenerationTests(unittest.TestCase):
         self.assertTrue(all(item['uuid'] == item['name'] + '-uuid' for item in intents))
         self.assertEqual(self.states['one'], 'Running')
 
+    def test_identity_drift_before_shutdown_cannot_stop_a_replacement(self):
+        original = self.incus
+        def changed(*args, **kwargs):
+            if args[0] == 'list':
+                guests = json.loads(original(*args))
+                for guest in guests: guest['config'] = {'volatile.uuid': 'original'}
+                return json.dumps(guests)
+            if args[0] == 'query' and args[1].startswith('/1.0/instances/') and '/state?' not in args[1]:
+                return '{"config":{"volatile.uuid":"replacement"}}'
+            return original(*args)
+        with patch.object(backup, 'incus', side_effect=changed), self.assertRaises(RuntimeError): backup.backup()
+        self.assertFalse(any(call[0] == 'stop' for call in self.calls))
+        self.assertFalse((self.root / 'latest.json').exists())
+
     def test_shared_volume_and_explicit_groups_join_consumers_across_projects(self):
         device = {'data': {'type': 'disk', 'pool': 'guests', 'path': '/data', 'source': 'shared'}}
         guests = [{'project': p, 'name': n, 'expanded_devices': device if n != 'three' else {}}

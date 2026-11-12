@@ -44,16 +44,26 @@ def save_pending(pending):
     finally:
         os.close(directory)
 
+def instance_identity(guest):
+    return {'project': guest['project'], 'name': guest['name'], 'uuid': guest.get('config', {}).get('volatile.uuid')}
+
+
+def verify_identity(guest):
+    # Legacy restart records have no UUID; preserve their existing recovery
+    # behavior. All current Incus inventories provide the stable identity.
+    if not guest.get('uuid'): return
+    current = json.loads(incus('query', '/1.0/instances/' + quote(guest['name'], safe='')
+                              + '?project=' + quote(guest['project'], safe=''), timeout=15))
+    if current.get('config', {}).get('volatile.uuid') != guest['uuid']:
+        raise RuntimeError('Guest identity changed after inventory; refusing backup lifecycle changes')
+
+
 def recover():
     pending = json.loads(PENDING.read_text()) if PENDING.exists() else []
     failed = []
     for guest in pending:
         try:
-            if guest.get('uuid'):
-                current = json.loads(incus('query', '/1.0/instances/' + quote(guest['name'], safe='')
-                                          + '?project=' + quote(guest['project'], safe=''), timeout=15))
-                if current.get('config', {}).get('volatile.uuid') != guest['uuid']:
-                    raise RuntimeError('Guest identity changed after backup; refusing to start a replacement')
+            verify_identity(guest)
             state = query('/1.0/instances/' + quote(guest['name'], safe='') + '/state?project=' + quote(guest['project'], safe=''))
             if state['status'] == 'Stopped':
                 incus('start', guest['name'], '--project', guest['project'])
@@ -283,15 +293,16 @@ def backup(with_recovery=False):
         windows = []
         for index, group in enumerate(selected):
             members = [g['project'] + '/' + g['name'] for g in group['guests']]
-            pending = [{'project': g['project'], 'name': g['name'], 'uuid': g.get('config', {}).get('volatile.uuid')}
-                       for g in group['guests'] if g['status'] == 'Running']
+            pending = [instance_identity(g) for g in group['guests'] if g['status'] == 'Running']
             save_pending(pending)
             started = time.time()
             try:
                 progress('exporting', generation=generation, group=index + 1, groups=len(selected), members=members)
                 for guest in pending:
+                    verify_identity(guest)
                     incus('stop', guest['name'], '--project', guest['project'], '--timeout', '180')
                 for guest in group['guests']:
+                    verify_identity(instance_identity(guest))
                     export(['export', guest['name'], '--project', guest['project']], guest['archive'], destination)
                 for volume in group['volumes']:
                     export(['storage', 'volume', 'export', volume['pool'], volume['name'], '--project', volume['project']], volume['archive'], destination)
