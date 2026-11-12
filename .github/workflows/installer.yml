@@ -1,6 +1,7 @@
 name: Installer acceptance
 on:
   push:
+    branches: [main]
     paths:
       - 'installer/**'
       - 'admin/main.py'
@@ -21,6 +22,11 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+# Same-repository PRs already validate feature branches. Do not run the same
+# expensive NixOS suite a second time for their branch push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   validate-installer:
     runs-on: ubuntu-latest

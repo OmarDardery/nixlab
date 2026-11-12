@@ -1,6 +1,7 @@
 name: Portal entry acceptance
 on:
   push:
+    branches: [main]
     paths:
       - 'admin/static/**'
       - 'admin/diagnostics.py'
@@ -21,6 +22,11 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+# Same-repository PRs already validate feature branches. Do not run the same
+# expensive NixOS suite a second time for their branch push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   portal:
     runs-on: ubuntu-latest
