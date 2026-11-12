@@ -1,0 +1,54 @@
+name: Portal entry acceptance
+on:
+  push:
+    paths:
+      - 'admin/static/**'
+      - 'admin/diagnostics.py'
+      - 'modules/admin-ui.nix'
+      - 'modules/apps-onboarding.nix'
+      - 'tests/test_homepage.js'
+      - 'tests/test_commands_ui.js'
+      - '.github/workflows/portal-entry.yml'
+  pull_request:
+    paths:
+      - 'admin/static/**'
+      - 'admin/diagnostics.py'
+      - 'modules/admin-ui.nix'
+      - 'modules/apps-onboarding.nix'
+      - 'tests/test_homepage.js'
+      - 'tests/test_commands_ui.js'
+      - '.github/workflows/portal-entry.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  portal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
+      - name: Portal links, navigation and copy-only commands
+        run: |
+          node --check admin/static/app.js
+          node --check admin/static/commands.js
+          node tests/test_homepage.js
+          node tests/test_commands_ui.js
+      - name: Evaluate port 80 redirect on the actual setup configurations
+        run: |
+          python3 - <<'PY'
+          import json
+          import subprocess
+          for variant in ('validation-setup', 'validation-setup-apps'):
+              def evaluate(path):
+                  return json.loads(subprocess.check_output(
+                      ['nix', 'eval', '--json',
+                       f'.#nixosConfigurations.{variant}.config.{path}'], text=True))
+              assert evaluate('services.nginx.enable') is True
+              host = evaluate('services.nginx.virtualHosts.nixlab-entry')
+              assert any(item['port'] == 80 and not item.get('ssl', False)
+                         for item in host['listen']), host['listen']
+              entry = host['locations']['/']['return']
+              assert entry == '308 https://$host:9440$request_uri', entry
+              assert evaluate('services.nginx.virtualHosts.nixlab-entry.default') is True
+          PY
