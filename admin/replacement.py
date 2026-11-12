@@ -47,7 +47,10 @@ def material(directory):
         metadata = parent.stat()
         if metadata.st_uid not in (0, os.geteuid()) or (metadata.st_mode & 0o022 and not metadata.st_mode & 0o1000):
             raise ValueError('Recovery material has an untrusted or writable parent directory')
-    inventory = read_json(directory / 'inventory.json')
+    inventory_file = directory / 'inventory.json'
+    if inventory_file.is_symlink() or inventory_file.stat().st_uid != os.geteuid() or inventory_file.stat().st_mode & 0o022:
+        raise ValueError('Recovery inventory must be root-owned and not writable by others')
+    inventory = read_json(inventory_file)
     if inventory.get('format') != 2 or not isinstance(inventory.get('archiveSHA256'), dict):
         raise ValueError('Use a complete version-2 backup generation with archive checksums')
     for name, expected in inventory['archiveSHA256'].items():
