@@ -148,6 +148,14 @@ def plan(directory, mapping):
     if not guests: raise ValueError('No recoverable guests are present')
     if len({(g['project'], g['name']) for g in guests}) != len(guests) or len({v['target'] for v in volumes}) != len(volumes):
         raise ValueError('Duplicate recovery identities are not supported')
+    configuration, files = recovery.inspect(directory / 'nixlab-config.tar.gz')
+    source_revision = configuration.get('release', {}).get('revision', 'unknown')
+    if not isinstance(source_revision, str) or not re.fullmatch(r'[0-9a-f]{40}', source_revision): source_revision = 'unknown'
+    lock = files.get('config/flake.lock')
+    if lock is not None:
+        from commissioning import digest as context_digest
+        source_inputs = context_digest(lock.decode().strip())
+    else: source_inputs = 'unknown'
     record = {'format': 1, 'id': recovery_id, 'phase': 'planned', 'created': time.time(),
               'source': str(directory), 'inventorySHA256': digest(directory / 'inventory.json'),
               'mapping': mapping, 'poolFingerprint': pool_fingerprint(pool_state),
@@ -156,6 +164,7 @@ def plan(directory, mapping):
               'coverage': {'complete': inventory.get('coverageDetails', {}).get('complete') is True,
                            'assessment': 'source-inventory' if 'coverageDetails' in inventory else 'unknown-legacy'},
               'backupCreated': inventory.get('created'), 'restore': 'unverified'}
+    record.update(sourceRevision=source_revision, sourceInputsDigest=source_inputs)
     rt.write_json(journal(), record)
     return status(record)
 
@@ -163,7 +172,7 @@ def plan(directory, mapping):
 def status(record=None):
     record = record or read_json(journal())
     return {key: record.get(key) for key in ('format', 'id', 'phase', 'created', 'project', 'bridge', 'mapping',
-            'completed', 'running', 'coverage', 'backupCreated', 'restore', 'durationSeconds', 'error')} | {
+            'completed', 'running', 'coverage', 'backupCreated', 'restore', 'durationSeconds', 'error', 'sourceRevision', 'sourceInputsDigest')} | {
                 'guests': [{'source': g['project'] + '/' + g['name'], 'target': g['target']} for g in record['guests']],
                 'volumes': [{'source': '/'.join(v[key] for key in ('project', 'pool', 'name')), 'target': v['target']} for v in record['volumes']]}
 

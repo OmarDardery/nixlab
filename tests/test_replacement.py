@@ -102,6 +102,17 @@ class RecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'checksum'): self.plan()
         self.assertFalse(r.journal().exists()); self.assertEqual(self.calls, [])
 
+    def test_recovery_provenance_comes_from_verified_configuration_material(self):
+        lock = self.root / 'lock'; lock.write_text('{"nodes":{}}\n')
+        stream = io.BytesIO()
+        with patch.object(recovery.upgrades, 'metadata', return_value={'revision': 'a' * 40}):
+            recovery.write_archive(stream, {'config/flake.lock': lock}, 'configuration')
+        self.archive('nixlab-config.tar.gz', stream.getvalue()); self.write_inventory()
+        result = self.plan()
+        from commissioning import digest
+        self.assertEqual(result['sourceRevision'], 'a' * 40)
+        self.assertEqual(result['sourceInputsDigest'], digest(lock.read_text().strip()))
+
     def test_missing_volume_or_external_attachment_refuses_before_import(self):
         self.inventory['customVolumes'] = []; self.write_inventory()
         with self.assertRaisesRegex(ValueError, 'custom volume'): self.plan()
