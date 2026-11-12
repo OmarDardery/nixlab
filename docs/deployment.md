@@ -112,6 +112,10 @@ Do not enable the demo until the guest can materialize its database secret.
 
 ## Deploy changes into the existing VM
 
+Use [reviewed guest deployments](guest-deployments.md) for dependency ordering,
+health checks and resumable updates of existing source-owned NixOS guests. The
+SSH-based commands below remain alternatives outside that journal.
+
 Importing a newer image changes future creations only. Existing guest disks retain their OS.
 Use NixOS deployment over SSH with the same reviewed inventory/repository revision, for example
 from the host or a management client with a guest route and authorized SSH key:

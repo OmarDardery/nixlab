@@ -1,5 +1,17 @@
 "use strict";
 
+function guestDeploymentReview() {
+  const job = state.status.job, plan = job?.guestPlan;
+  if (!plan?.targets?.length) return "";
+  const deployment = job.guestDeployment;
+  const busy = ["queued", "running"].includes(deployment?.status);
+  const rows = plan.targets.map(target => {
+    const status = deployment?.targets?.[target.id];
+    return `<tr><td><code>${esc(target.project)}/${esc(target.name)}</code><br><small>${esc(target.dependsOn.length ? "After: " + target.dependsOn.join(", ") : "After host confirmation")}</small></td><td><small>Current: <code>${esc(status?.currentSystem || target.currentSystem || "Unknown / not yet reachable")}</code><br>Target: <code>${esc(target.targetSystem)}</code></small></td><td>${esc(status?.phase || "Not deployed")}<br><small>${esc(status?.attempts || 0)}/${esc(target.maxAttempts)} attempts · reboot: ${esc(target.restartPolicy)}<br>Checks: ${esc(target.healthUnits.join(", "))}${target.httpChecks ? " · " + esc(target.httpChecks) + " HTTP" : ""}</small>${status?.checkedAt ? `<p><small>Last passed: ${esc(new Date(status.checkedAt * 1000).toLocaleString())}</small></p>` : ""}${status?.error ? `<p class="error">${esc(status.error)}</p>` : !status && target.observation ? `<p>${esc(target.observation)}</p>` : ""}</td></tr>`;
+  }).join("");
+  return card("Guest deployment", `<p>Host access and guest health are separate. After confirming the host, deploy these reviewed OS closures in dependency order. Overall: <b>${esc(deployment?.status || "Not started")}</b>.</p><div class="table-wrap" tabindex="0"><table><thead><tr><th>Guest & order</th><th>OS generations</th><th>Deployment state</th></tr></thead><tbody>${rows}</tbody></table></div><p class="note">${esc(plan.boundary)}</p>${deployment?.error ? `<p class="error">${esc(deployment.error)}</p>` : ""}<div class="actions"><button data-action="deploy-guests" ${!administrator() || job.status !== "confirmed" || busy || deployment?.status === "abandoned" ? "disabled" : ""}>${deployment ? "Resume / recheck guests" : "Deploy reviewed guests"}</button>${deployment && !busy && deployment.status !== "abandoned" ? `<button data-action="abandon-deployment" ${!administrator() ? "disabled" : ""}>Abandon retries</button>` : ""}</div><p><a href="/docs/guest-deployments.md">Guest update and recovery guide →</a></p>`);
+}
+
 function impactReview() {
   const plan = state.status.job?.impactPlan;
   if (!plan) return state.status.job?.status === "ready"

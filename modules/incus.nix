@@ -69,9 +69,12 @@ in {
   systemd.services.nixlab-incus-audit = {
     description = "Record Incus lifecycle events in the persistent journal";
     wantedBy = [ "multi-user.target" ];
-    after = [ "incus.service" ]; requires = [ "incus.service" ];
+    # First-run CLI configuration is not written atomically by Incus. Do not
+    # race preseed's local infrastructure checks with client initialization.
+    after = [ "incus.service" "incus-preseed.service" ]; requires = [ "incus.service" ];
+    before = [ "nixlab-instances.service" ];
     serviceConfig = {
-      ExecStart = "${pkgs.incus-lts.client}/bin/incus monitor --type=lifecycle --all-projects";
+      ExecStart = "${pkgs.incus-lts.client}/bin/incus --force-local monitor --type=lifecycle --all-projects";
       Restart = "on-failure"; RestartSec = "5s";
     };
   };

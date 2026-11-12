@@ -1,5 +1,5 @@
 # First-run VM credentials and a TLS-verified LAN portal for the application dashboard.
-{ lib, pkgs, site, appImage ? null, ... }:
+{ config, lib, pkgs, site, appImage ? null, ... }:
 let enabled = site.setup.enable && site.apps.enable;
   cidrs = lib.concatMapStringsSep "\n" (c: "allow ${c};") site.management.trustedCIDRs;
 in {
@@ -17,7 +17,7 @@ in {
           sleep 2
         done
         test "$ready" = 1
-        ${lib.optionalString (appImage != null) "python3 ${../scripts/deploy-apps.py} ${appImage.system}"}
+        ${lib.optionalString (appImage != null && !(config.nixlab.deployment.apps.enable or false)) "PYTHONPATH=${../scripts} python3 ${../scripts/deploy-apps.py} ${appImage.system}"}
         incus exec apps --project lab -- install -d -m 0700 /var/lib/nixlab-secrets
         if test -f /var/lib/nixlab-secrets/apps-portainer-password; then
           incus file push /var/lib/nixlab-secrets/apps-portainer-password apps/var/lib/nixlab-secrets/portainer-admin-password --project lab --mode 0600

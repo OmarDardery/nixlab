@@ -49,6 +49,8 @@ def main():
                     if endpoint == 'review':
                         status['job'] = {'id': 'a'*32, 'status': 'building', 'settings': copy.deepcopy(body['settings']),
                                          'changes': [], 'moduleChanges': [], 'secretChanges': [], 'log': ''}
+                    if endpoint == 'deploy-guests':
+                        status['job']['guestDeployment'] = {'status': 'queued', 'targets': {}}
                     if endpoint == 'apply':
                         status['job']['impactPlan']['blocked'] = True
                         status['job']['impactPlan']['refreshedAfterDrift'] = True
@@ -135,6 +137,18 @@ def main():
             page.get_by_text('Runtime changed since review. This plan was refreshed; review it again before activation.', exact=True).wait_for()
             assert page.get_by_role('button', name='Activate reviewed generation', exact=True).is_disabled()
             page.screenshot(path=str(args.output / 'impact-review.png'), full_page=True)
+            status['job'].update(status='confirmed', guestPlan={
+                'boundary': 'OS rollback does not restore database schemas', 'targets': [
+                    {'id': 'apps', 'name': 'apps', 'project': 'lab', 'targetSystem': '/nix/store/target',
+                     'currentSystem': '/nix/store/previous', 'dependsOn': [], 'restartPolicy': 'defer',
+                     'maxAttempts': 3, 'healthUnits': ['docker-portainer.service'], 'httpChecks': 0}]})
+            page.evaluate('(value) => { state.status=value; shell(); }', status)
+            page.get_by_role('button', name='Deploy reviewed guests', exact=True).click()
+            page.wait_for_function("state.status.job?.guestDeployment?.status === 'queued'")
+            assert page.get_by_role('button', name='Resume / recheck guests', exact=True).is_disabled()
+            request = next(body for endpoint, body in submitted if endpoint == 'deploy-guests')
+            assert request == {'id': 'a' * 32, 'resume': False, 'abandon': False}
+            page.screenshot(path=str(args.output / 'guest-deployment.png'), full_page=True)
             page.evaluate("state.principal.role='viewer';state.page='hardware';shell()")
             assert page.locator('[data-serial-pick]').is_disabled()
             assert page.locator('[data-record-add="hardware.serialAliases"]').is_disabled()
