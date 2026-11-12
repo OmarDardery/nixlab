@@ -26,11 +26,7 @@ let
   unhealthy = pkgs.writeShellApplication { name = "nixlab-guest-health"; text = "exit 1"; };
   slowExport = pkgs.writeShellScriptBin "nix-store" ''
     set -o pipefail
-    # Force the legacy full-closure fallback for the interruption fixture.
-    # The normal deployment path continues to transfer only missing objects.
-    if test "$1" = --check-validity && test "$2" = --print-invalid; then
-      exit 1
-    elif test "$1" = --export; then
+    if test "$1" = --export; then
       ${pkgs.nix}/bin/nix-store "$@" | ${pkgs.pv}/bin/pv --quiet --rate-limit 512k
     else
       exec ${pkgs.nix}/bin/nix-store "$@"
