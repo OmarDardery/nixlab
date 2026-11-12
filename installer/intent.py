@@ -50,8 +50,10 @@ def normalize(raw):
     subnet = result["guestSubnet"]
     if subnet is not None:
         net = ipaddress.ip_network(subnet, strict=True)
-        if net.version != 4 or net.prefixlen != 24 or not net.is_private:
-            raise ValueError("guestSubnet must be an unused private IPv4 /24")
+        private = tuple(ipaddress.ip_network(v) for v in
+                        ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+        if net.version != 4 or net.prefixlen != 24 or not any(net.subnet_of(p) for p in private):
+            raise ValueError("guestSubnet must be an unused RFC1918 IPv4 /24")
         result["guestSubnet"] = str(net)
     if result["aiostreams"] and result["workloads"] == "containers":
         raise ValueError("AIOStreams needs the Compose apps VM; choose workloads=both or compose")
@@ -65,7 +67,7 @@ def load(path):
     return normalize(json.loads(path.read_text()))
 
 
-def interview(input_fn=input, output=print, existing=None):
+def interview(input_fn=input, output=print, existing=None, on_answer=None):
     values = dict(defaults() if existing is None else normalize(existing))
     output("NixLab configuration interview. Enter keeps the recommendation.")
     for key, prompt, fallback, choices in QUESTIONS:
@@ -79,6 +81,8 @@ def interview(input_fn=input, output=print, existing=None):
             if value in choices: break
             output("Choose one of: " + ", ".join(choices))
         values[key] = (value == "yes") if isinstance(original, bool) else value
+        if on_answer is not None:
+            on_answer(normalize(values))
     return normalize(values)
 
 
@@ -104,8 +108,18 @@ def plan(answers, host, settings, *, remote=False):
         deferred_network = True
     else:
         deferred_network = False
-    if a["guestSubnet"] and ipaddress.ip_network(a["guestSubnet"]).overlaps(net):
-        raise ValueError("Guest subnet overlaps management LAN")
+    if a["guestSubnet"]:
+        selected = ipaddress.ip_network(a["guestSubnet"])
+        if selected.overlaps(net):
+            raise ValueError("Guest subnet overlaps management LAN")
+        for route in host.get("routes", []):
+            try:
+                occupied = ipaddress.ip_network(route.get("dst", "default"), strict=False)
+            except ValueError:
+                continue
+            if selected.overlaps(occupied) and not (
+                    settings.get("ready") and settings["guests"].get("cidr") == str(selected)):
+                raise ValueError("Guest subnet overlaps an existing route: " + str(occupied))
     if a["network"] == "vlan" and wireless:
         raise ValueError("VLAN-backed guest access requires a wired uplink")
     pending = []
