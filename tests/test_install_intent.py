@@ -95,6 +95,25 @@ class IntentTests(unittest.TestCase):
         self.assertEqual(intent.plan(values, host(), settings()),
                          intent.plan(json.loads(json.dumps(values)), host(), settings()))
 
+    def test_interrupted_interview_resumes_last_nonsecret_answer(self):
+        snapshots = []
+        attempts = iter(["containers", "private"])
+        def interrupted(_):
+            try:
+                return next(attempts)
+            except StopIteration:
+                raise EOFError("terminal disconnected")
+        with self.assertRaises(EOFError):
+            intent.interview(input_fn=interrupted, output=lambda _: None,
+                             on_answer=lambda answer: snapshots.append(answer))
+        self.assertEqual(len(snapshots), 2)
+        self.assertEqual(snapshots[-1]["workloads"], "containers")
+        self.assertEqual(snapshots[-1]["access"], "private")
+        resumed = intent.interview(input_fn=lambda _: "",
+                                   output=lambda _: None, existing=snapshots[-1])
+        self.assertEqual(resumed["workloads"], "containers")
+        self.assertEqual(resumed["access"], "private")
+
     def test_apply_is_pure_and_only_touches_typed_owned_settings(self):
         original = settings()
         candidate = copy.deepcopy(original)
