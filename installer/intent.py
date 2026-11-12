@@ -122,6 +122,9 @@ def plan(answers, host, settings, *, remote=False):
                 raise ValueError("Guest subnet overlaps an existing route: " + str(occupied))
     if a["network"] == "vlan" and wireless:
         raise ValueError("VLAN-backed guest access requires a wired uplink")
+    from direct import guest_network
+    proposed_cidr = (settings["guests"]["cidr"] if settings.get("ready") else
+                     guest_network(host.get("routes", []), a["guestSubnet"])["cidr"])
     pending = []
     if deferred_network:
         pending.append("Review an existing Ethernet bridge/VLAN and switch configuration in Connectivity; no host NIC is modified by this installer")
@@ -168,7 +171,7 @@ def plan(answers, host, settings, *, remote=False):
                 monitoring=a["monitoring"], guestSubnet=a["guestSubnet"],
                 reasons=reasons, pending=pending, networkRequiresReview=deferred_network,
                 estimatedAppMemoryMiB=(int(settings["apps"]["memory"].replace("GiB", "")) * 1024 if apps else 0),
-                managementAddress=m["address"])
+                managementAddress=m["address"], guestCidr=proposed_cidr)
 
 
 def apply(candidate, proposal):
@@ -185,7 +188,10 @@ def preview(proposal, output=print):
     output("  Apps VM: " + ("enabled" if proposal["apps"] else "omitted"))
     output("  Host metrics: " + ("enabled" if proposal["monitoring"] else "disabled"))
     output("  Laptop policy: " + ("always-on" if proposal["laptop"] else "standard server"))
-    output("  Guest network: private NAT (existing host LAN unchanged)")
+    output("  Guest network: private NAT " + proposal["guestCidr"] + " (existing host LAN unchanged)")
+    if proposal["apps"]:
+        output("  Estimated apps VM RAM allocation: " +
+               str(proposal["estimatedAppMemoryMiB"]) + " MiB, excluding host/container overhead")
     output("  Management: " + proposal["managementAddress"] + " (preserved)")
     for reason in proposal["reasons"]:
         output("  Why: " + reason)
