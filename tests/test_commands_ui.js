@@ -12,6 +12,7 @@ context.fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/defa
 vm.runInContext(`state.page='commands'; state.status={settings:fixture,managementAddress:'192.0.2.10'};`, context);
 const groups = vm.runInContext('commandGroups()', context);
 const items = groups.flatMap(group => group.items);
+assert.ok(!/klipper|aiostreams/i.test(JSON.stringify(items)), 'Cheatsheet must not hardcode example applications');
 assert.equal(new Set(items.map(item => item[0])).size, items.length, 'Every copy target needs a unique ID');
 assert.ok(items.some(item => item[4].includes('run --refresh github:OmarDardery/nixlab#install')));
 assert.ok(items.some(item => item[4] === 'sudo nixlab-admin config review --update-inputs'));
