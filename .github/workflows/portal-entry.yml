@@ -45,10 +45,10 @@ jobs:
                       ['nix', 'eval', '--json',
                        f'.#nixosConfigurations.{variant}.config.{path}'], text=True))
               assert evaluate('services.nginx.enable') is True
-              host = evaluate('services.nginx.virtualHosts.nixlab-entry')
+              listen = evaluate('services.nginx.virtualHosts.nixlab-entry.listen')
               assert any(item['port'] == 80 and not item.get('ssl', False)
-                         for item in host['listen']), host['listen']
-              entry = host['locations']['/']['return']
+                         for item in listen), listen
+              entry = evaluate('services.nginx.virtualHosts.nixlab-entry.locations."/".return')
               assert entry == '308 https://$host:9440$request_uri', entry
               assert evaluate('services.nginx.virtualHosts.nixlab-entry.default') is True
           PY
