@@ -1,5 +1,12 @@
 # Update existing NixOS guests
 
+> **Experimental (Phase 1).** The container guest rollout and recovery suite passed,
+> but the real apps-VM/Portainer end-to-end qualification has **not** passed on
+> hosted nested KVM. This feature is disabled by default. Do not enable
+> `nixlab.deployment.apps.enable` for production workloads until the apps-VM
+> boot, authentication, deployment, and rollback checks are qualified.
+> Track the blocker in [issue #24](https://github.com/OmarDardery/nixlab/issues/24).
+
 Image imports update future creations. A guest deployment updates the OS on an
 existing disk through local authenticated Incus exec; it never recreates the guest.
 Each rollout belongs to one immutable host review. Host confirmation establishes
