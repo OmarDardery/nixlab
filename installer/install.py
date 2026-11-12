@@ -333,6 +333,12 @@ def main():
         if explicit_intent:
             draft = rt.STATE / 'installer-intent-draft.json'
             chosen = intent.load(args.answers) if args.answers else intent.defaults()
+            if existing and default['ready'] and not args.answers:
+                # Re-running the interview must never silently disable an
+                # existing apps VM, host metrics, or laptop lid policy.
+                chosen.update(workloads='both' if default['apps']['enable'] else 'containers',
+                              laptop=default['maintenance']['laptopMode'],
+                              monitoring=default['monitoring']['collection'])
             interview_mode = args.interactive or (not existing and sys.stdin.isatty() and
                                                   not args.non_interactive and not args.answers)
             if interview_mode:
