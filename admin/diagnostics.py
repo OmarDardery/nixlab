@@ -45,6 +45,19 @@ def request(address, port, path, body=None):
         conn.close()
 
 
+def http_entry(address, secure_port):
+    """Port 80 must redirect; it must never accept portal credentials."""
+    conn = http.client.HTTPConnection(address, 80, timeout=5)
+    try:
+        conn.request('GET', '/', headers={'Host': address})
+        response = conn.getresponse()
+        location = response.getheader('Location', '')
+        response.read(4096)
+        return response.status, location == f'https://{address}:{secure_port}/'
+    finally:
+        conn.close()
+
+
 def probe(settings):
     address = management_address(settings)
     targets = [('Incus API', 8443, '/1.0', {200}), ('Incus UI', 8443, '/ui/', {200})]
@@ -64,6 +77,15 @@ def probe(settings):
         except (OSError, ValueError, http.client.HTTPException) as exc:
             checks.append({'name': name, 'url': f'https://{address}:{port}', 'ok': False,
                            'detail': type(exc).__name__})
+    if settings['setup']['enable']:
+        try:
+            status, target_ok = http_entry(address, settings['setup']['port'])
+            checks.append({'name': 'Nixlab HTTP entry', 'url': f'http://{address}:80',
+                           'ok': status == 308 and target_ok,
+                           'detail': 'HTTP ' + str(status) + (' → HTTPS' if target_ok else ' (invalid target)')})
+        except (OSError, ValueError, http.client.HTTPException) as exc:
+            checks.append({'name': 'Nixlab HTTP entry', 'url': f'http://{address}:80',
+                           'ok': False, 'detail': type(exc).__name__})
     return {'address': address, 'ok': all(check['ok'] for check in checks), 'checks': checks}
 
 
