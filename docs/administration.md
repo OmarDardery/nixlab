@@ -26,7 +26,7 @@ ssh operator@HOST_IP
 sudo homelab list
 sudo homelab exec apps -- systemctl --failed
 sudo homelab exec apps
-sudo homelab exec-many apps,adguard -- df -h
+sudo homelab exec-many apps,web -- df -h
 sudo homelab action apps disk
 sudo homelab restart apps
 ```
@@ -64,7 +64,7 @@ Default `/etc/nixlab/client.json` targets the local host and project `lab`. On a
   "project": "lab",
   "appsInstance": "apps",
   "exportDirectory": "/home/USER/nixlab-exports",
-  "aliases": { "100": "adguard", "105": "klipper" }
+  "aliases": { "100": "web", "105": "database" }
 }
 ```
 
