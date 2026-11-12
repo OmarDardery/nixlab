@@ -39,7 +39,8 @@ jobs:
           python3 - <<'PY'
           import json
           import subprocess
-          for variant in ('validation-setup', 'validation-setup-apps'):
+          # validation-setup-apps is the guest VM, not the host portal.
+          for variant in ('validation-setup',):
               def evaluate(path):
                   return json.loads(subprocess.check_output(
                       ['nix', 'eval', '--json',
