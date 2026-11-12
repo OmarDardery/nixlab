@@ -69,6 +69,28 @@ class CoverageTests(unittest.TestCase):
                 self.assertFalse(recovery.coverage()['complete'])
                 self.assertNotIn('runtime/backup-passwordFile', recovery.secret_files())
 
+    def test_secret_link_and_target_ancestry_must_both_be_trusted(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); links = root / 'links'; targets = root / 'targets'
+            links.mkdir(); targets.mkdir()
+            secret = targets / 'password'; secret.write_text('runtime-value')
+            link = links / 'password'; link.symlink_to(secret)
+            configured = {'backup': {'enable': True, 'passwordFile': str(link)}}
+            with patch.object(recovery, 'settings', return_value=configured):
+                self.assertEqual(recovery.secret_source(link), secret)
+                for directory in (links, targets):
+                    with self.subTest(directory=directory.name):
+                        directory.chmod(0o777)
+                        self.assertIsNone(recovery.secret_source(link))
+                        self.assertFalse(recovery.coverage()['complete'])
+                        self.assertNotIn('runtime/backup-passwordFile', recovery.secret_files())
+                        directory.chmod(0o700)
+                        self.assertTrue(recovery.coverage()['complete'])
+                # Sticky roots protect owned children and remain usable in tests
+                # and temporary root-controlled staging, like ordinary /tmp.
+                root.chmod(0o1777)
+                self.assertEqual(recovery.secret_source(link), secret)
+
     def test_missing_age_key_cannot_be_hidden_by_an_empty_secret_archive(self):
         with patch.object(recovery, 'settings', return_value={'secrets': {'enable': True, 'ageKeyFile': '/nonexistent-key'}}):
             self.assertIn('sops-age-key', recovery.coverage()['missing'])

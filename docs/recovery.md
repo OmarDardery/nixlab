@@ -134,6 +134,11 @@ may require a matching older application version. Test `/health` and expected pe
 An Immich deployment needs its own PostgreSQL version/extensions and upload/library backup;
 do not substitute this demo hook for Immich's documented backup workflow.
 
+Configured recovery credentials and SOPS links must live under trusted root-owned
+parent directories; writable non-sticky or unprivileged-owned parents make
+coverage incomplete. Move affected credentials to root-controlled storage and
+review their configured paths. This preflight refuses backup before guest shutdown.
+
 ## Host-loss restore
 
 1. Install NixOS safely, restore the reviewed repository revision, generate hardware configuration

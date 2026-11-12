@@ -61,7 +61,16 @@ def settings():
 def secret_source(path):
     """Follow configured SOPS links, then archive the regular root-owned target."""
     try:
-        resolved = Path(path).resolve(strict=True)
+        source = Path(path).absolute()
+        resolved = source.resolve(strict=True)
+        owners = (0, os.geteuid())
+        if source.lstat().st_uid != os.geteuid():
+            return None
+        for parent in set(source.parents) | set(resolved.parents):
+            metadata = parent.stat()
+            if (parent.lstat().st_uid not in owners or metadata.st_uid not in owners
+                    or (metadata.st_mode & 0o022 and not metadata.st_mode & 0o1000)):
+                return None
         stat = resolved.stat()
         if resolved.is_file() and stat.st_uid == os.geteuid() and not stat.st_mode & 0o022:
             return resolved
