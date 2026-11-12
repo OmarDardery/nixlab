@@ -71,6 +71,18 @@ jobs:
               cpuVendor = "intel";
               revision = "0000000000000000000000000000000000000000";
             }).drvPath'
+      - name: Evaluate dedicated KVM deployment fixture (no integration claim)
+        run: |
+          nix eval --impure --raw --expr '
+            let flake = builtins.getFlake (builtins.getEnv "PWD");
+                pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; };
+            in (import ./tests/guest-deployments-kvm.nix {
+              inherit pkgs;
+              apps = flake.nixosConfigurations.validation-setup-apps;
+              portainerArchive = pkgs.dockerTools.buildLayeredImage { name = "evaluation-only"; };
+              portainerImage = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+              cpuVendor = "intel";
+            }).drvPath'
       - name: Verify production firewall and DHCP management across reboot
         run: nix build .#checks.x86_64-linux.startup --no-link -L
       - name: Boot portal and verify real NixOS permissions

@@ -1,23 +1,33 @@
 name: Real apps guest deployment
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - 'admin/deployments.py'
-      - 'scripts/guest_deploy.py'
-      - 'modules/deployments.nix'
-      - 'tests/guest-deployments*'
-      - 'tests/test_deployments.py'
-      - 'tests/guest-vm-diagnostics.py'
-      - '.github/workflows/guest-deployments.yml'
 permissions:
   contents: read
+concurrency:
+  group: nixlab-kvm-qualification
+  cancel-in-progress: false
 jobs:
   apps-rollout:
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
+    runs-on: [self-hosted, linux, x64, nixlab-kvm]
+    environment: nixlab-qualification
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require an isolated physical runner
+        run: |
+          test "$(uname -m)" = x86_64
+          test "$(systemd-detect-virt)" = none
+          mkdir -p qualification-artifacts
+          printf '%s\n' "$GITHUB_SHA" > qualification-artifacts/source-revision.txt
+          uname -r > qualification-artifacts/runner-kernel.txt
+          sed -n 's/^model name[[:space:]]*:[[:space:]]*//p' /proc/cpuinfo | head -n 1 > qualification-artifacts/runner-cpu.txt
+          python3 - <<'PYCODE'
+          import fcntl
+          with open("/dev/kvm", "rb", buffering=0) as device:
+              assert fcntl.ioctl(device, 0xAE00, 0) == 12
+          PYCODE
       - id: check
         shell: bash
         run: |
@@ -39,7 +49,7 @@ jobs:
             echo "- Nested KVM available: $nested"
           } >> "$GITHUB_STEP_SUMMARY"
           if test "$nested" != true; then
-            echo '::error::Nested KVM unavailable; real apps-VM deployment is NOT qualified on this runner.'
+            echo '::error::KVM nesting unavailable; real apps-VM deployment is NOT qualified on this runner.'
             exit 1
           fi
       - if: steps.check.outputs.nested == 'true'
@@ -67,16 +77,29 @@ jobs:
               output.write(digest)
           PY
       - if: steps.check.outputs.nested == 'true'
-        name: Update the real apps VM and second NixOS guest
+        name: Three independent real apps VM update and recovery trials
         env:
           CPU_VENDOR: ${{ steps.check.outputs.vendor }}
         shell: bash
         run: |
-          nix build --impure --no-link -L --expr '
-            { portainerArchive, portainerImage, cpuVendor }:
+          mkdir -p qualification-artifacts
+          printf '%s\n' "$GITHUB_SHA" > qualification-artifacts/source-revision.txt
+          cp "$RUNNER_TEMP/portainer-image-id" qualification-artifacts/oci-source.txt
+          for trial in 1 2 3; do
+          nix build --impure -L --out-link "result-apps-$trial" --expr '
+            { portainerArchive, portainerImage, cpuVendor, trial }:
             let flake = builtins.getFlake (toString ./.);
                 pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; };
             in import ./tests/guest-deployments-kvm.nix {
-              inherit pkgs portainerArchive portainerImage cpuVendor;
+              inherit pkgs portainerArchive portainerImage cpuVendor trial;
               apps = flake.nixosConfigurations.validation-setup-apps;
-            }' --arg portainerArchive "$RUNNER_TEMP/portainer.tar" --argstr portainerImage "$(cat "$RUNNER_TEMP/portainer-image-id")" --argstr cpuVendor "$CPU_VENDOR"
+            }' --arg portainerArchive "$RUNNER_TEMP/portainer.tar" --argstr portainerImage "$(cat "$RUNNER_TEMP/portainer-image-id")" --argstr cpuVendor "$CPU_VENDOR" --argstr trial "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$trial"
+          printf '%s\n' "passed" > "qualification-artifacts/trial-$trial.txt"
+          done
+      - name: Retain qualification results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: apps-rollout-evidence
+          path: qualification-artifacts/
+          if-no-files-found: error
