@@ -42,6 +42,10 @@ if action == 'failure':
 elif action == 'queue':
     create(main_id, manifest)
 elif action == 'run':
+    # This disposable test specifically verifies interruption of an active
+    # import. Disable missing-path elision only for this one fixture process.
+    # Production deployments still transfer only absent Nix store objects.
+    Transport.missing_paths = lambda self, inventory: inventory
     manager.run(main_id)
 elif action == 'transferring':
     assert manager.status(main_id)['targets']['primary']['phase'] == 'transferring'
