@@ -1,10 +1,17 @@
 name: Validate Nixlab
 on:
   push:
+    branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 permissions:
   contents: read
+# Same-repository PRs already validate feature branches. Do not run the same
+# expensive NixOS suite a second time for their branch push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   validate:
     runs-on: ubuntu-latest
