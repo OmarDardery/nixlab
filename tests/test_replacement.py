@@ -179,6 +179,16 @@ class RecoveryTests(unittest.TestCase):
 
 
 class RecoveryGuardTests(unittest.TestCase):
+    def test_restart_recovery_cannot_start_guests_while_replacement_recovery_is_active(self):
+        import backup
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {'NIXLAB_STATE': folder}), \
+                patch.object(recovery_guard, 'MODE', Path(folder) / 'mode'), \
+                patch.object(backup, 'PENDING', Path(folder) / 'pending.json'), patch.object(backup, 'incus') as incus:
+            rt.write_json(backup.PENDING, [{'project': 'lab', 'name': 'apps'}])
+            rt.write_json(Path(folder) / 'replacement-recovery.json', {'format': 1, 'phase': 'isolated'})
+            with self.assertRaisesRegex(ValueError, 'Unfinished'): backup.recover()
+            incus.assert_not_called()
+
     def test_incomplete_or_corrupt_journal_blocks_automation_after_mode_removal(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {'NIXLAB_STATE': folder}), \
                 patch.object(recovery_guard, 'MODE', Path(folder) / 'mode'):

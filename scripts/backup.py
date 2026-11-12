@@ -59,6 +59,8 @@ def verify_identity(guest):
 
 
 def recover():
+    from recovery_guard import require_normal
+    require_normal()
     pending = json.loads(PENDING.read_text()) if PENDING.exists() else []
     failed = []
     for guest in pending:
