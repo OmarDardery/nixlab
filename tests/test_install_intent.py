@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 BASE = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BASE / "installer"))
+sys.path[:0] = [str(BASE / name) for name in ("installer", "admin", "scripts")]
 import intent
 
 
