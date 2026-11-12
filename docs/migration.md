@@ -12,11 +12,11 @@ Include application-specific consistency backups, not just `vzdump` archives. Ve
 capacity and expected downtime. Keep workload IDs as optional helper aliases; Incus names/projects
 are the authoritative selectors.
 
-For this homelab, verify each actual service rather than assuming old IDs are current:
-AdGuard, aioStreams, Vaultwarden, the Hermes NixOS container, and Klipper/Moonraker/Mainsail
-have different data and device needs. Klipper USB permissions/stable device paths and Vaultwarden
-vault/database consistency deserve explicit migration tests. Incus does not inherit Proxmox
-LXC device mappings, nesting flags or config syntax automatically.
+Verify each actual service independently rather than assuming old numeric
+guest IDs are current. Applications may require database-consistent backups,
+dedicated data volumes, stable USB devices, custom permissions or guest
+networking. Incus does not inherit Proxmox LXC device mappings, nesting
+flags or configuration syntax automatically.
 
 ## Linux system containers
 
