@@ -222,8 +222,12 @@ def main():
     remote = workflow.remote_session()
     if args.interactive and not sys.stdin.isatty():
         parser.error('--interactive requires a terminal; use --answers for unattended provisioning')
-    if args.non_interactive and args.answers is None and args.plan_only:
-        parser.error('--plan-only in unattended mode requires --answers or explicit CLI selections')
+    selected_flags = any((args.workloads, args.access_mode, args.guest_network,
+                          args.adguard, args.klipper, args.aiostreams,
+                          args.laptop_mode, args.no_monitoring,
+                          args.guest_subnet, args.no_apps))
+    if args.plan_only and not sys.stdin.isatty() and args.answers is None and not selected_flags:
+        parser.error('--plan-only without a terminal requires --answers or explicit CLI selections')
     if args.answers and args.interactive:
         parser.error('Choose either --answers or --interactive, not both')
     if not args.switch and (args.interactive or args.answers or args.plan_only or
