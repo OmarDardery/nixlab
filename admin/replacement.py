@@ -41,6 +41,12 @@ def material(directory):
     directory = Path(directory).absolute()
     if directory.resolve() != directory or not directory.is_dir():
         raise ValueError('Recovery material cannot traverse symlinks')
+    if directory.stat().st_uid != os.geteuid() or directory.stat().st_mode & 0o077:
+        raise ValueError('Recovery material must be owned by root in a mode-0700 directory')
+    for parent in directory.parents:
+        metadata = parent.stat()
+        if metadata.st_uid not in (0, os.geteuid()) or (metadata.st_mode & 0o022 and not metadata.st_mode & 0o1000):
+            raise ValueError('Recovery material has an untrusted or writable parent directory')
     inventory = read_json(directory / 'inventory.json')
     if inventory.get('format') != 2 or not isinstance(inventory.get('archiveSHA256'), dict):
         raise ValueError('Use a complete version-2 backup generation with archive checksums')
@@ -48,7 +54,8 @@ def material(directory):
         if not re.fullmatch(r'(?:instance-[0-9a-f]{64}|volume-[0-9a-f]{64}|nixlab-config|nixlab-secrets)\.tar\.gz', name):
             raise ValueError('Unsupported recovery archive name')
         path = directory / name
-        if path.is_symlink() or not path.is_file() or not isinstance(expected, str) or not re.fullmatch(r'[0-9a-f]{64}', expected) or digest(path) != expected:
+        if (path.is_symlink() or not path.is_file() or path.stat().st_uid != os.geteuid() or path.stat().st_mode & 0o022
+                or not isinstance(expected, str) or not re.fullmatch(r'[0-9a-f]{64}', expected) or digest(path) != expected):
             raise ValueError('Recovery archive missing or checksum mismatch')
     for name in ('nixlab-config.tar.gz', 'nixlab-secrets.tar.gz'):
         if name not in inventory['archiveSHA256']:

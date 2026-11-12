@@ -21,7 +21,7 @@ import runtime as rt
 class RecoveryTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name); self.source = self.root / 'generation'; self.source.mkdir()
+        self.root = Path(temporary.name); self.source = self.root / 'generation'; self.source.mkdir(mode=0o700)
         self.state = self.root / 'state'; self.state.mkdir()
         self.mode = self.root / 'mode'; self.mode.write_text('1')
         for module, key, value in ((rt, 'STATE', self.state), (r, 'MODE', self.mode), (r, 'DESIRED', self.root / 'desired.json')):
@@ -101,6 +101,14 @@ class RecoveryTests(unittest.TestCase):
         (self.source / next(iter(self.hashes))).write_bytes(b'corrupt')
         with self.assertRaisesRegex(ValueError, 'checksum'): self.plan()
         self.assertFalse(r.journal().exists()); self.assertEqual(self.calls, [])
+
+    def test_writable_recovery_material_cannot_race_review_and_import(self):
+        self.source.chmod(0o777)
+        with self.assertRaisesRegex(ValueError, 'mode-0700'): self.plan()
+        self.source.chmod(0o700)
+        (self.source / next(iter(self.hashes))).chmod(0o666)
+        with self.assertRaisesRegex(ValueError, 'checksum'): self.plan()
+        self.assertEqual(self.calls, [])
 
     def test_recovery_provenance_comes_from_verified_configuration_material(self):
         lock = self.root / 'lock'; lock.write_text('{"nodes":{}}\n')
