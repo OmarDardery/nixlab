@@ -16,7 +16,14 @@ state.status = {setupComplete:true, settings:{
 }};
 state.draft = {management:{address:'198.51.100.20'}, apps:{enable:false}};
 `, context);
+let shortcuts = vm.runInContext('quickManagementLinks(state.status.settings)', context);
+for (const url of ['https://192.0.2.10:8443','https://192.0.2.10:9090','https://192.0.2.10:9443']) {
+  assert.ok(shortcuts.includes('href="' + url + '"'), 'Missing sidebar shortcut: ' + url);
+}
+assert.ok(shortcuts.includes('data-go="commands"'), 'Sidebar must open command cheatsheet');
+assert.ok(shortcuts.includes('rel="noopener noreferrer"'), 'External tools must not retain opener access');
 let tools = vm.runInContext('homepageTools()', context);
+assert.ok(tools.includes('data-go="commands"'), 'Overview must expose cheatsheet');
 assert.ok(tools.includes('href="https://192.0.2.10:8443"'));
 assert.ok(tools.includes('href="https://192.0.2.10:9443"'));
 assert.ok(tools.includes('href="https://192.0.2.10:9090"'));
@@ -26,11 +33,15 @@ vm.runInContext('state.status.settings.apps.enable=false;state.status.settings.c
 tools = vm.runInContext('homepageTools()', context);
 assert.ok(!tools.includes(':9443"'));
 assert.ok(!tools.includes(':9090"'));
+shortcuts = vm.runInContext('quickManagementLinks(state.status.settings)', context);
+assert.ok(!shortcuts.includes(':9443"'));
+assert.ok(!shortcuts.includes(':9090"'));
 assert.ok(tools.includes('Enable apps'));
 vm.runInContext('state.status.setupComplete=false', context);
 tools = vm.runInContext('homepageTools()', context);
 assert.ok(!tools.includes(':8443"'));
 assert.ok(tools.includes('Finish setup'));
+assert.equal(vm.runInContext('quickManagementLinks(state.status.settings)', context), '', 'No unverified management shortcuts before setup');
 let resources = vm.runInContext('homepageResources()', context);
 for (const destination of ['https://github.com/community-scripts/Incus','https://community-scripts.org/','https://github.com/docker/awesome-compose','https://github.com/lissy93/portainer-templates','https://photos.example.com','roadmap.md','recovery.md']) {
   assert.ok(resources.includes(destination), 'Missing destination: '+destination);
