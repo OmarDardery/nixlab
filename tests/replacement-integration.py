@@ -41,7 +41,16 @@ elif sys.argv[1] == 'verify':
     assert current['status'] == 'Stopped' and current['config']['boot.autostart'] == 'false'
     assert current['profiles'] == []
     assert not any(device.get('type') in ('nic', 'usb', 'pci', 'unix-char', 'proxy') for device in current['expanded_devices'].values())
-    operations.incus('start', guest, '--project', report['project'])
+    try:
+        operations.incus('start', guest, '--project', report['project'])
+    except ValueError:
+        # This disposable fixture contains no real users/credentials. Keep
+        # bounded LXC diagnostics, never complete host journals or configuration.
+        details = operations.incus('info', guest, '--show-log', '--project', report['project'])
+        for line in details.splitlines()[-60:]:
+            if not any(word in line.lower() for word in ('password', 'token', 'secret', 'private key')):
+                print('Replacement startup: ' + line[:1000], flush=True)
+        raise
     try:
         assert operations.incus('exec', guest, '--project', report['project'], '--', '/bin/cat', '/var/lib/test/index.html').strip() == 'preserved'
         assert operations.incus('exec', guest, '--project', report['project'], '--', '/bin/cat', '/recoverdata/record').strip() == 'attached-data'
