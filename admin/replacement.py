@@ -187,6 +187,15 @@ def status(record=None):
                 'volumes': [{'source': '/'.join(v[key] for key in ('project', 'pool', 'name')), 'target': v['target']} for v in record['volumes']]}
 
 
+def export_report():
+    """Share provenance/results without guest names, hardware UUIDs or mappings."""
+    record = read_json(journal())
+    return {'format': 1, 'evidenceType': 'operator-attestation' if record.get('phase') == 'complete' else 'unverified',
+            **{key: record.get(key) for key in ('phase', 'restore', 'sourceRevision', 'sourceInputsDigest',
+                                               'backupCreated', 'verifiedAt', 'durationSeconds')},
+            'coverage': {'complete': record.get('coverage', {}).get('complete') is True}}
+
+
 def save(record):
     rt.write_json(journal(), record)
 
@@ -295,11 +304,13 @@ def resume(confirmed=False):
                          '--config', token + '=' + record['id']]
             for name, device in item['originalDevices'].items():
                 if device.get('type') == 'nic':
-                    for key, value in (('network', bridge), ('ipv4.address', ''), ('ipv6.address', '')):
+                    # Profile devices are not local in a backup. Overriding one
+                    # creates a local device, so its type must be supplied too.
+                    for key, value in (('type', 'nic'), ('network', bridge), ('ipv4.address', ''), ('ipv6.address', '')):
                         overrides += ['--device', name + ',' + key + '=' + value]
                 elif device.get('type') == 'disk' and device.get('path') != '/':
-                    for key in ('pool', 'source'):
-                        overrides += ['--device', name + ',' + key + '=' + item['devices'][name][key]]
+                    for key, value in item['devices'][name].items():
+                        overrides += ['--device', name + ',' + key + '=' + value]
             ops.incus('import', str(source / item['archive']), item['target'], '--project', project, '--storage', pool, *overrides, timeout=43200)
             current = api(guest_path(project, item['target']))
         if current.get('config', {}).get(token) != record['id'] or current.get('status') != 'Stopped':
@@ -362,10 +373,11 @@ def cli(argv):
     commands = parser.add_subparsers(dest='command', required=True)
     create = commands.add_parser('plan'); create.add_argument('generation', type=Path); create.add_argument('--mappings', type=Path, required=True)
     commands.add_parser('status')
+    commands.add_parser('export-report')
     apply = commands.add_parser('resume'); apply.add_argument('--confirm', action='store_true')
     finish = commands.add_parser('release'); finish.add_argument('--confirm', action='store_true'); finish.add_argument('--data-verified', action='store_true'); finish.add_argument('--acknowledge-exclusions', action='store_true')
     args = parser.parse_args(argv)
-    if args.command == 'status': result = status()
+    if args.command in ('status', 'export-report'): result = status() if args.command == 'status' else export_report()
     else:
         with rt.locked(blocking=False), open_lock(ops.INCUS_LOCK) as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

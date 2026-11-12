@@ -247,7 +247,7 @@ def download(recipient=None):
 
 
 def cli(argv):
-    if argv and argv[0] in ('plan', 'status', 'resume', 'release'):
+    if argv and argv[0] in ('plan', 'status', 'resume', 'release', 'export-report'):
         import replacement
         return replacement.cli(argv)
     import argparse

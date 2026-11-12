@@ -145,6 +145,10 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(guest['config']['boot.autostart'], 'false')
         self.assertIn(guest['devices']['data']['source'], self.volumes)
         imports = [call for call in self.calls if call[0] == 'import' or call[:3] == ('storage', 'volume', 'import')]
+        imported = next(call for call in imports if call[0] == 'import')
+        self.assertIn('eth0,type=nic', imported)
+        self.assertIn('data,type=disk', imported)
+        self.assertIn('data,path=/data', imported)
         self.pool['used_by'] = ['/newly-imported-object']
         r.resume(True)
         self.assertEqual(imports, [call for call in self.calls if call[0] == 'import' or call[:3] == ('storage', 'volume', 'import')])
@@ -184,6 +188,13 @@ class RecoveryTests(unittest.TestCase):
         before = len(self.calls)
         self.assertEqual(r.release(True, True)['restore'], 'operator-attested')
         self.assertEqual(len(self.calls), before)
+
+    def test_shareable_report_excludes_workload_names_and_hardware_mappings(self):
+        self.plan(); r.resume(True)
+        report = r.export_report()
+        self.assertEqual(report['evidenceType'], 'unverified')
+        self.assertFalse({'guests', 'volumes', 'mapping', 'project', 'bridge'} & report.keys())
+        self.assertNotIn('lab/apps', json.dumps(report))
 
 
 class RecoveryGuardTests(unittest.TestCase):

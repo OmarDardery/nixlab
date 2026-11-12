@@ -260,6 +260,17 @@ with a required separate review. Source material is never modified or deleted.
    An unfinished/corrupt journal continues to block reconciliation, deployment,
    backups and portal guest mutations even if the mode module is removed early.
 
+   For release evidence, export the redacted result rather than the operational
+   status (which intentionally includes private workload/hardware mappings):
+
+   ```sh
+   sudo nixlab-admin recovery export-report > recovery.json
+   ```
+
+   Inspect it before sharing. It contains source/input identity, coverage,
+   attestation time and measured duration, with no guest names, disk UUIDs,
+   addresses, credentials or mapping paths. Incomplete recovery stays unverified.
+
 If interrupted, rollback means retaining the quarantine and original backup while
 returning to the known replacement host configuration. There is no automatic
 delete/overwrite cleanup. The CLI does not claim arbitrary backend, device,
