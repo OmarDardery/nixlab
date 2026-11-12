@@ -236,6 +236,10 @@ def main():
     if TARGET.exists():
         manager = Manager()
         current = manager.status().get('job') or {}
+        if args.plan_only and (current.get('status') in
+                               ('building', 'ready', 'applying', 'awaiting-confirmation', 'rolling-back')
+                               or rt.read_json(rt.STATE / 'pending.json', {})):
+            parser.error('A transaction or recovery is active; --plan-only will not resume or mutate it')
         current = workflow.finish_interrupted_recovery(manager, current)
         if current.get('status') in ('building', 'ready', 'applying', 'awaiting-confirmation', 'rolling-back'):
             if not args.switch:
@@ -268,9 +272,11 @@ def main():
     if not existing and Path('/var/lib/incus/database').exists():
         adoption = workflow.incus_inventory()
         print('Existing Incus: ' + str(len(adoption['instances'])) + ' guests. Adoption creates separate resources and backs up existing guests.')
-        if not args.adopt_incus:
+        if not args.adopt_incus and not args.plan_only:
             if not sys.stdin.isatty() or input('Back up and adopt this Incus host? [y/N] ').strip().lower() not in ('y', 'yes'):
                 parser.error('Adoption was not selected; no changes made. Use --adopt-incus after reviewing existing guests.')
+        if args.plan_only:
+            print('Plan only: existing Incus adoption would require --adopt-incus and a complete independent backup.')
     # All source changes and evaluations happen in a disposable planning tree.
     # Publish only after key/network/Wi-Fi/KVM/adoption validation succeeds.
     with tempfile.TemporaryDirectory(prefix='nixlab-plan-') as temporary:
