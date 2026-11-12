@@ -182,14 +182,14 @@ class CliTests(unittest.TestCase):
             fake.write_text('#!/usr/bin/env python3\nimport os,sys,json\nopen(os.environ["ARGS"],"w").write(json.dumps(sys.argv[1:]))\nsys.exit(23)\n')
             fake.chmod(0o755)
             cfg = p / 'config.json'
-            cfg.write_text(json.dumps({'remote': 'labserver', 'project': 'lab', 'aliases': {'105': 'klipper'}}))
+            cfg.write_text(json.dumps({'remote': 'labserver', 'project': 'lab', 'aliases': {'105': 'web'}}))
             env = os.environ | {'PATH': d + ':' + os.environ['PATH'], 'HOMELAB_CONFIG': str(cfg), 'ARGS': str(p / 'args')}
             proc = subprocess.run(['python3', str(BASE / 'scripts/homelab.py'), 'exec', '105', '--',
                                    'printf', '%s', 'one argument; $(never-run)'], env=env)
             self.assertEqual(proc.returncode, 23)
             args = json.loads((p / 'args').read_text())
             self.assertEqual(args[-3:], ['printf', '%s', 'one argument; $(never-run)'])
-            self.assertIn('labserver:klipper', args)
+            self.assertIn('labserver:web', args)
 
 class BackupTests(unittest.TestCase):
     def setUp(self):
