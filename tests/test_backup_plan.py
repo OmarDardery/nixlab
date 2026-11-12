@@ -105,6 +105,12 @@ class CoverageTests(unittest.TestCase):
                     patch.object(rt, 'SECRET_PATHS', {'portainerPassword': root / 'bootstrap'}):
                 self.assertTrue(recovery.coverage()['complete'])
                 self.assertFalse((root / 'portainer-account.json').exists())
+                account = root / 'portainer-account.json'; account.write_text('{}')
+                self.assertTrue(recovery.coverage()['complete'])
+                account.chmod(0o666)
+                self.assertIn('apps-account', recovery.coverage()['missing'])
+                account.unlink(); account.symlink_to(root / 'missing-account')
+                self.assertIn('apps-account', recovery.coverage()['missing'])
 
 
 class CapacityTests(unittest.TestCase):

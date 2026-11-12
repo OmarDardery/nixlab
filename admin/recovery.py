@@ -98,6 +98,9 @@ def coverage():
             for name in ('apps-tls.key', 'apps-tls.crt'):
                 required['apps-' + name] = rt.STATE / name
             required['apps-bootstrap'] = rt.SECRET_PATHS['portainerPassword']
+            account = rt.STATE / 'portainer-account.json'
+            if account.exists() or account.is_symlink():
+                required['apps-account'] = account
     files = secret_files()
     archived = set(files.values())
     missing = [name for name, path in required.items() if secret_source(path) is None or secret_source(path) not in archived]

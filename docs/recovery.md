@@ -137,7 +137,9 @@ do not substitute this demo hook for Immich's documented backup workflow.
 Configured recovery credentials and SOPS links must live under trusted root-owned
 parent directories; writable non-sticky or unprivileged-owned parents make
 coverage incomplete. Move affected credentials to root-controlled storage and
-review their configured paths. This preflight refuses backup before guest shutdown.
+review their configured paths. Portainer reset metadata is optional on fresh
+bootstrap but must be included safely once it exists. This preflight refuses
+backup before guest shutdown.
 
 ## Host-loss restore
 
