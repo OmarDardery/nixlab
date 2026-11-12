@@ -56,7 +56,7 @@ def normalize(raw):
         if net.version != 4 or net.prefixlen != 24 or not any(net.subnet_of(p) for p in private):
             raise ValueError("guestSubnet must be an unused RFC1918 IPv4 /24")
         result["guestSubnet"] = str(net)
-     return result
+    return result
 
 
 def load(path):
