@@ -30,13 +30,13 @@ sudo nix --extra-experimental-features 'nix-command flakes' \
 ```
 
 For a fresh interactive installation, the installer asks about workloads,
-network access, DNS, printer hardware, monitoring and the apps VM. It displays
+network access, backup intent, monitoring, laptop policy and the apps VM. It displays
 an explicit plan **before** the normal reviewed NixOS activation. Use
 `--interactive` to request the interview explicitly, `--answers /root/answers.json`
 for headless provisioning, or `--plan-only` to preview without publishing.
 Non-TTY operation never waits for input. Answers files contain **no secrets**.
-See [the home-server scenario](home-server-scenario.md) for AdGuard Home,
-Klipper USB passthrough, AIOStreams Compose and backup/restore checks.
+See [the generic homelab scenario](home-server-scenario.md) for Incus guests,
+optional device passthrough, Compose applications and backup/restore checks.
 
 Use the same command after an interrupted attempt. Local console installation
 does not require an SSH key. Follow [plain NixOS installation](plain-nixos.md)
@@ -49,7 +49,7 @@ disables desktop startup and suspend/hibernation. After reboot, run
 
 Open Incus from the portal and enroll its browser certificate. Create your first
 container or VM in Incus. For application helpers, run `sudo nixlab-helpers doctor`
-then use `sudo nixlab-helpers run adguard --project lab` from the host terminal.
+then select a reviewed helper from `nixlab-helpers list` on the host terminal.
 Review [networking](networking.md) before exposing LAN services.
 
 Configure independent backups under Recovery and perform an isolated restore.
