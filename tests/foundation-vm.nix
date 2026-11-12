@@ -52,7 +52,7 @@ in pkgs.testers.runNixOSTest {
     services.openssh = { enable = true; openFirewall = false; };
     # This fixture exercises real containers; it makes no KVM/VM-guest claim.
     systemd.services.nixlab-kvm-check = { serviceConfig.Type = "oneshot"; script = "true"; };
-    environment.systemPackages = [ pkgs.python3 pkgs.incus-lts.client pkgs.util-linux ];
+    environment.systemPackages = [ pkgs.python3 pkgs.incus-lts.client pkgs.util-linux pkgs.git ];
     environment.etc."nixlab-impact-fixture.json".text = builtins.toJSON {
       settings = site; disks = { }; instances = [ ];
       preseed = config.virtualisation.incus.preseed;

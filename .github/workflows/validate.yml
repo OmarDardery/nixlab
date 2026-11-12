@@ -55,6 +55,8 @@ jobs:
         run: |
           find . -name '*.nix' -print0 | xargs -0 -r -n1 nix-instantiate --parse >/dev/null
           nix eval --raw .#checks.x86_64-linux.foundation.drvPath
+      - name: Boot real Incus containers and verify host integration and restore
+        run: nix build .#checks.x86_64-linux.foundation --no-link -L
       - name: Verify NixOS guest rollout, health rollback and interrupted transfer recovery
         run: nix build .#checks.x86_64-linux.guest-deployments --no-link -L
       - name: Evaluate direct conversion from an installed NixOS configuration
@@ -97,8 +99,6 @@ jobs:
         run: |
           nix eval .#nixosConfigurations.validation-management.config.system.build.toplevel.drvPath
           nix build .#checks.x86_64-linux.management --no-link -L
-      - name: Boot real Incus containers and verify host integration and restore
-        run: nix build .#checks.x86_64-linux.foundation --no-link -L
       - name: Evaluate configuration variants
         run: |
           for target in validation-minimal validation-file-disk validation-recipes validation-host validation-ethernet validation-ethernet-nm validation-ethernet-wifi validation-coupled-apps validation-apps validation-services validation-demo validation-zfs validation-inherited validation-bootstrap validation-setup validation-setup-apps; do
