@@ -226,6 +226,11 @@ def main():
         parser.error('--plan-only in unattended mode requires --answers or explicit CLI selections')
     if args.answers and args.interactive:
         parser.error('Choose either --answers or --interactive, not both')
+    if not args.switch and (args.interactive or args.answers or args.plan_only or
+                            args.workloads or args.access_mode or args.guest_network or
+                            args.adguard or args.klipper or args.aiostreams or
+                            args.laptop_mode or args.no_monitoring):
+        parser.error('--wizard bootstraps only the web UI; use --switch for a reviewed home-server plan')
     if TARGET.exists() and not rt.machine_path(TARGET, 'installation').is_file():
         parser.error('Existing checkout has no intact installation inventory; inspect it before proceeding (no configuration changed)')
     if TARGET.exists():
@@ -320,9 +325,18 @@ def main():
                            (not existing and sys.stdin.isatty() and not args.non_interactive))
         proposal = None
         if explicit_intent:
+            draft = rt.STATE / 'installer-intent-draft.json'
             chosen = intent.load(args.answers) if args.answers else intent.defaults()
-            if args.interactive or (not existing and sys.stdin.isatty() and not args.non_interactive and not args.answers):
-                chosen = intent.interview(existing=chosen)
+            interview_mode = args.interactive or (not existing and sys.stdin.isatty() and
+                                                  not args.non_interactive and not args.answers)
+            if interview_mode:
+                if draft.is_file() and not args.plan_only and not args.answers:
+                    chosen = intent.normalize(rt.read_json(draft))
+                    print('Resuming previous non-secret installer interview draft.', flush=True)
+                def checkpoint(value):
+                    if not args.plan_only:
+                        rt.write_json(draft, value)
+                chosen = intent.interview(existing=chosen, on_answer=checkpoint)
             chosen.update(flags)  # Explicit CLI flags override an answers file.
             # Legacy --no-apps remains an explicit override.
             if args.no_apps: chosen['workloads'] = 'containers'
@@ -463,6 +477,10 @@ def main():
     rt.prepare_state_access()
     publish_etc()
     summarize(settings, password, record)
+    if proposal:
+        for task in proposal['pending']:
+            print('Pending commissioning: ' + task)
+        (rt.STATE / 'installer-intent-draft.json').unlink(missing_ok=True)
 
 
 if __name__ == '__main__':
