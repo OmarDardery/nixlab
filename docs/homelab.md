@@ -94,27 +94,24 @@ guests do not acquire `192.168.1.x` addresses automatically. Do not assign the
 host's management address to a guest. Do not remap an initialized Incus subnet, pool or project
 merely to match a fresh-install example.
 
-For directly addressed LAN guests such as AdGuard, use a reviewed **wired** bridge
-and reserve distinct free addresses (for example `.241` onward after checking
-router exclusions). Moving the host address onto a bridge is a network migration;
-keep console access and use confirmation recovery. Wi-Fi cannot be enslaved as an
-Ethernet bridge. A routed alternative is a router route for `10.90.90.0/24` via
-`192.168.1.240`, plus reviewed trusted-LAN guest access. Point router DHCP DNS at
-AdGuard's reachable address only after testing DNS from a LAN client. See
-[networking](networking.md).
+For directly addressed LAN guests, use a reviewed **wired** bridge, VLAN
+or routed network and reserve distinct free addresses after checking router
+exclusions. Moving host addressing onto a bridge is a network migration;
+retain console access and confirmation recovery. A private NAT bridge does
+not automatically expose guest services to the LAN. Validate routing,
+firewall rules, DNS and application reachability before changing router
+settings. See [networking](networking.md).
 
-Preserve running AIOStreams, Vaultwarden and Klipper instances. Existing instances
-outside platform-declared ownership remain Incus-managed; enabling the apps VM
-does not move them. New Compose stacks can use Portainer. Keep AIOStreams
-authentication and its public URL, `https://aiostreams.dardery.work`, in the
-application's supported settings and preserve its existing Cloudflare origin.
-Never put authentication secrets into uploaded Nix files.
+Preserve all existing workloads and their data volumes, credentials and
+application URLs. Guests outside platform-declared ownership remain
+Incus-managed; enabling the apps VM does not migrate them. New Compose
+stacks can use Portainer. Never put runtime secrets in uploaded Nix files.
 
-For Klipper, retain `/dev/serial/by-id/...` or a deliberately discovered stable
-alias. Declare host aliases through **Hardware & Disks**, then assign the device
-in Incus with the correct guest UID/GID/mode. Save `printer.cfg`, macros and
-Moonraker configuration independently before changing the instance. Enabling
-management tools does not attach a printer or reinstall software.
+For hardware-backed workloads, identify stable `/dev/serial/by-id/...`
+paths or declared device aliases under **Hardware & Disks**, then attach
+only the selected device to the correct guest with reviewed permissions.
+Back up application configuration separately. Enabling management tools
+never attaches peripherals or reinstalls third-party applications.
 
 ## Verification
 
