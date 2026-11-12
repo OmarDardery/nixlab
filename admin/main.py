@@ -596,6 +596,12 @@ if __name__ == '__main__':
     elif action == 'recovery' and os.geteuid() == 0:
         import recovery
         recovery.cli(sys.argv[2:])
+    elif action == 'install-plan' and os.geteuid() == 0:
+        installation = rt.read_json(rt.machine_path(rt.ROOT, 'installation'), {})
+        print(json.dumps({'intent': installation.get('intent'),
+                          'pendingTasks': installation.get('pendingTasks', []),
+                          'note': 'Pending tasks are not proof of physical completion; use commissioning evidence.'},
+                         indent=2))
     elif action == 'commissioning':
         import commissioning
         try:
@@ -635,5 +641,5 @@ if __name__ == '__main__':
         rt.durable_unlink(rt.STATE / 'setup-password')
         print('Password changed. Restart nixlab-ui to revoke existing sessions.')
     else:
-        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|portainer reset-password|backend|web|guard|renew|reset-password|config|deploy|guests|recovery|commissioning|prune-jobs|disk prepare}')
+        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|portainer reset-password|backend|web|guard|renew|reset-password|config|deploy|guests|recovery|commissioning|install-plan|prune-jobs|disk prepare}')
 

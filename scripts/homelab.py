@@ -36,6 +36,7 @@ def main():
     sub = p.add_subparsers(dest="action", required=True)
     sub.add_parser("list")
     sub.add_parser("doctor")
+    sub.add_parser("install-plan")
     sub.add_parser("commissioning").add_argument("arguments", nargs=argparse.REMAINDER)
     sub.add_parser("enroll-key").add_argument("file", type=Path)
     portainer = sub.add_parser("portainer")
@@ -46,7 +47,7 @@ def main():
         if action in ("exec", "exec-many", "action"):
             q.add_argument("command", nargs=argparse.REMAINDER)
     args = p.parse_args()
-    if args.action in ("doctor", "enroll-key", "portainer", "commissioning"):
+    if args.action in ("doctor", "enroll-key", "portainer", "commissioning", "install-plan"):
         if os.geteuid() != 0:
             p.error('Run this host administration command with sudo')
         command = ["nixlab-admin", args.action]
