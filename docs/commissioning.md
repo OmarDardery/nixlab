@@ -134,7 +134,7 @@ See the [qualification matrix](qualification.md) for publication and limits.
   Test narrowly scoped private-access exceptions against the intended service.
 - Select a real USB serial identity, create a stable alias, then attach it using Incus.
   Verify guest user/group permissions, disconnect/reconnect, host reboot and an actual
-  workload. Klipper is one possible workload; there is no default printer recipe.
+  workload. No particular peripheral or guest application is assumed.
 - Run `sudo nixlab-helpers doctor --project lab`, then qualify each selected helper
   through create, application health, reboot, update, backup, independent restore and
   cleanup. Record host generation, Incus version, source revisions, image/application
