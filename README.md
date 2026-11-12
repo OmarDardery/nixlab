@@ -19,7 +19,7 @@ It brings together established tools rather than inventing another virtualizatio
 A declarative NixOS bare-metal host using Incus for system containers and KVM VMs,
 with Docker Compose isolated inside a NixOS applications VM.
 
-[Website & documentation](https://nixlab.dardery.work/) · [Troubleshooting](docs/troubleshooting.md) · [GitHub Pages / domain setup](docs/website.md)
+[Website & documentation](https://nixlab.dardery.work/) · [Interactive homelab setup](docs/home-server-scenario.md) · [Troubleshooting](docs/troubleshooting.md) · [GitHub Pages / domain setup](docs/website.md)
 
 **Start from a plain, installed NixOS server** (no desktop needed):
 
@@ -27,6 +27,11 @@ with Docker Compose isolated inside a NixOS applications VM.
 sudo nix --extra-experimental-features 'nix-command flakes' \
   run github:OmarDardery/nixlab#install
 ```
+
+On a fresh interactive terminal, it first reviews workloads and access; the
+versioned `--answers` and `--plan-only` modes also support unattended setup.
+The AdGuard, Klipper and AIOStreams selections produce explicit post-install
+checklists rather than running unreviewed third-party scripts or changing router DNS.
 
 It preserves installed users, filesystems, boot configuration and addressing, then
 builds Incus, Cockpit and the Portainer apps VM. Retries detect active work and
