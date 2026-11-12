@@ -6,6 +6,7 @@ let
     chmod -R u+w $out
     cp ${../scripts/preflight.py} $out/preflight.py
     cp ${../scripts/backup.py} $out/backup.py
+    cp ${../scripts/backup_plan.py} $out/backup_plan.py
     cp ${../scripts/reconcile.py} $out/reconcile.py
     cp ${../scripts/infrastructure.py} $out/infrastructure.py
     cp ${../scripts/guest_deploy.py} $out/guest_deploy.py

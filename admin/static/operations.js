@@ -35,6 +35,12 @@ function healthSummary() {
   return `<p>Backup: <b>${esc(h.backup?.health || "unknown")}</b> · Guests awaiting restart: ${esc(h.guestsAwaitingRestart ?? "unknown")}</p>${h.rootStorage ? `<p>Root storage: ${esc(formatBytes(h.rootStorage.availableBytes))} available of ${esc(formatBytes(h.rootStorage.totalBytes))}</p>` : ""}<ul>${services}${certificates}</ul>`;
 }
 
+function backupCoverage(status) {
+  const coverage = status.coverage, capacity = status.capacity;
+  const gaps = (coverage?.items || []).filter(item => item.status !== "included");
+  return `<p>Coverage: <b>${coverage ? (coverage.complete ? "Inventoried exports included" : "Incomplete") : "Not assessed"}</b></p>${gaps.length ? `<ul class="error">${gaps.map(item => `<li>${esc(item.identity)}: ${esc(item.status)}</li>`).join("")}</ul>` : ""}${capacity ? `<p>Estimated new staging: ${esc(formatBytes(capacity.estimatedNewBytes))} plus ${esc(formatBytes(capacity.reserveBytes))} reserve; ${esc(formatBytes(capacity.availableBytes))} available.</p>${capacity.unknown?.length ? `<p class="error">Current size unknown for ${esc(capacity.unknown.length)} archive(s). Estimates may be incomplete.</p>` : ""}` : ""}<p>Application restore: unverified. A successful export or repository check does not prove recovery.</p>`;
+}
+
 function operationsPage() {
   const busy = operationView.jobs.some((j) =>
     ["queued", "running"].includes(j.status),
@@ -67,6 +73,7 @@ function operationsPage() {
       "Backup status",
       `<p>Current phase: <b>${esc(phase)}</b> ${status.group ? `· group ${esc(status.group)} of ${esc(status.groups)}` : ""}</p><p>${esc((status.members || []).join(", "))}</p>${status.excluded?.length ? `<p class="error">Excluded from coverage: ${esc(status.excluded.join(", "))}</p>` : ""}<p>Last full-host success: ${operationView.health?.lastBackupSuccess ? esc(new Date(operationView.health.lastBackupSuccess * 1000).toLocaleString()) : "Not recorded"}</p><p>Guests awaiting restart recovery: ${esc(operationView.health?.guestsAwaitingRestart ?? "Unknown")}</p>${operationView.error ? `<p class="error">${esc(operationView.error)}</p>` : ""}<button data-ops-refresh>Refresh</button> <button data-run-backup ${!administrator() || busy || !state.status.settings.backup.enable ? "disabled" : ""}>Run scheduled backup</button> <button data-check-backup ${!administrator() || busy || !state.status.settings.backup.enable ? "disabled" : ""}>Check restic repository</button> <button data-cancel-backup ${!administrator() || !backupRunning ? "disabled" : ""}>Cancel scheduled backup</button>`,
     ) +
+    backupCoverage(status) +
     backupSettings() +
     card(
       "Complete local generations",
