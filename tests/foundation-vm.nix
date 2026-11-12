@@ -144,6 +144,7 @@ in pkgs.testers.runNixOSTest {
     host.succeed("PYTHONPATH=${../admin}:${../scripts} python3 ${./replacement-integration.py} material " + source)
     host.succeed("tar -czf /tmp/shared/replacement-generation.tar.gz -C " + source + " .")
     replacement.wait_for_unit("incus.service")
+    replacement.succeed("mkdir -m 0700 /var/lib/nixlab-replacement-pool")
     replacement.succeed("incus storage create replacement dir source=/var/lib/nixlab-replacement-pool")
     replacement.succeed("mkdir -m 0700 /root/offhost-generation")
     replacement.succeed("tar -xzf /tmp/shared/replacement-generation.tar.gz -C /root/offhost-generation")
