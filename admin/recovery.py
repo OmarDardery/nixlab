@@ -84,7 +84,9 @@ def coverage():
             required['management-' + name] = rt.STATE / name
         required['management-account'] = rt.STATE / ('users.json' if (rt.STATE / 'users.json').exists() else 'auth.json')
         if configured.get('apps', {}).get('enable'):
-            for name in ('apps-tls.key', 'apps-tls.crt', 'portainer-account.json'):
+            # Account metadata is created only by an explicit password reset.
+            # A fresh bootstrap uses admin and legitimately has no such file.
+            for name in ('apps-tls.key', 'apps-tls.crt'):
                 required['apps-' + name] = rt.STATE / name
             required['apps-bootstrap'] = rt.SECRET_PATHS['portainerPassword']
     files = secret_files()

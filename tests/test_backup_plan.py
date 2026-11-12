@@ -17,6 +17,14 @@ import runtime as rt
 
 
 class CoverageTests(unittest.TestCase):
+    def test_block_usb_and_pci_passthrough_cannot_silently_count_as_exported_storage(self):
+        for kind in ('unix-block', 'usb', 'pci'):
+            guest = {'project': 'lab', 'name': 'vm', 'devices': {'hardware': {'type': kind, 'source': '/dev/example'}}}
+            result = backup_plan.coverage([guest], [], [guest], [], {})
+            self.assertFalse(result['complete'])
+            self.assertEqual(result['items'][-1]['kind'], 'passthrough')
+            self.assertEqual(result['items'][-1]['status'], 'external')
+
     def test_external_mount_and_missing_custom_volume_cannot_be_complete(self):
         guest = {'project': 'lab', 'name': 'apps', 'expanded_devices': {
             'root': {'type': 'disk', 'path': '/', 'pool': 'guests'},
@@ -64,6 +72,17 @@ class CoverageTests(unittest.TestCase):
     def test_missing_age_key_cannot_be_hidden_by_an_empty_secret_archive(self):
         with patch.object(recovery, 'settings', return_value={'secrets': {'enable': True, 'ageKeyFile': '/nonexistent-key'}}):
             self.assertIn('sops-age-key', recovery.coverage()['missing'])
+
+    def test_fresh_apps_bootstrap_does_not_require_optional_password_reset_metadata(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for name in ('ca.key', 'ca.crt', 'tls.key', 'tls.crt', 'auth.json', 'apps-tls.key', 'apps-tls.crt', 'bootstrap'):
+                (root / name).write_text('fixture')
+            configured = {'setup': {'enable': True}, 'apps': {'enable': True}}
+            with patch.object(recovery, 'settings', return_value=configured), patch.object(rt, 'STATE', root), \
+                    patch.object(rt, 'SECRET_PATHS', {'portainerPassword': root / 'bootstrap'}):
+                self.assertTrue(recovery.coverage()['complete'])
+                self.assertFalse((root / 'portainer-account.json').exists())
 
 
 class CapacityTests(unittest.TestCase):

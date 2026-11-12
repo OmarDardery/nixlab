@@ -14,6 +14,11 @@ def coverage(guests, volumes, selected_guests, selected_volumes, namespaces):
         if not included:
             continue
         for name, device in guest.get('expanded_devices', guest.get('devices', {})).items():
+            if device.get('type') in ('unix-block', 'usb', 'pci'):
+                # A passed-through controller/USB device can contain storage
+                # that no Incus instance or custom-volume export includes.
+                rows.append({'kind': 'passthrough', 'identity': identity + '/' + name, 'status': 'external'})
+                continue
             if device.get('type') != 'disk' or device.get('path') == '/':
                 continue
             source = device.get('source')
