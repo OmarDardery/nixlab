@@ -30,8 +30,8 @@ sudo nix --extra-experimental-features 'nix-command flakes' \
 
 On a fresh interactive terminal, it first reviews workloads and access; the
 versioned `--answers` and `--plan-only` modes also support unattended setup.
-The AdGuard, Klipper and AIOStreams selections produce explicit post-install
-checklists rather than running unreviewed third-party scripts or changing router DNS.
+The interview configures infrastructure capabilities rather than named applications.
+Guest, device, DNS and Compose provisioning remain independent reviewed workflows.
 
 It preserves installed users, filesystems, boot configuration and addressing, then
 builds Incus, Cockpit and the Portainer apps VM. Retries detect active work and
@@ -134,8 +134,8 @@ sudo nixlab doctor
 sudo nixlab enroll-key /path/to/laptop.pub
 sudo nixlab portainer reset-password
 sudo homelab exec apps -- uname -a
-sudo homelab exec 105 -- systemctl status klipper
-sudo homelab exec-many apps,adguard -- df -h
+sudo homelab exec GUEST -- systemctl --failed
+sudo homelab exec-many apps,web -- df -h
 sudo homelab action apps health
 sudo homelab restart apps
 sudo homelab deploy demo
@@ -183,8 +183,7 @@ access confirmation and guest/application health remain separate.
 
 `nixlab-helpers` packages the upstream Community Scripts Incus wizard with both
 source repositories pinned. Run it from SSH/the console; the portal only links
-and reports compatibility. No application, including Klipper, is installed by
-default. Current qualification targets remain explicitly unverified until their
+and reports compatibility. No named third-party application is installed by default. Current qualification targets remain explicitly unverified until their
 live install/restore evidence is recorded.
 
 Backups publish complete generations, recover each stopped guest group immediately,
