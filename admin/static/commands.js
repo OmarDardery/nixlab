@@ -64,8 +64,8 @@ function commandGroups() {
       ["quick-failures", "Failed services", "Host terminal", "Inspect failed systemd units.", "systemctl --failed"],
       ["quick-log", "Follow NixLab web logs", "Host terminal", "Investigate authentication or startup problems.", "sudo journalctl -u nixlab-ui -f"],
       ["quick-apps", "Check apps VM", "Host terminal", "Check Docker from inside the isolated guest.", "sudo incus exec apps --project lab -- docker ps"],
-      ["quick-klipper", "Klipper service logs", "Host terminal", "Inspect the printer guest without exposing Moonraker publicly.", "sudo incus exec klipper --project lab -- journalctl -u klipper -n 50 --no-pager"],
-      ["quick-recovery", "Show pending install checklist", "Host terminal", "See unfinished DNS, printer and backup commissioning steps.", "sudo nixlab install-plan"],
+      ["quick-guest-logs", "Guest service logs", "Host terminal", "Inspect the selected guest without publishing its admin interfaces.", "sudo incus exec GUEST --project lab -- journalctl -b --no-pager -n 50"],
+      ["quick-recovery", "Show pending install checklist", "Host terminal", "See pending guest network, device and backup commissioning steps.", "sudo nixlab install-plan"],
       ["quick-config", "Current change status", "Host terminal", "View reviewed configuration transactions.", "sudo nixlab-admin config status"],
     ] },
     { id: "updates", title: "Install & update", guide: "plain-nixos.md", items: [
@@ -90,7 +90,7 @@ function commandGroups() {
       ["helper-list", "Browse the packaged helper catalog", "Host terminal", "List script IDs and compatibility metadata from the pinned sources.", "nixlab-helpers list"],
       ["helper-doctor", "Check helper prerequisites", "Host terminal", "Verify Incus, images, networks and storage for the lab project.", "sudo nixlab-helpers doctor --project lab"],
       ["helper-debian", "Example: Debian container wizard", "Host terminal", "Interactive Incus wizard; creates a guest. Helpers must be enabled. Choose its storage and network in the terminal.", "sudo nixlab-helpers run debian --project lab"],
-      ["helper-adguard", "Example: AdGuard Home wizard", "Host terminal", "Interactive application installer. Upstream-supported; Nixlab qualification is separate.", "sudo nixlab-helpers run adguard --project lab"],
+      ["helper-catalog", "Select a community helper", "Host terminal", "Browse application choices; review upstream scripts and prerequisites before use.", "nixlab-helpers list"],
       ["helper-vaultwarden", "Example: Vaultwarden wizard", "Host terminal", "Interactive application installer. Include the resulting application data in your backup plan.", "sudo nixlab-helpers run vaultwarden --project lab"],
     ] },
   ];
