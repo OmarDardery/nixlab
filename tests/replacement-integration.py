@@ -42,7 +42,9 @@ elif sys.argv[1] == 'verify':
     assert current['profiles'] == []
     assert not any(device.get('type') in ('nic', 'usb', 'pci', 'unix-char', 'proxy') for device in current['expanded_devices'].values())
     try:
+        print('REPLACEMENT_STAGE: start isolated guest', flush=True)
         operations.incus('start', guest, '--project', report['project'])
+        print('REPLACEMENT_STAGE: guest started', flush=True)
     except ValueError:
         # This disposable fixture contains no real users/credentials. Keep
         # bounded LXC diagnostics, never complete host journals or configuration.
@@ -52,11 +54,16 @@ elif sys.argv[1] == 'verify':
                 print('Replacement startup: ' + line[:1000], flush=True)
         raise
     try:
-        assert operations.incus('exec', guest, '--project', report['project'], '--', '/bin/cat', '/var/lib/test/index.html').strip() == 'preserved'
-        assert operations.incus('exec', guest, '--project', report['project'], '--', '/bin/cat', '/recoverdata/record').strip() == 'attached-data'
+        assert operations.incus('exec', guest, '--project', report['project'], '--disable-stdin', '--mode=non-interactive', '--', '/bin/cat', '/var/lib/test/index.html').strip() == 'preserved'
+        print('REPLACEMENT_STAGE: guest disk record verified', flush=True)
+        assert operations.incus('exec', guest, '--project', report['project'], '--disable-stdin', '--mode=non-interactive', '--', '/bin/cat', '/recoverdata/record').strip() == 'attached-data'
+        print('REPLACEMENT_STAGE: attached volume record verified', flush=True)
     finally:
+        print('REPLACEMENT_STAGE: stop isolated guest', flush=True)
         operations.incus('stop', guest, '--project', report['project'], '--timeout', '120', timeout=180)
+        print('REPLACEMENT_STAGE: guest stopped', flush=True)
     assert replacement.resume(True)['phase'] == 'isolated'
+    print('REPLACEMENT_STAGE: durable checkpoint resume verified', flush=True)
     assert replacement.status()['restore'] == 'unverified'
     print('Independent Incus node imported real container and attached-volume data; stopped quarantine and resumability verified. Synthetic config kits; no physical qualification.')
 else:
