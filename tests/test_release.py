@@ -1,9 +1,16 @@
 """Beta publishing rejects stale, skipped, wrong-revision and simulated gates."""
 import copy
+import argparse
+import contextlib
+import hashlib
 import importlib.util
+import json
 from pathlib import Path
+import subprocess
 import sys
+import tarfile
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -18,6 +25,53 @@ release = importlib.util.module_from_spec(spec); spec.loader.exec_module(release
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_source_packaging_is_revision_bound_and_excludes_untracked_runtime_material(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); source = root / 'repo'; source.mkdir(); evidence = root / 'evidence'; evidence.mkdir()
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(source), *args], text=True).strip()
+            git('init', '-q')
+            (source / 'VERSION').write_text('0.1.0-beta.1\n'); (source / 'flake.lock').write_text('{}\n')
+            (source / 'README.md').write_text('Synthetic source packaging fixture\n')
+            git('add', '.'); git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'fixture')
+            revision = git('rev-parse', 'HEAD'); git('tag', 'v0.1.0-beta.1')
+            (source / 'runtime-password').write_text('untracked-test-value')
+            for mode in ('fresh', 'upgrade'):
+                path = self.physical(evidence, mode); result = c.load(path)
+                result['context'].update(revision=revision, inputsDigest=c.digest('{}'))
+                for item in result['evidence']:
+                    item.update(contextDigest=c.digest(result['context']), time=int(time.time()))
+                rt.write_json(path, result)
+            rt.write_json(evidence / 'recovery.json', {'phase': 'complete', 'restore': 'operator-attested',
+                'coverage': {'complete': True}, 'sourceRevision': revision, 'sourceInputsDigest': c.digest('{}'), 'durationSeconds': 42})
+            (evidence / 'limitations.md').write_text('Synthetic test evidence only; never physical qualification.')
+            run_ids = {key: index for index, key in enumerate(release.WORKFLOWS, 1)}
+            def gh(*args):
+                for key, number in run_ids.items():
+                    if '/' + str(number) in args[-1]:
+                        run, jobs = self.run_evidence(key); run['head_sha'] = revision
+                        return [{'jobs': jobs}] if '/jobs?' in args[-1] else run
+                raise AssertionError(args)
+            args = argparse.Namespace(tag='v0.1.0-beta.1', evidence=evidence, runs=json.dumps(run_ids),
+                                      repository='OmarDardery/nixlab', output=root / 'assets')
+            with contextlib.chdir(source), patch.object(release, 'gh_json', side_effect=gh):
+                release.prepare(args)
+            with tarfile.open(args.output / 'nixlab-0.1.0-beta.1.tar.gz') as archive:
+                names = archive.getnames()
+                self.assertIn('nixlab-0.1.0-beta.1/README.md', names)
+                self.assertFalse(any('runtime-password' in name for name in names))
+            manifest = json.loads((args.output / 'manifest.json').read_text())
+            self.assertEqual(manifest['revision'], revision)
+            for line in (args.output / 'SHA256SUMS').read_text().splitlines():
+                expected, name = line.split('  ', 1)
+                self.assertEqual(hashlib.sha256((args.output / name).read_bytes()).hexdigest(), expected)
+            (source / 'README.md').write_text('different source\n')
+            git('add', '.'); git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'new source')
+            args.output = root / 'must-not-exist'
+            with contextlib.chdir(source), patch.object(release, 'gh_json') as network, self.assertRaisesRegex(ValueError, 'release tag'):
+                release.prepare(args)
+            self.assertFalse(args.output.exists()); network.assert_not_called()
+
     def test_restore_requires_full_recorded_data_recovery_on_the_candidate(self):
         record = {'phase': 'complete', 'restore': 'operator-attested', 'coverage': {'complete': True},
                   'sourceRevision': 'a' * 40, 'sourceInputsDigest': 'b' * 64, 'durationSeconds': 42.5}
