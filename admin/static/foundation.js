@@ -24,14 +24,37 @@ function impactReview() {
   return card("Change impact", `<p>${plan.blocked ? "Resolve the blocking changes before activation." : "Review affected resources and activation output before applying."} Runtime: ${esc(plan.runtimeState)} · ${esc(plan.preconditionCount)} observed preconditions.</p>${plan.refreshedAfterDrift ? '<p class="error">Runtime changed since review. This plan was refreshed; review it again before activation.</p>' : ""}${state.status.job.rebootRequired ? '<p class="note">The candidate requires a host reboot.</p>' : ""}<div class="table-wrap" tabindex="0"><table><thead><tr><th>Resource</th><th>Change</th><th>Impact & resolution</th></tr></thead><tbody>${rows || '<tr><td colspan="3">No modeled resource changes.</td></tr>'}</tbody></table></div>${services.length ? `<details><summary>Changed host services (${services.length})</summary><div class="table-wrap" tabindex="0"><table><thead><tr><th>Service</th><th>Change</th><th>Impact</th></tr></thead><tbody>${renderRows(services)}</tbody></table></div></details>` : ""}<details><summary>Who owns what</summary><div class="table-wrap" tabindex="0"><table><thead><tr><th>Resource</th><th>Owner</th><th>Fields & consumers</th></tr></thead><tbody>${owners}</tbody></table></div></details>${plan.boundaries.map(value => `<p class="note">${esc(value)}</p>`).join("")}<p><a href="/docs/ownership.md">Ownership and review boundaries →</a></p>`);
 }
 
+function freshObservation(value) {
+  return Number.isFinite(value?.checkedAt) && Date.now() / 1000 - value.checkedAt >= -5 && Date.now() / 1000 - value.checkedAt < 90;
+}
+
+function guestNetwork() {
+  const snapshot = operationView.network;
+  const failed = operationView.networkError;
+  const stale = !freshObservation(snapshot);
+  const tools = managementServices();
+  const incus = tools.find(tool => tool.name === "Incus");
+  if (!snapshot?.available) return card("Guests & addresses", `<p>${esc(failed || "Guest inventory is not available yet.")}</p><p class="note">No empty or healthy inventory is assumed. Incus retains guest and network management.</p><a href="/docs/networking.md">Networking guide</a>`);
+  const conflicts = (snapshot.conflicts || []).map(item => `<li><code>${esc(item.address)}</code> on ${esc(item.project)}/${esc(item.network)}: ${esc(item.owners.join(", "))}</li>`).join("");
+  const rows = snapshot.guests.flatMap(guest => {
+    const nics = guest.nics.length ? guest.nics : [{name: "—", network: "Not reported", observed: guest.observed, reserved: []}];
+    return nics.map((nic, index) => `<tr>${index === 0 ? `<td rowspan="${nics.length}"><b>${esc(guest.name)}</b><br><small>${esc(guest.project)} · ${esc(guest.type === "virtual-machine" ? "VM" : guest.type)}</small></td><td rowspan="${nics.length}">${esc(guest.status)}</td>` : ""}<td>${esc(nic.network)}<br><small>${esc(nic.name)}</small></td><td>${nic.observed.map(ip => `<code>${esc(ip)}</code>`).join("<br>") || '<span class="muted">Not reported</span>'}</td><td>${nic.reserved.map(ip => `<code>${esc(ip)}</code>`).join("<br>") || '<span class="muted">Dynamic / not set</span>'}${nic.unobservedReservation ? '<br><small class="error">Reservation not observed</small>' : ""}</td></tr>`);
+  }).join("");
+  return card("Guests & addresses", `${failed || stale ? `<p class="error">${esc(failed || "Inventory is stale. Refresh before relying on these addresses.")}</p>` : ""}${conflicts ? `<div class="network-warning"><b>Potential address conflict</b><ul>${conflicts}</ul></div>` : ""}<div class="table-wrap guest-addresses" tabindex="0" role="region" aria-label="Guest network addresses"><table><thead><tr><th>Guest / project</th><th>State</th><th>Network / NIC</th><th>Reported IP</th><th>Reservation</th></tr></thead><tbody>${rows || '<tr><td colspan="5">No guests reported by Incus.</td></tr>'}</tbody></table></div><p class="note">Reported addresses come from Incus, not an application health check. Reservations are configuration, not proof of connectivity. Last checked: ${esc(new Date(snapshot.checkedAt * 1000).toLocaleTimeString())}.</p><div class="service-shortcuts">${incus?.url ? `<a href="${esc(incus.url)}" target="_blank" rel="noopener noreferrer">Manage guests & IPs in Incus</a>` : ""}<a href="/docs/networking.md">Addressing & routing guide</a><a href="https://linuxcontainers.org/incus/docs/main/howto/network_manage/" target="_blank" rel="noopener noreferrer">Incus network docs</a></div>`, "Read-only · all projects");
+}
+
 function hostOverview() {
   const s = state.status.effectiveSettings || state.status.settings;
   const health = operationView.health;
-  const failed = (health?.services || []).filter(unit => unit.ActiveState === "failed");
-  const known = (health?.services || []).some(unit => unit.LoadState === "loaded");
-  const services = failed.length ? failed.length + " service(s) need attention" : known ? "No failed services reported" : "Service health unavailable";
-  return title("HOST CONSOLE / OVERVIEW", "Your homelab.", "Manage the host here. Open Incus, Cockpit or Portainer for the rest.")
-    + `<div class="grid overview-grid">${homepageTools()}${card("Host status", `<dl class="host-facts"><div><dt>Management</dt><dd><code>${esc(s.management.interface)} · ${esc(state.status.managementAddress || s.management.address)}</code></dd></div><div><dt>Services</dt><dd class="${failed.length ? "error" : ""}">${esc(services)}</dd></div><div><dt>Virtualization</dt><dd>${state.host.kvm ? "KVM available" : "Needs attention"}</dd></div><div><dt>Backup</dt><dd>${esc(health?.backup?.health || "unknown")}</dd></div><div><dt>Reboot</dt><dd>${state.status.rebootRequired ? "Required" : "Not pending"}</dd></div>${health?.rootStorage ? `<div><dt>Free root space</dt><dd>${esc(formatBytes(health.rootStorage.availableBytes))}</dd></div>` : ""}<div><dt>Configuration</dt><dd>${esc(state.status.job?.status || "No pending change")}</dd></div></dl><div class="actions"><button data-go="commands">Commands & docs</button><button data-go="operations">Backups & recovery</button></div><p class="note">OS rollback does not restore guest data. <a href="/docs/ownership.md">Who owns what →</a></p>`)}</div>${publicApplications()}`;
+  const required = ["incus.service", "nixlab-admin-backend.service", "nixlab-ui.service",
+    ...(s.cockpit?.enable ? ["cockpit.socket"] : []), ...(s.apps?.enable ? ["nginx.service"] : [])];
+  const fresh = freshObservation(health);
+  const degraded = required.filter(id => !(health?.services || []).some(unit => unit.Id === id && unit.LoadState === "loaded" && unit.ActiveState === "active"));
+  const failed = (health?.services || []).filter(unit => unit.ActiveState === "failed" || unit.Result && unit.Result !== "success");
+  const known = (health?.services || []).length > 0;
+  const services = !fresh ? "Unavailable or stale" : !known ? "Unavailable" : degraded.length || failed.length ? "Needs attention" : "Management services active";
+  return title("", "Overview", "Your host, guests and native management tools.")
+    + `<div class="grid overview-grid">${homepageTools()}${card("Host", `<dl class="host-facts"><div><dt>Management</dt><dd><code>${esc(s.management.interface)} · ${esc(state.status.managementAddress || s.management.address)}</code></dd></div><div><dt>Services</dt><dd class="${fresh && known && (degraded.length || failed.length) ? "error" : ""}">${esc(services)}</dd></div><div><dt>Virtualization</dt><dd>${state.host.kvm ? "KVM device detected" : "KVM not detected"}</dd></div><div><dt>Backup</dt><dd>${esc(!s.backup?.enable ? "Disabled" : fresh ? health?.backup?.health || "unknown" : "unknown")}</dd></div><div><dt>Reboot</dt><dd>${state.status.rebootRequired ? "Required" : "Not pending"}</dd></div>${health?.rootStorage && fresh ? `<div><dt>Free root space</dt><dd>${esc(formatBytes(health.rootStorage.availableBytes))}</dd></div>` : ""}<div><dt>Changes</dt><dd>${esc(state.status.job?.status || "None pending")}</dd></div></dl>${fresh && known && degraded.length ? `<p class="error">${esc(degraded.join(", "))}</p>` : ""}<div class="actions"><button class="small" data-overview-refresh>Refresh status</button><a href="/docs/troubleshooting.md">Troubleshooting</a></div>`, fresh ? "Checked " + new Date(health.checkedAt * 1000).toLocaleTimeString() : "Health unknown")}</div>${guestNetwork()}${publicApplications()}`;
 }
 
 function recordEditor(heading, path, columns, defaults) {
@@ -57,7 +80,7 @@ function hostConnectivity() {
   return (
     title(
       "PHYSICAL NETWORKING",
-      "Connectivity",
+      "Networking",
       "Ethernet bridges and VLANs are host prerequisites. Create guest networks, reservations, NIC attachments and ACLs in Incus.",
     ) +
     card(
@@ -145,18 +168,19 @@ function integrations() {
   const info = state.host.helpers || { sources: {}, applications: [] };
   return (
     title(
-      "UPSTREAM INTEGRATIONS",
-      "Integrations",
-      "Incus owns guests. Community Scripts provisions applications through its native Incus backend; Nixlab supplies a pinned host runner.",
+      "SERVICES",
+      "Services",
+      "Choose optional host and application tools. Guest lifecycle and networking stay in Incus.",
     ) +
-    card("Homelab management", `<p>Cockpit runs on the host for its terminal, services and journal. Incus manages guests. Portainer manages Docker Compose inside the isolated apps VM.</p><button data-action="management-stack">Stage Cockpit + Portainer + laptop mode</button><p>This stages settings only. Enter credentials below, then Build & review → Activate → Confirm access. Existing networks, disks and workloads are preserved.</p><a href="/docs/homelab.md">Your homelab setup and service migration</a>`) +
     card("Cockpit host terminal", `${toggle("Enable Cockpit on the host", "cockpit.enable")}<div class="fields">${field("Cockpit HTTPS port", "cockpit.port", { type: "number" })}${secret("Local operator password for Cockpit", "cockpitPassword", "At least 16 characters. This enrolls the Linux operator account; SSH accepts the same password when password login is enabled. Leave blank to retain an existing local account password.")}</div><p>Sign in as operator using its Linux password, or use an existing non-root local account. Portal accounts and passwords are separate. The operator has sudo administration rights.</p>`) +
+    apps() +
+    '<details class="card"><summary>Optional provisioning tools</summary>' +
     card(
       "Community Scripts",
       `${toggle("Install the packaged helper runner", "helpers.enable")}<p>The packaged runner opens an interactive Incus wizard from your host terminal.</p><button class="small" data-go="commands">Helper commands & documentation →</button><p>The upstream interactive wizard selects resources, storage and network. Its guests remain Incus-managed. Nothing on this page executes a script.</p><a href="https://community-scripts.org/" target="_blank" rel="noopener noreferrer">Browse upstream applications ↗</a><p>Proxmox-specific host/VM scripts requiring pct, qm or /etc/pve are unsupported. Upstream Incus scripts are available; Nixlab verification is recorded separately.</p><details><summary>Compatibility & pinned revisions</summary><div class="table-wrap"><table><thead><tr><th>Qualification target</th><th>Compatibility</th><th>Notes</th></tr></thead><tbody>${info.applications.map((item) => `<tr><td>${esc(item.title)}</td><td>${item.status === "verified" ? "Verified on Nixlab" : "Upstream-supported; unverified here"}</td><td>${esc(item.notes)}</td></tr>`).join("")}</tbody></table></div><pre class="log">${esc(JSON.stringify(info.sources, null, 2))}</pre></details><a href="/docs/helpers.md">Runner, prerequisites and compatibility</a>`,
     ) +
-    apps() +
-    '<p class="note">Looking for commands or upstream resources? <button class="small" data-go="commands">Commands & docs →</button></p>'
+    '</details>' +
+    '<p class="note">Looking for commands or upstream resources? <button class="small" data-go="commands">Help →</button></p>'
   );
 }
 

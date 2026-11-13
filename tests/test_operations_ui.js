@@ -2,6 +2,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 const root=path.join(__dirname,'../admin/static');
 const context=vm.createContext({document:{querySelector:()=>({})},setInterval:()=>0,URL});
+vm.runInContext(fs.readFileSync(path.join(__dirname,'../admin/static/projects.js'),'utf8'),context);
 vm.runInContext(fs.readFileSync(path.join(root,'foundation.js'),'utf8'),context);
 vm.runInContext(fs.readFileSync(path.join(root,'operations.js'),'utf8'),context);
 const source=fs.readFileSync(path.join(root,'app.js'),'utf8');
@@ -10,9 +11,7 @@ vm.runInContext(`
 state.principal={username:'observer',role:'viewer'};
 state.draft={backup:{enable:false,groups:[]}};
 state.status={settings:{backup:{enable:false}},release:{revision:'a'.repeat(40)}};
-operationView.inventory=[{name:'<img src=x onerror=alert(1)>',project:'lab',type:'container',status:'Running',addresses:['192.0.2.1']}];
 operationView.archives=[{id:'a'.repeat(32),name:'<img src=x onerror=alert(1)>',project:'lab',created:1,available:true}];
-operationView.recipes=[{id:'recipe',title:'<script>bad</script>',description:'<img src=x>'}];
 `,context);
 let html=vm.runInContext('operationsPage()',context);
 assert.ok(!html.includes('data-guest-action='),'Viewer must not get guest mutation buttons');
@@ -43,5 +42,6 @@ assert.ok(html.includes('Application restore: unverified'));
 const review=vm.runInContext('platformReview()',context);
 assert.ok(review.includes('platform-password'));
 assert.ok(review.includes('platform-ack'));
-assert.equal(vm.runInContext('projectGuides',context),'/docs/');
+vm.runInContext("state.page='operations'", context);
+assert.ok(vm.runInContext("title('', 'Backups', '')",context).includes('href="/docs/recovery.md"'), 'Recovery guidance must stay local and available offline');
 console.log('Operations UI checks passed: roles, escaped metadata, source approval and offline guides.');

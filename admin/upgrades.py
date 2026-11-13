@@ -14,6 +14,15 @@ UPSTREAM = 'https://github.com/OmarDardery/nixlab.git'
 PROTECTED = {'machine', 'local', 'installed-system', 'site-modules', 'secrets', '.git'}
 
 
+def main_revision():
+    result = subprocess.run(['git', '-c', 'core.hooksPath=/dev/null', 'ls-remote', '--refs', UPSTREAM, 'refs/heads/main'],
+                            capture_output=True, text=True, timeout=30, check=True)
+    fields = result.stdout.split()
+    if len(fields) != 2 or not re.fullmatch(r'[0-9a-f]{40}', fields[0]) or fields[1] != 'refs/heads/main':
+        raise ValueError('Could not resolve NixLab main to one exact revision')
+    return fields[0]
+
+
 def version(root):
     path = Path(root) / 'VERSION'
     if path.is_file():

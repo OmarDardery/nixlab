@@ -5,6 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const root = path.join(__dirname, '../admin/static');
 const context = vm.createContext({document: {querySelector: () => ({})}, setInterval: () => 0, setTimeout: () => 0, URL});
+vm.runInContext(fs.readFileSync(path.join(__dirname,'../admin/static/projects.js'),'utf8'),context);
 vm.runInContext(fs.readFileSync(path.join(root, 'commands.js'), 'utf8'), context);
 const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
 vm.runInContext(app.slice(0, app.lastIndexOf('\n(async () =>')), context);

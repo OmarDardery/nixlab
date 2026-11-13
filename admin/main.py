@@ -77,6 +77,12 @@ def backend():
                 elif self.path == '/releases':
                     import upgrades
                     result = {'releases': upgrades.releases()}
+                elif self.path == '/main-revision':
+                    import upgrades
+                    result = {'revision': upgrades.main_revision()}
+                elif self.path == '/guest-network':
+                    import guest_network
+                    result = guest_network.inventory() if manager.effective_settings()['ready'] else {'available': False, 'guests': [], 'conflicts': []}
                 elif self.path == '/operations':
                     import backup
                     settings = manager.effective_settings()
@@ -301,6 +307,7 @@ def web():
                 path = urlsplit(self.path).path
                 assets = {'/': ('index.html', 'text/html; charset=utf-8'),
                           '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
+                          '/projects.js': ('projects.js', 'text/javascript; charset=utf-8'),
                           '/api.js': ('api.js', 'text/javascript; charset=utf-8'),
                           '/events.js': ('events.js', 'text/javascript; charset=utf-8'),
                           '/operations.js': ('operations.js', 'text/javascript; charset=utf-8'),
@@ -343,12 +350,12 @@ def web():
                 if path == '/api/users':
                     if session['role'] != 'admin': raise access_accounts.AuthorizationError('Administrator account required')
                     return reply(self, 200, broker_request('GET', '/users'))
-                if path == '/api/releases':
+                if path in ('/api/releases', '/api/main-revision'):
                     if session['role'] != 'admin': raise access_accounts.AuthorizationError('Administrator account required')
-                    return reply(self, 200, broker_request('GET', '/releases'))
+                    return reply(self, 200, broker_request('GET', path[4:]))
                 if path.startswith('/api/deployment/'):
                     return reply(self, 200, broker_request('GET', path[4:]))
-                if path in ('/api/status', '/api/inventory', '/api/ca', '/api/operations', '/api/guests', '/api/health', '/api/recipes'):
+                if path in ('/api/status', '/api/inventory', '/api/ca', '/api/operations', '/api/guests', '/api/guest-network', '/api/health', '/api/recipes'):
                     result = broker_request('GET', path[4:])
                     if path == '/api/status' and session['role'] != 'admin' and result.get('job'):
                         result['job'] = {k: v for k, v in result['job'].items() if k not in ('log', 'moduleChanges', 'platformChanges')}

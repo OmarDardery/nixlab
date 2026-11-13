@@ -33,6 +33,7 @@ jobs:
       - name: Validate UI JavaScript
         run: |
           node --check admin/static/app.js
+          node --check admin/static/projects.js
           node --check admin/static/api.js
           node --check admin/static/events.js
           node --check admin/static/operations.js

@@ -7,7 +7,7 @@ covers target-machine acceptance.
 
 ## Daily work
 
-The Backups & Recovery page coordinates independent backups, repository checks,
+The Backups page coordinates independent backups, repository checks,
 archive restores, recovery downloads and host health. Use Incus for ordinary guest
 lifecycle, consoles and snapshots. Legacy commands below remain for compatibility.
 
@@ -88,6 +88,11 @@ Use the configured portal port if different. This recipe opens only private SSH;
 it does not publish management dashboards or route the guest network.
 
 ## Reviewed upgrades
+
+From the console, open **Changes → Review latest main**, inspect the selected
+revision, reauthenticate and acknowledge its privileged code, then build, review,
+activate and confirm access. Selection resolves main to one fixed SHA; it does
+not silently follow later commits or bypass the existing impact/rollback gates.
 
 For an existing NixLab server, run this in its interactive terminal:
 

@@ -51,7 +51,7 @@ with the same unverified label. No application is installed by default. The runn
 currently accepts container scripts only; use upstream Incus VM implementations
 separately.
 
-For ordinary LAN addresses/discovery, prepare a host LAN bridge in Connectivity
+For ordinary LAN addresses/discovery, prepare a host LAN bridge in **Host → Networking**
 and select it in the upstream wizard. Private NAT does not automatically publish
 DNS/web interfaces or multicast discovery. Manage the resulting guest in Incus.
 For AdGuard, verify TCP and UDP port 53 reachability from intended DNS clients,

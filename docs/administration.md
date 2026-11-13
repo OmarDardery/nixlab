@@ -12,7 +12,7 @@ proxy must preserve the same isolation.
 
 ## Commands, docs and community resources
 
-Open **Commands & docs** in the Nixlab host console for copyable platform updates,
+Open **Help** in the Nixlab host console for copyable platform updates,
 package-refresh reviews, health checks, guest/Docker examples and community helper
 commands. Each example says where to run it. Copying never executes a command or
 creates a guest from the browser. Application wizards run interactively in the host
@@ -219,7 +219,7 @@ The portal Overview and sidebar link to enabled Incus UI (:8443),
 Cockpit (configured port, normally :9090), and Portainer (configured
 port, normally :9443 on fresh installs or :9441 on older installs).
 Disabled or unconfigured services are not advertised as live. The
-**Commands & docs** page includes a copy-only homelab cheatsheet.
+**Help** page includes a copy-only homelab cheatsheet.
 Port 80 belongs to the *NixLab host IP*; a Mainsail server inside a
 separate Incus guest may independently listen on port 80 on its own IP.
 

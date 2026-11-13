@@ -8,7 +8,7 @@ virtualization UI. See the [ownership contract](ownership.md).
 | Host lifecycle | Single-command preserved-installation setup, reviewed changes, source/OS updates, confirmation recovery |
 | Ethernet | Host bridges/VLANs, management addressing, guest firewall integration, trusted LAN access, narrow outbound LAN exceptions |
 | Hardware | USB serial discovery, selected stable aliases, native Incus attachment guidance, existing UUID filesystems/ZFS datasets |
-| Integrations | Incus/Portainer launcher, pinned Community Scripts Incus CLI wizard, explicit verification labels |
+| Native tools | Enabled Incus/Cockpit/Portainer links, upstream credits/docs, all-project read-only guest IPs, pinned Community Scripts Incus CLI wizard, explicit verification labels |
 | Ownership | Ordinary native/helper resources remain native; declared infrastructure drift is refused before preseed |
 | Recovery | Atomic generations, per-group downtime, shared-volume grouping, maintenance exclusions, independent restic, archive recovery |
 
