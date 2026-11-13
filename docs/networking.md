@@ -136,3 +136,26 @@ access from untrusted sources. The reserved incusbr0 has host-owned NAT/firewall
 use an additional Incus-owned network for native forwarding rules.
 Switch trunks/router changes are external actions. See
 [ownership](ownership.md) before editing the reserved bootstrap network in Incus.
+
+
+## Guest addresses in the NixLab console
+
+Overview shows a bounded read-only inventory across Incus projects: reported NIC
+addresses, reservations, network/NIC names and guest state. Addresses inside
+Docker bridges are not presented as Incus guest endpoints. A VM with no agent
+address report remains unknown, even when a reservation exists. Incus owns DHCP,
+IPAM, ACLs and guest network changes; use its linked native UI and
+[network manual](https://linuxcontainers.org/incus/docs/main/howto/network_manage/).
+
+Potential duplicate addresses are flagged only inside a known managed-network
+namespace (including projects sharing default networks). Identical IPs on separate
+isolated networks are legitimate. Host-parent/macvlan/external routing conflicts
+need native inspection; absence of a warning is not proof of reachability or
+network correctness. The inventory is not an atomic network transaction. Failed
+or older-than-90-second observations are visibly unavailable/stale.
+
+Host bridges, VLANs, management addressing, baseline guest subnet/DHCP range and
+reserved apps IP stay under Host → Networking and the existing reviewed activation
+flow. Per-guest reservations and networks stay in Incus. No router or DNS-provider
+changes are made automatically. NixLab portal roles are host-console roles and
+can read this all-project inventory; they are not Incus project permissions.

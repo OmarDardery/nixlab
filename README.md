@@ -1,13 +1,13 @@
 # nixlab
 
-### Give the old laptop a suspicious amount of responsibility.
+### A NixOS hypervisor for homelabs.
 
 Nixlab turns an installed NixOS machine into a repeatable home server: manage
 containers and virtual machines, run applications, and keep host changes documented.
 It brings together established tools rather than inventing another virtualization engine.
 
 **For:** self-hosters who want declarative infrastructure with a browser-based way in.
-**Status:** single-host release candidate; physical-host commissioning remains required.
+**Status:** [0.1.0-beta.1 candidate](docs/beta.md); physical qualification and beta publication remain pending.
 
 | You want to… | Nixlab brings… |
 |---|---|
@@ -19,7 +19,7 @@ It brings together established tools rather than inventing another virtualizatio
 A declarative NixOS bare-metal host using Incus for system containers and KVM VMs,
 with Docker Compose isolated inside a NixOS applications VM.
 
-[Website & documentation](https://nixlab.dardery.work/) · [Interactive homelab setup](docs/home-server-scenario.md) · [Troubleshooting](docs/troubleshooting.md) · [GitHub Pages / domain setup](docs/website.md)
+[Upstream credits](docs/projects.md) · [Website & documentation](https://nixlab.dardery.work/) · [Interactive homelab setup](docs/home-server-scenario.md) · [Troubleshooting](docs/troubleshooting.md) · [GitHub Pages / domain setup](docs/website.md)
 
 **Start from a plain, installed NixOS server** (no desktop needed):
 
@@ -59,7 +59,7 @@ The Changes page previews affected services/guests and configuration ownership.
 review before activation, and unresolved migrations/conflicts remain blocked.
 See the [ownership contract](docs/ownership.md), [helper integration](docs/helpers.md), [hardware support](docs/hardware.md) and [commissioning checklist](docs/commissioning.md).
 
-This is a single-host release candidate. CI gates include source tests, real NixOS portal/UNIX
+This is a single-host beta candidate. CI gates include source tests, real NixOS portal/UNIX
 permissions, password SSH, authenticated Cockpit terminals and DHCP/reboot startup checks. Physical-host installation,
 actual workloads, network-loss recovery and a restore drill remain commissioning requirements.
 Use `sudo nixlab commissioning collect --mode fresh` to record bounded probes;

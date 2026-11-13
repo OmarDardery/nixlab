@@ -74,6 +74,7 @@ in pkgs.testers.runNixOSTest {
     host.succeed("incus start native --project lab")
     host.succeed("incus exec native --project lab --disable-stdin -- /bin/sh -c 'ip link set eth0 up; ip addr add 10.77.0.20/24 dev eth0; ip route add default via 10.77.0.1'")
     host.succeed("incus exec native --project lab --disable-stdin -- /bin/sh -c 'echo preserved > /var/lib/test/index.html'")
+    host.succeed("PYTHONPATH=${../admin}:${../scripts} python3 ${./network-inventory-integration.py}", timeout=35)
     host.succeed("incus exec native --project lab --disable-stdin -- /bin/httpd -p 8080 -h /var/lib/test")
     client.wait_until_succeeds("curl --fail --max-time 3 http://10.77.0.20:8080 | grep preserved")
     host.fail("incus exec native --project lab --disable-stdin -- /bin/sh -c 'nc -w 2 192.0.2.10 22 </dev/null'")

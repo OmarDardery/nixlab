@@ -14,19 +14,13 @@ const state = {
 };
 const app = document.querySelector("#app");
 const pages = [
-  ["overview", "◫", "Overview"],
-  ["network", "⌁", "Host"],
-  ["operations", "▥", "Recovery"],
-  ["integrations", "↗", "Integrations"],
-  ["review", "↗", "Changes"],
-  ["commands", ">_", "Commands & docs"],
+  ["overview", "Overview"], ["network", "Host"], ["operations", "Backups"],
+  ["review", "Changes"], ["commands", "Help"],
 ];
 const hostPages = [
-  ["network", "Connectivity"],
-  ["hardware", "Hardware & disks"],
-  ["system", "Preferences"],
-  ["security", "Access & ingress"],
-  ["files", "Advanced files"],
+  ["network", "Networking"], ["hardware", "Hardware & storage"],
+  ["integrations", "Services"], ["security", "Access"],
+  ["system", "System"], ["files", "Advanced"],
 ];
 function primaryPage() {
   return hostPages.some(([id]) => id === state.page) ? "network" : state.page;
@@ -99,7 +93,7 @@ function secret(label, key, hint = "", textarea = false) {
 }
 const pageGuides = { overview: "start.md", network: "networking.md", hardware: "hardware.md", integrations: "homelab.md", security: "administration.md", system: "setup.md", files: "file-modules.md", review: "setup.md", operations: "recovery.md", commands: "helpers.md" };
 const title = (eyebrow, heading, text) =>
-  `<div class="page-title"><div><div class="eyebrow">${eyebrow}</div><h1>${heading}</h1><p>${text}</p><a class="page-guide" href="/docs/${pageGuides[state.page] || "setup.md"}" target="_blank" rel="noopener noreferrer">Read the guide ↗</a></div>${["review", "commands"].includes(state.page) ? "" : '<button class="primary" data-go="review">Review changes ↗</button>'}</div>`;
+  `<div class="page-title"><div><h1>${heading}</h1><p>${text}</p><a class="page-guide" href="/docs/${pageGuides[state.page] || "setup.md"}" target="_blank" rel="noopener noreferrer">Guide</a></div>${["overview", "operations", "review", "commands"].includes(state.page) ? "" : '<button class="primary" data-go="review">Review changes ↗</button>'}</div>`;
 const card = (heading, body, caption = "") =>
   `<section class="card"><div class="card-header"><h2>${heading}</h2>${caption ? `<span class="caption">${caption}</span>` : ""}</div>${body}</section>`;
 function ownershipBanner() {
@@ -114,21 +108,14 @@ function pendingBanner() {
   if (!p) return "";
   return `<div class="banner warn status-banner"><div><h3>Confirm your connection after activation</h3><p>${j?.status === "awaiting-confirmation" ? "Your previous generation will be restored unless you confirm." : "Activation is in progress; recovery is armed."} <span id="countdown"></span></p></div><button class="primary" data-action="confirm" ${j?.status !== "awaiting-confirmation" ? "disabled" : ""}>Confirm access</button></div>`;
 }
-function quickManagementLinks(settings) {
-  const address = state.status.managementAddress || settings.management.address;
-  if (!state.status.setupComplete) return "";
-  const links = [
-    ["Incus UI", 8443],
-    ...(settings.cockpit?.enable ? [["Cockpit", settings.cockpit.port]] : []),
-    ...(settings.apps?.enable ? [["Portainer", settings.apps.portainerPort]] : []),
-  ];
-  return `<div class="sidebar-shortcuts"><div class="nav-label">OPEN MANAGEMENT</div>${links.map(([name, port]) =>
-    `<a href="https://${esc(address)}:${esc(port)}" target="_blank" rel="noopener noreferrer">${esc(name)} <span aria-hidden="true">↗</span></a>`).join("")}
-    <button type="button" data-go="commands">Commands cheatsheet <span aria-hidden="true">→</span></button></div>`;
+function quickManagementLinks() {
+  const links = managementServices().filter(service => service.url);
+  return links.length ? `<div class="sidebar-shortcuts"><div class="nav-label">MANAGE</div>${links.map(service => `<a href="${esc(service.url)}" target="_blank" rel="noopener noreferrer">${esc(service.name)}</a>`).join("")}</div>` : "";
 }
+
 function shell() {
   const settings = state.status.effectiveSettings || state.status.settings;
-  app.innerHTML = `<div class="layout"><aside class="sidebar">${brandLogo()}<div><div class="nav-label">YOUR INFRASTRUCTURE</div><nav class="nav">${pages.map(([id, icon, label]) => `<button data-go="${id}" class="${primaryPage() === id ? "active" : ""}"><span class="nav-icon">${icon}</span>${label}</button>`).join("")}</nav></div>${quickManagementLinks(settings)}<div class="sidebar-bottom"><b><span class="dot"></span>${esc(settings.hostName)}</b>Declarative host · NixOS<br><span class="mono">${esc(state.status.managementAddress || settings.management.address)}</span><div class="sidebar-links"><a href="/docs/troubleshooting.md">Offline help</a><a href="https://nixlab.dardery.work/" target="_blank" rel="noopener noreferrer">Website ↗</a></div><button class="small" data-action="logout">Sign out</button></div></aside><div class="content"><header class="topbar"><div class="breadcrumb">Host console <span class="muted">/</span> <b>${esc(hostPages.find((p) => p[0] === state.page)?.[1] || pages.find((p) => p[0] === state.page)?.[2])}</b></div><div class="top-actions"><span class="pill"><span class="dot"></span>${settings.ready ? "Configured host" : "Initial setup"}</span><span class="mono muted">${esc(state.principal.username)} · ${esc(state.principal.role)}</span></div></header><main class="page">${pendingBanner()}${ownershipBanner()}${hostTabs()}${renderPage()}<footer class="footer-note">Declarative infrastructure. Ordinary human consequences.</footer></main></div></div>`;
+  app.innerHTML = `<div class="layout"><aside class="sidebar">${brandLogo()}<div><div class="nav-label">YOUR INFRASTRUCTURE</div><nav class="nav">${pages.map(([id, label]) => `<button data-go="${id}" class="${primaryPage() === id ? "active" : ""}">${label}</button>`).join("")}</nav></div>${quickManagementLinks(settings)}<div class="sidebar-bottom"><b>${esc(settings.hostName)}</b>Declarative host · NixOS<br><span class="mono">${esc(state.status.managementAddress || settings.management.address)}</span><div class="sidebar-links"><a href="/docs/troubleshooting.md">Offline help</a><a href="https://nixlab.dardery.work/" target="_blank" rel="noopener noreferrer">Website ↗</a></div><button class="small" data-action="logout">Sign out</button></div></aside><div class="content"><header class="topbar"><div class="breadcrumb">Host console <span class="muted">/</span> <b>${esc(hostPages.find((p) => p[0] === state.page)?.[1] || pages.find((p) => p[0] === state.page)?.[1])}</b></div><div class="top-actions"><a class="pill" href="/docs/beta.md">${esc(state.status.release?.version || "Development")}</a><span class="mono muted">${esc(state.principal.username)} · ${esc(state.principal.role)}</span></div></header><main class="page">${pendingBanner()}${ownershipBanner()}${hostTabs()}${renderPage()}<footer class="footer-note">NixOS host · Incus guests · <a href="/docs/projects.md">Upstream credits</a></footer></main></div></div>`;
   bind();
   bindOperations();
   bindFoundation();
@@ -152,46 +139,15 @@ function renderPage() {
   }[state.page]();
 }
 
-const projectRepository = "https://github.com/OmarDardery/nixlab";
-// Keep pre-release guides reachable until the implementation branch is merged.
-const projectGuides = "/docs/";
 function linkRow(icon, heading, detail, url, label = "Open ↗", docs = "") {
-  return `<div class="service-row"><span class="service-icon" aria-hidden="true">${esc(icon)}</span><div class="service-copy"><h3>${esc(heading)}</h3><small>${esc(detail)}</small>${docs ? `<a class="service-doc" href="${esc(docs)}" target="_blank" rel="noopener noreferrer">Docs ↗</a>` : ""}</div><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a></div>`;
+  return `<div class="service-row">${icon ? `<span class="service-icon" aria-hidden="true">${esc(icon)}</span>` : ""}<div class="service-copy"><h3>${esc(heading)}</h3><small>${esc(detail)}</small>${docs ? `<a class="service-doc" href="${esc(docs)}" target="_blank" rel="noopener noreferrer">Docs</a>` : ""}</div><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a></div>`;
 }
 function homepageTools() {
-  const active = state.status.effectiveSettings || state.status.settings,
-    address = state.status.managementAddress || active.management.address,
-    ready = state.status.setupComplete;
-  const incus = ready
-    ? linkRow(
-        "▦",
-        "Incus",
-        "Virtual machines, containers, networks, storage & snapshots",
-        `https://${address}:8443`, "Open ↗", "https://linuxcontainers.org/incus/docs/main/",
-      )
-    : '<div class="service-row"><div class="service-copy"><h3>Incus</h3><small>Available after the first activation.</small></div><button data-go="review">Finish setup →</button></div>';
-  const portainer =
-    ready && active.apps.enable
-      ? linkRow(
-          "▱",
-          "Portainer",
-          "Compose projects, logs & service configuration",
-          `https://${address}:${active.apps.portainerPort ?? 9441}`, "Open ↗", "https://docs.portainer.io/",
-        )
-      : `<div class="service-row"><div class="service-copy"><h3>Portainer</h3><small>${active.apps.enable ? "Available after the first activation." : "Applications VM is disabled; no dashboard is running."}</small></div><button data-go="apps">${active.apps.enable ? "Configure →" : "Enable apps →"}</button></div>`;
-  const cockpit = ready && active.cockpit?.enable
-    ? linkRow("⌘", "Cockpit", "Host terminal, systemd services, journal & resource usage", `https://${address}:${active.cockpit.port}`, "Open ↗", "https://cockpit-project.org/documentation.html")
-    : '<div class="service-row"><div class="service-copy"><h3>Cockpit</h3><small>Host web terminal uses a local Linux account; separate from portal accounts.</small></div><button data-go="integrations">Configure host access →</button></div>';
-  return card(
-    "Management tools",
-    incus +
-      cockpit +
-      portainer +
-      `<div class="service-shortcuts"><button class="small" type="button" data-go="commands">Open commands cheatsheet →</button><a href="/docs/administration.md" target="_blank" rel="noopener noreferrer">Host administration guide ↗</a></div>` +
-      `<div class="service-enrollment"><p class="note">Incus browser access uses a separate client certificate.</p><button class="small" data-action="certificate" ${ready ? "" : "disabled"}>Create browser certificate</button><div id="certificate-result"></div></div>`,
-    "Private management",
-  );
+  const tools = managementServices().filter(service => service.url);
+  const rows = tools.map(service => linkRow("", service.name, service.detail, service.url, "Open", service.docs[0][1])).join("");
+  return card("Manage", (rows || (state.status.setupComplete ? '<p>Management endpoints unavailable. Check host addressing.</p>' : '<p>Native tools become available after the first activation.</p><button data-go="review">Finish setup</button>')) + '<div class="service-shortcuts"><button class="small" data-go="integrations">Service settings</button><button class="small" data-go="security">Incus browser access</button></div>', "Enabled tools");
 }
+
 function publicApplications() {
   const active = state.status.effectiveSettings || state.status.settings;
   const apps = active.tunnel.enable ? Object.keys(active.tunnel.ingress)
@@ -244,11 +200,10 @@ function storage() {
   );
 }
 function apps() {
-  return card(
-    "Optional Docker/Portainer integration",
-    `${toggle("Enable the isolated applications VM", "apps.enable")}<div class="fields">${field("Portainer HTTPS port on the host", "apps.portainerPort", { type: "number", hint: "Use 9443 for the homelab stack. Existing installations retain 9441 until changed." })}${field("Portainer image", "apps.portainerImage")}${secret("Initial Portainer administrator password", "portainerPassword", "Existing application passwords are changed inside Portainer.")}</div>${toggle("Enable the optional demo workload", "apps.enableDemo")}${state.draft.apps.enableDemo ? secret("Demo database password", "demoPassword") : ""}<p>Paste Compose YAML into Portainer’s stack editor. Docker stays inside the apps VM; Incus manages system containers and VMs. The bundled demo remains Nix-owned.</p>`,
-  );
+  return card("Portainer apps VM",
+    `${toggle("Enable the isolated applications VM", "apps.enable")}<div class="fields">${field("Portainer HTTPS port on the host", "apps.portainerPort", { type: "number", hint: "Existing installations keep their configured port." })}${secret("Initial Portainer administrator password", "portainerPassword", "Leave blank to retain existing credentials.")}</div><details><summary>Advanced image & legacy demo settings${state.draft.apps.enableDemo ? " · demo enabled" : ""}</summary><div class="fields">${field("Portainer image", "apps.portainerImage")}</div>${toggle("Enable the optional demo workload", "apps.enableDemo")}${state.draft.apps.enableDemo ? secret("Demo database password", "demoPassword") : ""}<p class="note">Existing demo configuration is retained; it remains Nix-owned.</p></details><p class="note">Manage Compose stacks in Portainer and the guest VM in Incus. Docker stays inside the VM.</p>`);
 }
+
 function security() {
   return (
     title(
@@ -348,26 +303,33 @@ function login(message = "") {
 async function load() {
   state.status = await api("status");
   state.host = await api("inventory");
-  try {
-    operationView.health = await api("health");
-  } catch (_error) {
-    operationView.health = null;
-  }
+  await refreshOverview();
   state.draft = copy(state.status.settings);
   state.page = state.status.pending ? "review" : "overview";
   shell();
   if (!state.timer) state.timer = setInterval(poll, 3000);
 }
 let lastOverviewHealthPoll = 0;
+let overviewLoading = false;
+async function refreshOverview() {
+  if (overviewLoading) return;
+  overviewLoading = true;
+  try {
+    const [health, network] = await Promise.allSettled([api("health"), api("guest-network")]);
+    operationView.health = health.status === "fulfilled" ? health.value : null;
+    if (network.status === "fulfilled") operationView.network = network.value;
+    operationView.networkError = network.status === "rejected" ? "Incus inventory unavailable. Open Incus or refresh to retry." : "";
+    lastOverviewHealthPoll = Date.now();
+  } finally { overviewLoading = false; }
+}
 async function poll() {
   try {
     if (state.page === "operations") await refreshOperations(false);
     let healthChanged = false;
     if (state.page === "overview" && Date.now() - lastOverviewHealthPoll >= 30000) {
       lastOverviewHealthPoll = Date.now();
-      const previous = JSON.stringify(operationView.health);
-      operationView.health = await api("health");
-      healthChanged = previous !== JSON.stringify(operationView.health);
+      await refreshOverview();
+      healthChanged = true;
     }
     const before = JSON.stringify(state.status?.job);
     state.status = await api("status");

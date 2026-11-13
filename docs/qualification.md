@@ -1,6 +1,6 @@
 # Single-host release qualification
 
-NixLab remains a release candidate. No physical target is qualified by adding a
+NixLab is an unqualified single-host beta candidate. No physical target is qualified by adding a
 test, enabling a workflow, or completing source-level checks.
 
 | Target | Fresh installation | Upgrade | Physical restore evidence |
@@ -73,8 +73,8 @@ individual scopes; a successful container test does not qualify the apps VM.
 The `Publish qualified single-host beta` workflow prepares a source archive,
 checksums, provenance manifest, qualification matrix and reviewed limitations.
 It does not publish an ISO or qualify a host by building an archive. It rejects
-stable/RC tags; the first intended beta is `v0.1.0-beta.1`. `VERSION` deliberately
-remains unchanged until a candidate is ready for commissioning.
+stable/RC tags; the first intended beta is `v0.1.0-beta.1`. `VERSION` identifies the current `0.1.0-beta.1` candidate. This source version
+does not publish a release or satisfy any qualification gate.
 
 Prepare and review a candidate version commit first. Tag that exact source, run
 all acceptance workflows on it, and collect fresh/upgrade physical apps-profile

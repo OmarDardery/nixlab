@@ -35,6 +35,8 @@ def login(username, password):
 
 
 assert request('/api/status')[0] == 401
+assert request('/api/guest-network')[0] == 401
+assert request('/api/main-revision')[0] == 401
 admin = login('admin', 'vm-integration-password')
 assert request('/api/status', session=admin)[0] == 200
 status, guide, _ = request('/docs/setup.md', session=admin)
@@ -44,6 +46,7 @@ status, response, _ = request('/api/users', {'username': 'observer', 'role': 'vi
 assert status == 200, response
 viewer = login('observer', 'vm-observer-password')
 assert request('/api/status', session=viewer)[0] == 200
+assert request('/api/main-revision', session=viewer)[0] == 403
 assert request('/api/review', {'settings': {}}, viewer)[0] == 403
 assert request('/api/operation', {'action': 'start', 'name': 'guest'}, viewer)[0] == 403
 assert request('/api/recovery-export', {}, viewer)[0] == 403

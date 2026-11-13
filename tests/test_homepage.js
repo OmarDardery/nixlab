@@ -7,6 +7,8 @@ const source = fs.readFileSync(path.join(__dirname, '../admin/static/app.js'), '
 const bootstrap = source.lastIndexOf('\n(async () =>');
 assert.ok(bootstrap > 0, 'Locate browser bootstrap before evaluating renderers');
 const context = vm.createContext({document:{querySelector:()=>({})},setInterval:()=>0,URL});
+vm.runInContext(fs.readFileSync(path.join(__dirname,'../admin/static/projects.js'),'utf8'),context);
+for (const name of ['foundation.js', 'operations.js']) vm.runInContext(fs.readFileSync(path.join(__dirname,'../admin/static',name),'utf8'),context);
 vm.runInContext(fs.readFileSync(path.join(__dirname, '../admin/static/commands.js'), 'utf8'), context);
 vm.runInContext(source.slice(0,bootstrap), context);
 vm.runInContext(`
@@ -20,10 +22,10 @@ let shortcuts = vm.runInContext('quickManagementLinks(state.status.settings)', c
 for (const url of ['https://192.0.2.10:8443','https://192.0.2.10:9090','https://192.0.2.10:9443']) {
   assert.ok(shortcuts.includes('href="' + url + '"'), 'Missing sidebar shortcut: ' + url);
 }
-assert.ok(shortcuts.includes('data-go="commands"'), 'Sidebar must open command cheatsheet');
+assert.equal(vm.runInContext("pages.find(([id]) => id === 'commands')[1]",context), 'Help', 'Docs remain one primary navigation step away');
 assert.ok(shortcuts.includes('rel="noopener noreferrer"'), 'External tools must not retain opener access');
 let tools = vm.runInContext('homepageTools()', context);
-assert.ok(tools.includes('data-go="commands"'), 'Overview must expose cheatsheet');
+assert.ok(tools.includes('data-go="integrations"'), 'Overview must expose native service settings');
 assert.ok(tools.includes('href="https://192.0.2.10:8443"'));
 assert.ok(tools.includes('href="https://192.0.2.10:9443"'));
 assert.ok(tools.includes('href="https://192.0.2.10:9090"'));
@@ -36,7 +38,7 @@ assert.ok(!tools.includes(':9090"'));
 shortcuts = vm.runInContext('quickManagementLinks(state.status.settings)', context);
 assert.ok(!shortcuts.includes(':9443"'));
 assert.ok(!shortcuts.includes(':9090"'));
-assert.ok(tools.includes('Enable apps'));
+assert.ok(tools.includes('Service settings'));
 vm.runInContext('state.status.setupComplete=false', context);
 tools = vm.runInContext('homepageTools()', context);
 assert.ok(!tools.includes(':8443"'));
@@ -72,4 +74,32 @@ assert.ok(!observedTools.includes('https://198.51.100.30:8443'));
 vm.runInContext("state.status.codeOverrides=[{setting:'cockpit.enable'}];state.draft.cockpit={enable:false};state.status.effectiveSettings.cockpit.enable=true;", context);
 assert.ok(vm.runInContext("toggle('Cockpit','cockpit.enable')", context).includes('checked'));
 assert.equal(vm.runInContext('state.draft.cockpit.enable', context), false, 'Displaying file-owned values must not change the JSON overlay');
+
+vm.runInContext(`
+state.host={kvm:true};
+operationView.network={available:true, checkedAt:Date.now()/1000, conflicts:[
+  {project:'default',network:'private',address:'10.77.0.5',owners:['lab/a','<img src=x>']}], guests:[
+  {name:'<script>bad</script>', project:'another-project', type:'virtual-machine', status:'Running', observed:['10.77.0.5'],
+   nics:[{name:'eth0',network:'private',observed:['10.77.0.5'],reserved:['10.77.0.9'],unobservedReservation:true}]}]};
+`, context);
+let network = vm.runInContext('guestNetwork()', context);
+for (const expected of ['another-project', '10.77.0.5', '10.77.0.9', 'Potential address conflict', 'Reservation not observed']) assert.ok(network.includes(expected));
+assert.ok(network.includes('&lt;script&gt;bad&lt;/script&gt;'));
+assert.ok(!network.includes('<script>bad') && !network.includes('<img src=x>'));
+assert.ok(!network.includes('href="http://10.77.0.5') && !network.includes('data-guest-action'), 'Observed addresses must not invent service endpoints or duplicate lifecycle controls');
+vm.runInContext('operationView.network.checkedAt -= 100', context);
+assert.ok(vm.runInContext('guestNetwork()', context).includes('Inventory is stale'));
+vm.runInContext("operationView.networkError='Incus unavailable'", context);
+assert.ok(vm.runInContext('guestNetwork()', context).includes('Incus unavailable'));
+vm.runInContext('operationView.network=null', context);
+assert.ok(!vm.runInContext('guestNetwork()', context).includes('No guests reported'), 'Failed observations are not an empty healthy inventory');
+vm.runInContext(`operationView.health={checkedAt:Date.now()/1000,services:[
+  {Id:'incus.service',LoadState:'loaded',ActiveState:'inactive'}]}`, context);
+assert.ok(vm.runInContext('hostOverview()', context).includes('Needs attention'));
+vm.runInContext('operationView.health.checkedAt -= 100', context);
+assert.ok(vm.runInContext('hostOverview()', context).includes('Unavailable or stale'));
+vm.runInContext("state.status.managementAddress='user:password@evil.example'", context);
+assert.equal(vm.runInContext('quickManagementLinks()', context), '', 'Never turn management metadata into credential-bearing or foreign URLs');
+vm.runInContext("state.status.managementAddress='2001:db8::10'", context);
+assert.ok(vm.runInContext('quickManagementLinks()', context).includes('https://[2001:db8::10]:8443'));
 

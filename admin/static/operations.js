@@ -1,11 +1,12 @@
 "use strict";
 let operationView = {
-  inventory: null,
+  loaded: false,
+  network: null,
+  networkError: "",
   jobs: [],
   archives: [],
   health: null,
   users: [],
-  recipes: [],
   generations: [],
   backupStatus: {},
   backupService: {},
@@ -117,10 +118,15 @@ function accountCard() {
 function platformReview() {
   if (!administrator()) return "";
   const job = state.status.job;
-  return card(
-    "Platform source upgrade",
-    `<p>Installed revision: <code>${esc(state.status.release?.revision || "unknown")}</code>. Select a published release or enter a reviewed commit. Local machine settings and modules are preserved.</p><button type="button" data-load-releases>Find published releases</button><label class="field full"><span>Release</span><select id="platform-release"><option value="">Select a release</option>${operationView.releases.map((r) => `<option value="${esc(r.revision)}">${esc(r.name)} · ${esc(r.tag)} · ${esc(r.revision.slice(0, 12))}</option>`).join("")}</select></label><details><summary>Advanced: select a commit</summary><label class="field full"><span>Upstream commit SHA (optional)</span><input id="platform-revision" value="${esc(state.platformRevision || "")}" maxlength="40" placeholder="40 hexadecimal characters"></label></details><div class="fields"><label class="field"><span>Your password for code changes</span><input id="platform-password" type="password" autocomplete="current-password"></label></div><label class="toggle"><input id="platform-ack" type="checkbox">I reviewed this privileged platform revision and approve building its system code.</label>${job?.platformRevision ? `<p>Candidate: <a href="${projectRepository}/commit/${esc(job.platformRevision)}" target="_blank" rel="noopener noreferrer">${esc(job.platformRevision)}</a></p><pre class="log">${esc(JSON.stringify(job.platformChanges || [], null, 2))}</pre>` : ""}${job?.inputChanges ? `<p>Changed pinned inputs:</p><pre class="log">${esc(JSON.stringify(job.inputChanges, null, 2))}</pre>` : ""}${job?.rebootRequired ? '<p class="note">The candidate kernel differs from the booted kernel. Plan an explicit reboot after confirming activation.</p>' : ""}`,
-  );
+  const files = job?.platformChanges || [];
+  const changes = files.map(file => `<tr><td><code>${esc(file.path)}</code></td><td>${file.after === null ? "Removed" : file.before === null ? "Added" : "Changed"}</td></tr>`).join("");
+  return card("Platform update", `<p>Installed: ${esc(state.status.release?.version || "unknown")} · <code>${esc((state.status.release?.revision || "unknown").slice(0, 12))}</code>. Machine settings and modules are retained.</p>
+    <button type="button" data-load-main>Review latest main</button><p class="note" id="platform-selected">${state.platformRevision ? "Selected: " + esc(state.platformRevision) : "No platform update selected."}</p>
+    <details><summary>Advanced: published release or commit</summary><button type="button" data-load-releases>Find published releases</button><label class="field full"><span>Release</span><select id="platform-release"><option value="">Select a release</option>${operationView.releases.map(r => `<option value="${esc(r.revision)}">${esc(r.name)} · ${esc(r.tag)}</option>`).join("")}</select></label><label class="field full"><span>Upstream commit SHA (optional)</span><input id="platform-revision" value="${esc(state.platformRevision || "")}" maxlength="40" placeholder="40 hexadecimal characters"></label></details>
+    <div class="fields"><label class="field"><span>Your password for code changes</span><input id="platform-password" type="password" autocomplete="current-password"></label></div><label class="toggle"><input id="platform-ack" type="checkbox">I reviewed this privileged platform revision and approve building its system code.</label>
+    ${job?.platformRevision ? `<p>Candidate: <a href="${projectRepository}/commit/${esc(job.platformRevision)}" target="_blank" rel="noopener noreferrer">${esc(job.platformRevision.slice(0, 12))}</a></p><details><summary>Changed platform files (${files.length})</summary><div class="table-wrap"><table><thead><tr><th>Path</th><th>Change</th></tr></thead><tbody>${changes || '<tr><td colspan="2">No platform file changes.</td></tr>'}</tbody></table></div></details>` : ""}
+    ${job?.inputChanges && Object.keys(job.inputChanges).length ? `<details><summary>Changed pinned inputs</summary><pre class="log">${esc(JSON.stringify(job.inputChanges, null, 2))}</pre></details>` : ""}
+    ${job?.rebootRequired ? '<p class="note">The new kernel needs a separate reboot after confirming activation.</p>' : ""}`);
 }
 
 async function refreshOperations(full = true) {
@@ -148,10 +154,10 @@ async function refreshOperations(full = true) {
       if (administrator()) operationView.users = (await api("users")).users;
     }
     operationView.error = "";
-    operationView.inventory = [];
+    operationView.loaded = true;
   } catch (error) {
     operationView.error = error.message;
-    operationView.inventory ??= [];
+    operationView.loaded = true;
     changed = true;
   } finally {
     operationView.loading = false;
@@ -283,6 +289,17 @@ function bindOperations() {
           shell();
         })),
     );
+  document.querySelectorAll("[data-load-main]").forEach(el => {
+    el.onclick = safe(async () => {
+      const result = await api("main-revision");
+      if (!/^[a-f0-9]{40}$/.test(result.revision)) throw Error("Invalid upstream revision");
+      state.platformRevision = result.revision;
+      shell();
+    });
+  });
+  document.querySelectorAll("[data-overview-refresh]").forEach(el => {
+    el.onclick = safe(async () => { await refreshOverview(); shell(); });
+  });
   document.querySelectorAll("[data-load-releases]").forEach(
     (el) =>
       (el.onclick = safe(async () => {
@@ -306,13 +323,17 @@ function bindOperations() {
       state.platformRevision = release.value;
       const revision = by("platform-revision");
       if (revision) revision.value = release.value;
+      by("platform-selected").textContent = state.platformRevision ? "Selected: " + state.platformRevision : "No platform update selected.";
     };
   const revision = by("platform-revision");
   if (revision)
-    revision.oninput = () => (state.platformRevision = revision.value.trim());
+    revision.oninput = () => {
+      state.platformRevision = revision.value.trim();
+      by("platform-selected").textContent = state.platformRevision ? "Selected: " + state.platformRevision : "No platform update selected.";
+    };
   if (
     state.page === "operations" &&
-    operationView.inventory === null &&
+    !operationView.loaded &&
     !operationView.loading
   )
     refreshOperations();

@@ -89,6 +89,11 @@ it does not publish management dashboards or route the guest network.
 
 ## Reviewed upgrades
 
+From the console, open **Changes → Review latest main**, inspect the selected
+revision, reauthenticate and acknowledge its privileged code, then build, review,
+activate and confirm access. Selection resolves main to one fixed SHA; it does
+not silently follow later commits or bypass the existing impact/rollback gates.
+
 For an existing NixLab server, run this in its interactive terminal:
 
 ```sh

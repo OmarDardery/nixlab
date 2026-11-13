@@ -1,6 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 const context=vm.createContext({document:{querySelector:()=>({})},setInterval:()=>0,URL});
+vm.runInContext(fs.readFileSync(path.join(__dirname,'../admin/static/projects.js'),'utf8'),context);
 for(const name of ['foundation.js','operations.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../admin/static',name),'utf8'),context);
 const source=fs.readFileSync(path.join(__dirname,'../admin/static/app.js'),'utf8');
 vm.runInContext(source.slice(0,source.lastIndexOf('\n(async () =>')),context);

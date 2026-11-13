@@ -2,6 +2,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 const root=path.join(__dirname,'../admin/static');
 const context=vm.createContext({document:{querySelector:()=>({})},setInterval:()=>0,URL});
+vm.runInContext(fs.readFileSync(path.join(__dirname,'../admin/static/projects.js'),'utf8'),context);
 vm.runInContext(fs.readFileSync(path.join(root,'foundation.js'),'utf8'),context);
 vm.runInContext(fs.readFileSync(path.join(root,'operations.js'),'utf8'),context);
 const source=fs.readFileSync(path.join(root,'app.js'),'utf8');
@@ -43,5 +44,6 @@ assert.ok(html.includes('Application restore: unverified'));
 const review=vm.runInContext('platformReview()',context);
 assert.ok(review.includes('platform-password'));
 assert.ok(review.includes('platform-ack'));
-assert.equal(vm.runInContext('projectGuides',context),'/docs/');
+vm.runInContext("state.page='operations'", context);
+assert.ok(vm.runInContext("title('', 'Backups', '')",context).includes('href="/docs/recovery.md"'), 'Recovery guidance must stay local and available offline');
 console.log('Operations UI checks passed: roles, escaped metadata, source approval and offline guides.');
