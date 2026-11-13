@@ -28,8 +28,12 @@ class Transport:
         self.project, self.name = project, name
 
     def exec_args(self, args, stdin=False):
+        # The VM agent can resolve the initial executable using its own PATH
+        # without passing that PATH to the guest process. Nested helpers such
+        # as timeout -> flock -> sh must see the NixOS system tools as well.
         return ['incus', '--force-local', 'exec', self.name, '--project', self.project,
-                '--mode=non-interactive', *([] if stdin else ['--disable-stdin']), '--', *args]
+                '--mode=non-interactive', '--env=PATH=/run/current-system/sw/bin:/run/wrappers/bin',
+                *([] if stdin else ['--disable-stdin']), '--', *args]
 
     def execute(self, *args, timeout=30, check=True):
         try:

@@ -303,6 +303,17 @@ class TransferInventoryTests(unittest.TestCase):
 
 
 class ContractTests(unittest.TestCase):
+    def test_nested_guest_helpers_get_system_path_without_changing_stream_contract(self):
+        transport = gd.Transport('lab', 'apps')
+        for stdin in (False, True):
+            with self.subTest(stdin=stdin):
+                args = transport.exec_args(['timeout', '5', 'flock', '/run/lock/fixture', 'true'], stdin=stdin)
+                options, command = args[:args.index('--')], args[args.index('--') + 1:]
+                self.assertIn('--env=PATH=/run/current-system/sw/bin:/run/wrappers/bin', options)
+                self.assertIn('--mode=non-interactive', options)
+                self.assertEqual('--disable-stdin' in options, not stdin)
+                self.assertEqual(command, ['timeout', '5', 'flock', '/run/lock/fixture', 'true'])
+
     def test_guest_command_failure_keeps_status_without_disclosing_output_or_arguments(self):
         transport = gd.Transport('lab', 'apps')
         result = subprocess.CompletedProcess([], 127, 'PRIVATE-STDOUT', 'PRIVATE-STDERR')
