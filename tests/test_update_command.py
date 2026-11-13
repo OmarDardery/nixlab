@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
@@ -82,9 +83,31 @@ class UpdateTests(unittest.TestCase):
         self.manager.review.assert_not_called(); self.manager.apply.assert_not_called()
 
     def test_same_revision_is_an_idempotent_noop(self):
-        self.manager.status.return_value['release']['revision'] = SHA
-        update.run(self.manager)
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); active = root / 'active'; active.mkdir()
+            (root / 'system').symlink_to(active)
+            self.manager.job_path.return_value = root
+            self.manager.status.return_value.update(release={'revision': SHA}, lastConfirmed={'id': ID}, currentSystem=str(active))
+            self.manager.job.return_value = {'status': 'confirmed', 'candidateDigest': {'source': 'hash'}}
+            with patch.object(update.rt, 'digest_source', return_value={'source': 'hash'}):
+                update.run(self.manager)
         self.manager.review.assert_not_called(); self.manager.apply.assert_not_called(); self.ask.assert_not_called()
+
+    def test_matching_revision_after_rollback_or_local_edit_still_updates_system(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); active = root / 'active'; active.mkdir()
+            (root / 'system').symlink_to(active)
+            self.manager.job_path.return_value = root
+            for current, digest in ((str(root / 'old-generation'), {'source': 'hash'}),
+                                    (str(active), {'source': 'edited'})):
+                with self.subTest(current=current, digest=digest):
+                    self.manager.reset_mock()
+                    self.manager.status.return_value.update(release={'revision': SHA}, lastConfirmed={'id': ID}, currentSystem=current)
+                    self.manager.job.side_effect = [{'status': 'confirmed', 'candidateDigest': {'source': 'hash'}}, self.ready]
+                    with patch.object(update.rt, 'digest_source', return_value=digest):
+                        update.run(self.manager)
+                    self.manager.review.assert_called_once()
+                    self.manager.apply.assert_called_once_with(ID)
 
     def test_failed_health_or_rejected_access_rolls_back_without_confirmation(self):
         self.manager.job.side_effect = [self.ready, self.pending]

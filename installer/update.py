@@ -31,6 +31,18 @@ def ask(message):
     return input(message + ' [y/N] ').strip().lower() in ('y', 'yes')
 
 
+def already_current(manager, state, revision):
+    if state.get('release', {}).get('revision') != revision:
+        return False
+    job_id = (state.get('lastConfirmed') or {}).get('id')
+    if not job_id or not state.get('currentSystem'):
+        return False
+    confirmed = manager.job(job_id)
+    return (confirmed['status'] == 'confirmed'
+            and confirmed.get('candidateDigest') == rt.digest_source(manager.root)
+            and (manager.job_path(job_id) / 'system').resolve() == Path(state['currentSystem']))
+
+
 def run(manager):
     state = manager.status()
     record = state.get('job') or {}
@@ -45,8 +57,8 @@ def run(manager):
             raise ValueError('Finish initial NixLab setup before running #update')
         revision = main_revision()
         print('NixLab main: ' + revision, flush=True)
-        if state.get('release', {}).get('revision') == revision:
-            print('Platform source is already current.')
+        if already_current(manager, state, revision):
+            print('Platform source and active system are already current.')
             if state.get('rebootRequired'): print('A kernel reboot is pending; reboot separately when ready.')
             return
         record = manager.review({}, revision=revision, principal=PRINCIPAL)
