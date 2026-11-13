@@ -43,6 +43,7 @@ jobs:
           node tests/test_operations_ui.js
           node tests/test_foundation_ui.js
           node tests/test_deployments_ui.js
+          node tests/test_proxy_cookies.js
       - name: Browser workflow checks
         run: |
           python3 -m venv "$RUNNER_TEMP/nixlab-browser"
