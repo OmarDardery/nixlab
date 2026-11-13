@@ -80,7 +80,7 @@ function hostConnectivity() {
   return (
     title(
       "PHYSICAL NETWORKING",
-      "Connectivity",
+      "Networking",
       "Ethernet bridges and VLANs are host prerequisites. Create guest networks, reservations, NIC attachments and ACLs in Incus.",
     ) +
     card(
@@ -180,7 +180,7 @@ function integrations() {
       `${toggle("Install the packaged helper runner", "helpers.enable")}<p>The packaged runner opens an interactive Incus wizard from your host terminal.</p><button class="small" data-go="commands">Helper commands & documentation →</button><p>The upstream interactive wizard selects resources, storage and network. Its guests remain Incus-managed. Nothing on this page executes a script.</p><a href="https://community-scripts.org/" target="_blank" rel="noopener noreferrer">Browse upstream applications ↗</a><p>Proxmox-specific host/VM scripts requiring pct, qm or /etc/pve are unsupported. Upstream Incus scripts are available; Nixlab verification is recorded separately.</p><details><summary>Compatibility & pinned revisions</summary><div class="table-wrap"><table><thead><tr><th>Qualification target</th><th>Compatibility</th><th>Notes</th></tr></thead><tbody>${info.applications.map((item) => `<tr><td>${esc(item.title)}</td><td>${item.status === "verified" ? "Verified on Nixlab" : "Upstream-supported; unverified here"}</td><td>${esc(item.notes)}</td></tr>`).join("")}</tbody></table></div><pre class="log">${esc(JSON.stringify(info.sources, null, 2))}</pre></details><a href="/docs/helpers.md">Runner, prerequisites and compatibility</a>`,
     ) +
     '</details>' +
-    '<p class="note">Looking for commands or upstream resources? <button class="small" data-go="commands">Commands & docs →</button></p>'
+    '<p class="note">Looking for commands or upstream resources? <button class="small" data-go="commands">Help →</button></p>'
   );
 }
 

@@ -7,7 +7,7 @@ covers target-machine acceptance.
 
 ## Daily work
 
-The Backups & Recovery page coordinates independent backups, repository checks,
+The Backups page coordinates independent backups, repository checks,
 archive restores, recovery downloads and host health. Use Incus for ordinary guest
 lifecycle, consoles and snapshots. Legacy commands below remain for compatibility.
 

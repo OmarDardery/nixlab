@@ -12,7 +12,7 @@ The portal Overview and sidebar link to enabled Incus UI (:8443),
 Cockpit (configured port, normally :9090), and Portainer (configured
 port, normally :9443 on fresh installs or :9441 on older installs).
 Disabled or unconfigured services are not advertised as live. The
-**Commands & docs** page includes a copy-only homelab cheatsheet.
+**Help** page includes a copy-only homelab cheatsheet.
 Port 80 belongs to the *NixLab host IP*; a Mainsail server inside a
 separate Incus guest may independently listen on port 80 on its own IP.
 

@@ -294,15 +294,16 @@ local documentation and recovery exports, see [operations](operations.md).
 
 ## Focused host portal
 
-The current navigation centers on Host, Connectivity, Hardware & Disks, Backups &
-Recovery, Integrations and reviewed Changes. Guest lifecycle, consoles, snapshots,
+The five primary pages are Overview, Host, Backups, Changes and Help. Host tabs
+cover Networking, Hardware & storage, Services, Access, System and Advanced. Guest lifecycle, consoles, snapshots,
 resources and native guest networking stay in Incus. The legacy guest CLI/API is
 retained; it is not a second guest dashboard.
 
-Configure Ethernet host prerequisites in Connectivity and attach guest NICs in
-Incus. Hardware & Disks can declare an exact USB serial alias but does not assign
+Configure Ethernet host prerequisites in **Host → Networking** and attach guest NICs in
+Incus. **Host → Hardware & storage** can declare an exact USB serial alias but does not assign
 it or install a workload. Backups has schedule/coverage/group controls and
-independent recovery. Integrations supplies Incus/Portainer links and a packaged
-upstream helper wizard; those page links never execute installers. See
+independent recovery. Overview links to enabled native tools; **Host → Services**
+configures optional tools and a packaged upstream helper wizard. Help supplies
+copyable commands and upstream credits; its links never execute installers. See
 [ownership](ownership.md), [helpers](helpers.md) and [hardware](hardware.md).
 

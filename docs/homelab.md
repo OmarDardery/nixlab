@@ -6,15 +6,16 @@ Compose stacks and application consoles inside the dedicated `apps` NixOS VM.
 Docker does not run on the hypervisor.
 
 For a plain NixOS server, use the [single-command workflow](plain-nixos.md).
-The steps below describe the optional portal preset.
+The steps below enable the optional tools from the host console.
 
 ## Enable and activate
 
 1. Upgrade to the reviewed source revision. Preserve the machine directory, Incus
    database, storage pools, existing applications and hardware configuration.
-2. In **Integrations**, select **Stage Cockpit + Portainer + laptop mode**. This
-   changes desired settings only; it preserves network addresses, disks, Cloudflare
-   ingress and existing workloads. File-owned settings are retained.
+2. In **Host → Services**, enable Cockpit and/or the isolated applications VM.
+   Choose the Portainer HTTPS port explicitly (9443 for a fresh homelab stack).
+   This stages desired settings; file-owned settings are retained. Laptop power
+   policy is separate under **Host → System**; it is not changed by enabling tools.
 3. Enter a separate **local operator password for Cockpit** (16–256 characters) and
    an initial Portainer password. Leave an existing Portainer password blank.
    Changing the bootstrap secret does not reset an existing Portainer account;
@@ -30,8 +31,7 @@ The steps below describe the optional portal preset.
    | Portainer | `https://HOST_IP:9443` | Portainer account |
    | Nixlab configuration/recovery | `https://HOST_IP:9440` | Nixlab portal account |
 
-The preset selects Portainer port 9443. Older settings retain **9441** until
-explicitly changed. Management ports are configurable and collision-checked.
+Existing settings retain their Portainer port, including **9441**, until explicitly changed. Management ports are configurable and collision-checked.
 Homepage links use the observed management address, falling back to active settings. Portainer's
 internal port remains 9443 behind the host's TLS-verified proxy. Only the
 hypervisor may reach that published VM endpoint, including after Docker restarts.

@@ -126,8 +126,8 @@ docs/                        # research, commissioning, operation and recovery
 ## Start here
 
 The command above installs the Cockpit + Incus + Portainer stack. Existing portal
-users can also use **Integrations** and the [homelab guide](docs/homelab.md). It stages Cockpit on 9090,
-Portainer on 9443 and lid-closed operation without remapping existing disks or guests.
+users can enable Cockpit and Portainer separately under **Host → Services**; see
+the [homelab guide](docs/homelab.md). Laptop power policy is a separate explicit setting.
 Existing hosts retain Portainer port 9441 until explicitly changed.
 
 For the installer and browser-first workflow, start with [the quick start](docs/start.md).

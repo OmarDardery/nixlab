@@ -94,7 +94,7 @@ does not silently enroll a node, trust all `tailscale0` traffic, or open managem
 
 ## Reviewed Ethernet configuration
 
-Connectivity creates host interfaces, not guest network objects. For example:
+**Host → Networking** creates host interfaces, not guest network objects. For example:
 
 ```nix
 nixlab.settings.connectivity = {
