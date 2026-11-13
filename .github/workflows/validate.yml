@@ -28,6 +28,8 @@ jobs:
         run: |
           python3 -m compileall -q admin scripts tests helpers installer
           python3 -m unittest discover -s tests -v
+      - name: Build and verify one-command update entrypoint
+        run: nix run .#update -- --help
       - name: Validate UI JavaScript
         run: |
           node --check admin/static/app.js
@@ -120,7 +122,6 @@ jobs:
       - name: Build setup tools and bootstrap OS
         run: |
           nix build .#packages.x86_64-linux.admin .#packages.x86_64-linux.installer --no-link
-          nix run .#update -- --help
           nix build .#nixosConfigurations.validation-bootstrap.config.system.build.toplevel --no-link
           nix build '.#nixosConfigurations.validation-setup.config.systemd.units."nixlab-ui.service".unit' '.#nixosConfigurations.validation-setup.config.systemd.units."nginx.service".unit' --no-link
           test "$(nix eval --raw .#nixosConfigurations.validation-inherited.config.system.stateVersion)" = "25.11"
