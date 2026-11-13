@@ -15,6 +15,14 @@ import runtime as rt
 if sys.argv[1] == 'material':
     directory = Path(sys.argv[2])
     inventory = json.loads((directory / 'inventory.json').read_text())
+    # Validate the producer's real coverage/identity data before supplying the
+    # explicitly synthetic host kits; never upgrade missing coverage in a fixture.
+    assert inventory['coverageDetails']['complete'] is True
+    assert any(item['kind'] == 'custom-volume' and item['identity'].endswith('/guests/recoverdata')
+               and item['status'] == 'included' for item in inventory['coverageDetails']['items'])
+    guest = next(item for item in inventory['guests'] if (item['project'], item['name']) == ('lab', 'native'))
+    current = replacement.api(replacement.guest_path('lab', 'native'))
+    assert guest['config']['volatile.uuid'] == current['config']['volatile.uuid']
     # The source fixture has no installed NixLab config/accounts. Supply explicit
     # synthetic recovery kits; the real guest/volume archives remain unmodified.
     payload = Path('/tmp/recovery-fixture-payload'); payload.write_text(secrets.token_hex(24)); payload.chmod(0o600)
@@ -33,6 +41,7 @@ elif sys.argv[1] == 'restore':
         raise AssertionError('Imports require confirmation')
     result = replacement.resume(True)
     assert result['phase'] == 'isolated' and result['restore'] == 'unverified'
+    assert result['coverage']['complete'] is True
     rt.write_json(Path('/root/recovery-targets.json'), result)
 elif sys.argv[1] == 'verify':
     report = rt.read_json(Path('/root/recovery-targets.json'))
