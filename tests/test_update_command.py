@@ -110,5 +110,19 @@ class UpdateTests(unittest.TestCase):
                 self.assertEqual(git.call_args.kwargs['timeout'], 30)
                 self.assertTrue(git.call_args.kwargs['check'])
 
+    def test_bootstrap_runtime_is_pinned_in_existing_job_retention(self):
+        with patch.object(update.rt, 'SOURCE', Path('/nix/store/example-installer-source/admin')), \
+                patch.object(update.rt.subprocess, 'run') as command:
+            update.rt.pin_worker_runtime(Path('/var/lib/nixlab-admin/jobs') / ID)
+        args = command.call_args.args[0]
+        self.assertEqual(args[-1], '/nix/store/example-installer-source')
+        self.assertEqual(args[2], '/var/lib/nixlab-admin/jobs/' + ID + '/worker-runtime')
+        self.assertTrue(command.call_args.kwargs['check'])
+        self.assertEqual(command.call_args.kwargs['timeout'], 30)
+        with patch.object(update.rt, 'SOURCE', Path('/workspace/source/admin')), \
+                patch.object(update.rt.subprocess, 'run') as command:
+            update.rt.pin_worker_runtime(Path('/tmp/job'))
+            command.assert_not_called()
+
 
 if __name__ == '__main__': unittest.main()
