@@ -1,5 +1,19 @@
 # Troubleshooting
 
+## Apps VM DHCP crashes during an update
+
+A core dump in `dhcpcd`'s `ipv6nd_expire` can match the upstream
+[interface-removal timer bug](https://github.com/NetworkConfiguration/dhcpcd/issues/614).
+The apps guest carries the [upstream fix](https://github.com/NetworkConfiguration/dhcpcd/commit/0c1f40749f1d1dad280988ccbe53ac4ba6f1d6c4)
+while the pinned package lacks it. Docker bridge/veth interfaces are also excluded
+from guest DHCP; the uplink retains DHCP and IPv6. Host networking is unaffected.
+
+The vendored patch is in `modules/patches/`; remove it when the pinned package
+includes that exact fix and the DHCP/Docker interface-churn test still passes.
+This source fix does not establish successful recovery of an already failed
+guest update. Inspect guest service logs and verify the guarded update, lease,
+Portainer and persistent data on the actual host before recording qualification.
+
 Start with the symptom. Keep the original error. Resist the traditional homelab
 ritual of changing six things and discovering none of them was the problem.
 

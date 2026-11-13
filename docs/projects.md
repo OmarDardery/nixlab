@@ -20,7 +20,8 @@ Guest lifecycle, consoles, networking and storage remain native Incus operations
 | cloudflared | Optional public application ingress | [Tunnel manual](https://developers.cloudflare.com/tunnel/) | [cloudflared](https://github.com/cloudflare/cloudflared) |
 | Community Scripts | Optional upstream Incus provisioning helpers | [Compatibility and ownership](helpers.md) | [Incus helpers](https://github.com/community-scripts/Incus) |
 
-NixOS also supplies OpenSSH, systemd, NetworkManager and nftables. Their manuals
+NixOS also supplies OpenSSH, systemd, NetworkManager, [dhcpcd](https://github.com/NetworkConfiguration/dhcpcd)
+and nftables. Their manuals
 and optional VPN references are available under **Help → Upstream projects**.
 Upstream components retain their own licenses and authorship. NixLab does not
 claim their implementation or imply upstream endorsement. Included fonts retain
