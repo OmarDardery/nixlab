@@ -35,7 +35,8 @@ let
   name = "nixlab-install";
   inherit runtimeInputs;
   text = ''
-    export NIXLAB_WORKER_RUNTIME="$(dirname "$(dirname "$(readlink -f "$0")")")"
+    NIXLAB_WORKER_RUNTIME="$(dirname "$(dirname "$(readlink -f "$0")")")"
+    export NIXLAB_WORKER_RUNTIME
     exec python3 ${source}/installer/install.py --checkout ${platform} "$@"
   '';
   };
@@ -46,7 +47,8 @@ let
       if [[ "''${1:-}" != --help && "''${1:-}" != -h && "$(id -u)" != 0 ]]; then
         exec /run/wrappers/bin/sudo -- "$0" "$@"
       fi
-      export NIXLAB_WORKER_RUNTIME="$(dirname "$(dirname "$(readlink -f "$0")")")"
+      NIXLAB_WORKER_RUNTIME="$(dirname "$(dirname "$(readlink -f "$0")")")"
+    export NIXLAB_WORKER_RUNTIME
       exec python3 ${source}/installer/update.py "$@"
     '';
   };
