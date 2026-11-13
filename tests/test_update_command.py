@@ -142,6 +142,14 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(args[2], '/var/lib/nixlab-admin/jobs/' + ID + '/worker-runtime')
         self.assertTrue(command.call_args.kwargs['check'])
         self.assertEqual(command.call_args.kwargs['timeout'], 30)
+        with patch.dict(update.os.environ, {'NIXLAB_WORKER_RUNTIME': '/nix/store/update-launcher'}), \
+                patch.object(update.rt.subprocess, 'run') as command:
+            update.rt.pin_worker_runtime(Path('/tmp/job'))
+            self.assertEqual(command.call_args.args[0][-1], '/nix/store/update-launcher')
+        with patch.dict(update.os.environ, {'NIXLAB_WORKER_RUNTIME': '/tmp/untrusted'}), \
+                patch.object(update.rt.subprocess, 'run') as command:
+            with self.assertRaises(ValueError): update.rt.pin_worker_runtime(Path('/tmp/job'))
+            command.assert_not_called()
         with patch.object(update.rt, 'SOURCE', Path('/workspace/source/admin')), \
                 patch.object(update.rt.subprocess, 'run') as command:
             update.rt.pin_worker_runtime(Path('/tmp/job'))

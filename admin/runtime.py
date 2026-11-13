@@ -39,7 +39,13 @@ def pin_worker_runtime(directory):
     The root belongs to the existing job directory, so normal job retention also
     releases it. Installed admin runtimes use this same harmless lifetime bound.
     """
-    for path in (SOURCE, *SOURCE.parents):
+    launcher = os.environ.get('NIXLAB_WORKER_RUNTIME')
+    if launcher and Path(launcher).parent != Path('/nix/store'):
+        raise ValueError('Worker runtime must be a Nix store output')
+    # A launcher closure also retains its PATH dependencies, not only Python
+    # source files. Older installed wrappers fall back to their source output.
+    paths = (Path(launcher),) if launcher else (SOURCE, *SOURCE.parents)
+    for path in paths:
         if path.parent == Path('/nix/store'):
             subprocess.run(['nix-store', '--add-root', str(directory / 'worker-runtime'),
                             '--indirect', '--realise', str(path)],

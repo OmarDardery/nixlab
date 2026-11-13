@@ -34,7 +34,10 @@ let
   install = pkgs.writeShellApplication {
   name = "nixlab-install";
   inherit runtimeInputs;
-  text = ''exec python3 ${source}/installer/install.py --checkout ${platform} "$@"'';
+  text = ''
+    export NIXLAB_WORKER_RUNTIME="$(dirname "$(dirname "$(readlink -f "$0")")")"
+    exec python3 ${source}/installer/install.py --checkout ${platform} "$@"
+  '';
   };
   update = pkgs.writeShellApplication {
     name = "nixlab-update";
@@ -43,6 +46,7 @@ let
       if [[ "''${1:-}" != --help && "''${1:-}" != -h && "$(id -u)" != 0 ]]; then
         exec /run/wrappers/bin/sudo -- "$0" "$@"
       fi
+      export NIXLAB_WORKER_RUNTIME="$(dirname "$(dirname "$(readlink -f "$0")")")"
       exec python3 ${source}/installer/update.py "$@"
     '';
   };

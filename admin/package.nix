@@ -23,5 +23,8 @@ let
 in pkgs.writeShellApplication {
   name = "nixlab-admin";
   runtimeInputs = with pkgs; [ (python3.withPackages (ps: [ ps.markdown ])) nix nixos-rebuild git iproute2 util-linux openssl openssh shadow coreutils systemd networkmanager incus-lts.client age parted e2fsprogs ];
-  text = ''exec python3 ${source}/main.py "$@"'';
+  text = ''
+    export NIXLAB_WORKER_RUNTIME="$(dirname "$(dirname "$(readlink -f "$0")")")"
+    exec python3 ${source}/main.py "$@"
+  '';
 }
