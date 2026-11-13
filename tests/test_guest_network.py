@@ -40,6 +40,19 @@ class GuestNetworkTests(unittest.TestCase):
         result = network.summarize([guest(), value], [{'name': 'lab'}, {'name': 'other'}])
         self.assertEqual(len(result['conflicts']), 1, 'Reported duplicate addresses also matter')
 
+    def test_one_matching_family_does_not_hide_an_unobserved_reservation(self):
+        value = guest()
+        value['expanded_devices']['eth0']['ipv6.address'] = 'fd00::5'
+        nic = network.summarize([value], [])['guests'][0]['nics'][0]
+        self.assertEqual(nic['observed'], ['10.77.0.5'])
+        self.assertTrue(nic['unobservedReservation'])
+
+    def test_inventory_rejects_unbounded_or_malformed_results(self):
+        for raw in (' ' * (8 * 1024**2 + 1), json.dumps([{}] * 1001), '{}', '[{}]'):
+            with self.subTest(length=len(raw)), patch.object(network.incus_client, 'run', return_value=raw):
+                with self.assertRaisesRegex(ValueError, '^Guest network inventory unavailable'):
+                    network.inventory()
+
     def test_identical_ips_on_isolated_networks_are_not_conflicts(self):
         for second, projects in ((guest('db', 'other'), [{'name': 'lab'}, {'name': 'other', 'config': {'features.networks': 'true'}}]),
                                  (guest('db', bridge='isolated'), [{'name': 'lab'}]),

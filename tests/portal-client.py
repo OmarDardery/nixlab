@@ -46,6 +46,8 @@ status, response, _ = request('/api/users', {'username': 'observer', 'role': 'vi
 assert status == 200, response
 viewer = login('observer', 'vm-observer-password')
 assert request('/api/status', session=viewer)[0] == 200
+status, response, _ = request('/api/guest-network', session=viewer)
+assert status == 200 and response == {'available': False, 'guests': [], 'conflicts': []}, response
 assert request('/api/main-revision', session=viewer)[0] == 403
 assert request('/api/review', {'settings': {}}, viewer)[0] == 403
 assert request('/api/operation', {'action': 'start', 'name': 'guest'}, viewer)[0] == 403

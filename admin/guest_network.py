@@ -53,7 +53,7 @@ def summarize(instances, projects, now=None):
             network = device.get('network')
             nics.append({'name': key, 'network': network or device.get('parent') or 'Unmanaged',
                          'observed': reported, 'reserved': reserved,
-                         'unobservedReservation': bool(reported and reserved and not set(reported) & set(reserved))})
+                         'unobservedReservation': bool(reported and set(reserved) - set(reported))})
             # Only managed network namespaces establish a known shared address
             # domain. Identical addresses on isolated networks are legitimate.
             if network and project in namespaces:
