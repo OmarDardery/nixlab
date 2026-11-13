@@ -126,7 +126,7 @@ class PlatformUpgradeTests(unittest.TestCase):
     def test_personal_paths_are_never_platform_files(self):
         for path in ('machine/settings.json', 'local/settings.json', 'site-modules/x.nix', 'secrets/key', '../bad', '/etc/passwd', '.git/config', 'hardware-configuration.nix'):
             self.assertFalse(upgrades.platform_path(path))
-        self.assertTrue(upgrades.platform_path('platform-modules/features/hello.nix'))
+        self.assertTrue(upgrades.platform_path('modules/hello.nix'))
 
 
 class LockTests(unittest.TestCase):
