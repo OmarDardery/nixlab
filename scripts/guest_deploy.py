@@ -37,7 +37,7 @@ class Transport:
         except (OSError, subprocess.SubprocessError):
             raise DeploymentError('Guest command did not finish within its transport deadline') from None
         if check and result.returncode:
-            raise DeploymentError('Guest command failed; inspect the guest locally in Incus')
+            raise DeploymentError(f'Guest command failed (exit status {result.returncode}); inspect the guest locally in Incus')
         return result
 
     def inspect(self):

@@ -183,6 +183,19 @@ sudo incus list --all-projects
 sudo homelab exec apps -- systemctl --failed
 ```
 
+If `nixlab-apps-onboarding` reports a guest activation failure, inspect the guest
+as well as the host. The transport reports the numeric exit status without
+copying guest output, which may contain sensitive data, into host/API errors:
+
+```sh
+sudo incus exec apps --project lab -- journalctl -b -p err -n 50 --no-pager -o cat
+```
+
+A matching active/profile generation alone does not prove service health. Check
+the native service failures and NixLab doctor results before retrying an update.
+An explicitly reported guest rollback failure also requires investigation;
+host rollback does not establish that guest recovery succeeded.
+
 Also check the client is on a trusted management subnet, the current host address
 and any customized ports. Management interfaces are private; this documentation
 domain does not forward requests to them.

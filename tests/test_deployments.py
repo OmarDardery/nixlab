@@ -303,6 +303,15 @@ class TransferInventoryTests(unittest.TestCase):
 
 
 class ContractTests(unittest.TestCase):
+    def test_guest_command_failure_keeps_status_without_disclosing_output_or_arguments(self):
+        transport = gd.Transport('lab', 'apps')
+        result = subprocess.CompletedProcess([], 127, 'PRIVATE-STDOUT', 'PRIVATE-STDERR')
+        with patch.object(gd.subprocess, 'run', return_value=result):
+            with self.assertRaisesRegex(gd.DeploymentError, 'exit status 127') as caught:
+                transport.execute('PRIVATE-ARGUMENT')
+            self.assertNotIn('PRIVATE', str(caught.exception))
+            self.assertIs(transport.execute('test', check=False), result)
+
     def test_dependency_cycles_unknown_targets_and_duplicate_guests_are_rejected(self):
         for targets in ({'apps': spec(deps=['missing'])}, {'apps': spec(deps=['apps'])},
                         {'apps': spec(), 'alias': spec()}):
