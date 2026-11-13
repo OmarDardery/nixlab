@@ -25,8 +25,8 @@ let
             self.end_headers()
             if self.path == '/cookie-probe':
                 self.wfile.write(json.dumps({
-                    'portalLeaked': 'nixlab_session=' in self.headers.get('Cookie', ''),
-                    'nativeCookie': 'portainer_auth=native-auth' in self.headers.get('Cookie', ''),
+                    'portalLeaked': 'nixlab_session=' in self.headers.get('Cookie', ""),
+                    'nativeCookie': 'portainer_auth=native-auth' in self.headers.get('Cookie', ""),
                     'bearerPreserved': self.headers.get('Authorization') == 'Bearer test-native-jwt',
                 }).encode())
                 return
