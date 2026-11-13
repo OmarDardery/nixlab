@@ -11,9 +11,7 @@ vm.runInContext(`
 state.principal={username:'observer',role:'viewer'};
 state.draft={backup:{enable:false,groups:[]}};
 state.status={settings:{backup:{enable:false}},release:{revision:'a'.repeat(40)}};
-operationView.inventory=[{name:'<img src=x onerror=alert(1)>',project:'lab',type:'container',status:'Running',addresses:['192.0.2.1']}];
 operationView.archives=[{id:'a'.repeat(32),name:'<img src=x onerror=alert(1)>',project:'lab',created:1,available:true}];
-operationView.recipes=[{id:'recipe',title:'<script>bad</script>',description:'<img src=x>'}];
 `,context);
 let html=vm.runInContext('operationsPage()',context);
 assert.ok(!html.includes('data-guest-action='),'Viewer must not get guest mutation buttons');

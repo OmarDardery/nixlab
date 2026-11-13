@@ -28,7 +28,6 @@ button.small { font-size: 11px; padding: 8px 11px; }
 .nav button { border: 1px solid transparent; border-left: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); text-align: left; display: flex; align-items: center; gap: 12px; padding: 12px 14px; font-weight: 450; }
 .nav button:hover { background: var(--panel2); color: var(--text); }
 .nav button.active { background: #272016; color: var(--accent); border-left-color: var(--accent); }
-.nav-icon { font: 16px/1 var(--mono); width: 20px; text-align: center; }
 .sidebar-shortcuts { display: grid; gap: 5px; padding: 0 4px; }
 .sidebar-shortcuts .nav-label { margin-bottom: 5px; }
 .sidebar-shortcuts a, .sidebar-shortcuts button { display: flex; align-items: center; justify-content: space-between; padding: 8px 11px; border: 1px solid transparent; background: transparent; color: var(--text); font: 12px/1.45 var(--body); text-align: left; width: 100%; }
@@ -123,20 +122,13 @@ td code { font-size: 10px; }
 .diff .before { color: var(--muted); }
 .diff .after { color: var(--green); }
 .empty { padding: 26px; text-align: center; color: var(--muted); font-size: 12px; border: 1px dashed #4e5941; margin-top: 18px; }
-.login { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(340px, .9fr); align-items: center; gap: 80px; padding: 70px max(40px, calc((100vw - 1120px)/2)); background: radial-gradient(#343b2d .6px, transparent .6px) top right/18px 18px, var(--bg); }
-.login-story { max-width: 620px; }
-.login .brand { margin-bottom: 60px; }
-.login-story h1 { font-size: clamp(38px, 4.5vw, 66px); line-height: 1.06; letter-spacing: -3px; margin-bottom: 28px; }
-.login-story h1 em { color: var(--accent); font-style: normal; }
-.login-story > p:not(.eyebrow) { max-width: 460px; font-size: 15px; }
-.login-story .text-link { font: 11px/1.6 var(--mono); display: inline-block; margin-top: 22px; }
-.login-card { min-width: 0; width: 430px; max-width: 100%; padding: 36px; border: 1px solid #505a42; background: var(--panel); box-shadow: 10px 10px 0 var(--bg), 11px 11px 0 var(--line); }
-.login-card h2 { font-size: 25px; letter-spacing: -.8px; margin-bottom: 12px; }
+.login { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; padding: 32px 16px; }
+.login .brand { margin-bottom: 28px; }
+.login-card { min-width: 0; width: 430px; max-width: 100%; padding: 28px; border: 1px solid var(--line); background: var(--panel); }
+.login-card h1 { font-size: 25px; letter-spacing: -.8px; margin-bottom: 12px; }
 .login-card .field + .field { margin-top: 18px; }
 .login-card button { width: 100%; margin: 22px 0 17px; }
 .login-card .note { margin-bottom: 0; }
-.login-card .eyebrow { color: var(--accent); }
-.login-boundary { border-left: 2px solid var(--accent); padding-left: 16px; margin-top: 25px; font: 10px/1.9 var(--mono); color: var(--muted); }
 .error { color: #ffad9b; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
 .loading { display: grid; place-items: center; min-height: 80vh; align-content: center; gap: 22px; padding: 30px; }
 .loading p { font: 11px/1.8 var(--mono); }
@@ -170,8 +162,6 @@ summary { cursor: pointer; color: var(--text); font-size: 12px; padding: 12px 0;
   .grid { grid-template-columns: 1fr; }
   .page-title { align-items: flex-start; }
   .page-title > button { max-width: 140px; }
-  .login { gap: 45px; padding: 50px 35px; }
-  .login-card { padding: 28px; }
 }
 @media(max-width: 700px) {
   .layout { grid-template-columns: 1fr; }
@@ -182,7 +172,6 @@ summary { cursor: pointer; color: var(--text); font-size: 12px; padding: 12px 0;
   .nav { display: flex; overflow: auto; gap: 5px; padding-bottom: 4px; }
   .nav button { white-space: nowrap; padding: 10px 12px; font-size: 11px; border-left: 0; border-bottom: 2px solid transparent; }
   .nav button.active { border-bottom-color: var(--accent); }
-  .nav-icon { display: none; }
   .topbar { min-height: 60px; padding: 14px 18px; gap: 10px; }
   .top-actions { gap: 8px; font-size: 9px; }
   .top-actions > .pill { display: none; }
@@ -201,11 +190,6 @@ summary { cursor: pointer; color: var(--text); font-size: 12px; padding: 12px 0;
   .service-copy { flex-basis: calc(100% - 60px); }
   .service-row > button, .service-row > a { margin-left: 50px; }
   #toast { left: 18px; right: 18px; bottom: 18px; }
-  .login { grid-template-columns: 1fr; gap: 30px; padding: 35px 22px 45px; }
-  .login .brand { margin-bottom: 35px; }
-  .login-story h1 { font-size: 45px; letter-spacing: -2.4px; }
-  .login-story > p:not(.eyebrow), .login-boundary, .login-story .text-link { display: none; }
-  .login-card { width: 100%; padding: 26px; }
   .offline-guide .guide-bar { align-items: flex-start; flex-direction: column; }
 }
 @media(prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
