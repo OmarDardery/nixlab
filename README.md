@@ -67,6 +67,17 @@ the [commissioning guide](docs/commissioning.md) separates these from manual tri
 The [release qualification matrix](docs/qualification.md) lists the current evidence
 boundary. Missing, stale or simulated evidence cannot qualify a physical target.
 
+Update an existing NixLab host with one command:
+
+```sh
+nix run --refresh github:OmarDardery/nixlab#update
+```
+
+It requests sudo, pins main to an exact revision, builds the update and asks before
+activation and access confirmation. Re-run it after a disconnect to resume. It
+retains machine configuration and uses the existing rollback guard; it never
+reboots automatically. Keep independent backups before updating.
+
 ## Selected stack
 
 | Layer | Choice | Why |

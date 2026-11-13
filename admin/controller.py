@@ -127,6 +127,7 @@ class Manager:
         return data
 
     def spawn(self, phase, job_id):
+        rt.pin_worker_runtime(self.job_path(job_id))
         args = ['systemd-run', '--quiet', '--collect', '--no-block', '--unit=nixlab-' + phase + '-' + job_id,
                 '--property=RuntimeMaxSec=10800', '--setenv=NIXLAB_ROOT=' + str(self.root),
                 '--setenv=NIXLAB_STATE=' + str(self.state), '--setenv=PATH=' + os.environ['PATH'],

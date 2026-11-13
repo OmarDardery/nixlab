@@ -14,7 +14,7 @@ const groups = vm.runInContext('commandGroups()', context);
 const items = groups.flatMap(group => group.items);
 assert.ok(!/klipper|aiostreams/i.test(JSON.stringify(items)), 'Cheatsheet must not hardcode example applications');
 assert.equal(new Set(items.map(item => item[0])).size, items.length, 'Every copy target needs a unique ID');
-assert.ok(items.some(item => item[4].includes('run --refresh github:OmarDardery/nixlab#install')));
+assert.ok(items.some(item => item[0] === 'platform-update' && item[4] === 'nix run --refresh github:OmarDardery/nixlab#update'));
 assert.ok(items.some(item => item[4] === 'sudo nixlab-admin config review --update-inputs'));
 assert.ok(items.some(item => item[4] === 'sudo nixlab-helpers run debian --project lab'));
 assert.ok(items.some(item => item[4] === 'sudo homelab exec apps -- docker compose ls'));

@@ -89,6 +89,26 @@ it does not publish management dashboards or route the guest network.
 
 ## Reviewed upgrades
 
+For an existing NixLab server, run this in its interactive terminal:
+
+```sh
+nix run --refresh github:OmarDardery/nixlab#update
+```
+
+The command requests sudo itself, resolves main once to a full commit SHA and
+builds through the existing transaction engine. It displays the build/impact
+review and asks before activation. After health checks, open another SSH
+connection and check the portal/workloads, then answer the confirmation prompt
+before its deadline. No transaction IDs need copying. Rejection or failed health
+starts rollback; interruption leaves the existing rollback guard active. Run the
+same command to resume its own unfinished update at its original pinned revision.
+Unrelated configuration jobs and unfinished recovery block a new update. An
+already-current source is a no-op. This does not automatically reboot or deploy
+guest OS updates; retain independent backups and schedule any kernel reboot.
+
+`--refresh` refreshes Nix's cached launcher. The updater independently resolves
+main, so the candidate stays fixed even if main advances while it builds.
+
 The Review page accepts a full upstream Git commit SHA. Reauthenticate and acknowledge
 its privileged code, then build. The worker fetches exactly that commit from the
 Nixlab repository in isolation, preserves machine settings/modules/hardware, records

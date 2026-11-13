@@ -33,6 +33,26 @@ ENV_KEYS = {'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', '
             'RESTIC_REST_USERNAME', 'RESTIC_REST_PASSWORD'}
 
 
+def pin_worker_runtime(directory):
+    """Keep bootstrap worker code alive after its nix-run launcher disconnects.
+
+    The root belongs to the existing job directory, so normal job retention also
+    releases it. Installed admin runtimes use this same harmless lifetime bound.
+    """
+    launcher = os.environ.get('NIXLAB_WORKER_RUNTIME')
+    if launcher and Path(launcher).parent != Path('/nix/store'):
+        raise ValueError('Worker runtime must be a Nix store output')
+    # A launcher closure also retains its PATH dependencies, not only Python
+    # source files. Older installed wrappers fall back to their source output.
+    paths = (Path(launcher),) if launcher else (SOURCE, *SOURCE.parents)
+    for path in paths:
+        if path.parent == Path('/nix/store'):
+            subprocess.run(['nix-store', '--add-root', str(directory / 'worker-runtime'),
+                            '--indirect', '--realise', str(path)],
+                           capture_output=True, check=True, timeout=30)
+            break
+
+
 def atomic(path, data, mode=0o600, group=None):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

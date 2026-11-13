@@ -28,6 +28,8 @@ jobs:
         run: |
           python3 -m compileall -q admin scripts tests helpers installer
           python3 -m unittest discover -s tests -v
+      - name: Build and verify one-command update entrypoint
+        run: nix run .#update -- --help
       - name: Validate UI JavaScript
         run: |
           node --check admin/static/app.js
