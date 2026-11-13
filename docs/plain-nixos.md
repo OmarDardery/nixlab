@@ -57,6 +57,9 @@ separate identities. Enroll the Incus browser certificate through the portal.
 
 ## Retry and source updates
 
+For a completed installation, use `nix run --refresh github:OmarDardery/nixlab#update`
+for the [guarded, one-command update](operations.md#reviewed-upgrades).
+
 Rerun the same command after failure or disconnection. `--resume` remains an
 accepted compatibility flag, but is no longer needed. An active build or
 activation is reattached; it is not duplicated. A completed, unchanged

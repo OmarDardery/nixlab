@@ -125,6 +125,7 @@
         apps-image = apps.config.system.build.qemuImage;
       };
       apps.x86_64-linux.install = { type = "app"; program = "${self.packages.x86_64-linux.installer}/bin/nixlab-install"; };
+      apps.x86_64-linux.update = { type = "app"; program = "${self.packages.x86_64-linux.installer}/bin/nixlab-update"; };
       nixlabMigrationChecks = import ./tests/settings-checks.nix { lib = nixpkgs.lib; };
       nixlabManagementChecks = let
         c = self.nixosConfigurations.validation-management.config;

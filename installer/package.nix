@@ -20,6 +20,7 @@ let
   chmod -R u+w $out/admin
   cp ${../scripts/preflight.py} $out/admin/preflight.py
   cp ${../scripts/backup.py} $out/admin/backup.py
+  cp ${../scripts/backup_plan.py} $out/admin/backup_plan.py
   cp ${../scripts/locking.py} $out/admin/locking.py
   cp ${../scripts/foundation.py} $out/admin/foundation.py
   cp ${../scripts/incus_client.py} $out/admin/incus_client.py
@@ -29,9 +30,24 @@ let
   cp ${../scripts/guest_deploy.py} $out/admin/guest_deploy.py
   cp ${pkgs.writeText "nixlab-default-settings.json" (builtins.toJSON (import ../site-defaults.nix))} $out/admin/default-settings.json
 '';
-in pkgs.writeShellApplication {
-  name = "nixlab-install";
   runtimeInputs = with pkgs; [ python3 git openssl openssh shadow nix nixos-rebuild iproute2 util-linux kmod coreutils systemd networkmanager incus-lts.client ];
+  install = pkgs.writeShellApplication {
+  name = "nixlab-install";
+  inherit runtimeInputs;
   text = ''exec python3 ${source}/installer/install.py --checkout ${platform} "$@"'';
+  };
+  update = pkgs.writeShellApplication {
+    name = "nixlab-update";
+    inherit runtimeInputs;
+    text = ''
+      if [[ "''${1:-}" != --help && "''${1:-}" != -h && "$(id -u)" != 0 ]]; then
+        exec /run/wrappers/bin/sudo -- "$0" "$@"
+      fi
+      exec python3 ${source}/installer/update.py "$@"
+    '';
+  };
+in pkgs.symlinkJoin {
+  name = "nixlab-installer";
+  paths = [ install update ];
 }
 
