@@ -1,5 +1,15 @@
 # Administration
 
+## Native service sessions
+
+NixLab, Incus, Cockpit and Portainer authenticate separately. The optional Portainer
+TLS proxy uses the upstream [Nginx njs module](https://nginx.org/en/docs/njs/) to
+remove `nixlab_session` from requests to the guest and from guest responses.
+Browsers share cookies across ports, so the proxy must enforce this boundary.
+Portainer's own cookies, cookie security attributes and JWT headers are preserved.
+This module runs inside Nginx; it adds no background service. A custom replacement
+proxy must preserve the same isolation.
+
 ## Commands, docs and community resources
 
 Open **Commands & docs** in the Nixlab host console for copyable platform updates,

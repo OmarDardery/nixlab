@@ -38,6 +38,11 @@ in {
     ];
     services.nginx = {
       enable = true;
+      additionalModules = [ pkgs.nginxModules.njs ];
+      commonHttpConfig = ''
+        js_import nixlab_cookies from ${./portainer-cookies.js};
+        js_set $nixlab_portainer_cookies nixlab_cookies.requestCookies;
+      '';
       # One proxy worker is enough for a private management dashboard.
       appendConfig = "worker_processes 1;";
       eventsConfig = "worker_connections 256;";
@@ -61,6 +66,8 @@ in {
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_set_header X-Forwarded-Port $server_port;
             proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header Cookie $nixlab_portainer_cookies;
+            js_header_filter nixlab_cookies.responseCookies;
             proxy_ssl_verify on;
             proxy_ssl_server_name on;
             proxy_ssl_name apps.internal;

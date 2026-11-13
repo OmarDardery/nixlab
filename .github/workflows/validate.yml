@@ -43,6 +43,7 @@ jobs:
           node tests/test_operations_ui.js
           node tests/test_foundation_ui.js
           node tests/test_deployments_ui.js
+          node tests/test_proxy_cookies.js
       - name: Browser workflow checks
         run: |
           python3 -m venv "$RUNNER_TEMP/nixlab-browser"
@@ -50,7 +51,7 @@ jobs:
           "$RUNNER_TEMP/nixlab-browser/bin/python" -m playwright install --with-deps chromium
           "$RUNNER_TEMP/nixlab-browser/bin/python" tests/browser_foundation.py
       - name: Parse all Nix files
-        run: find . -name '*.nix' -exec nix-instantiate --parse '{}' ';' >/dev/null
+        run: find . -name '*.nix' -print0 | xargs -0 -r -n1 nix-instantiate --parse >/dev/null
       - name: Verify NixOS guest rollout, health rollback and interrupted transfer recovery
         run: nix build .#checks.x86_64-linux.guest-deployments --no-link -L
       - name: Evaluate direct conversion from an installed NixOS configuration

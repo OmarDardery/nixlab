@@ -12,14 +12,24 @@ let
     guests = defaults.guests // { appsAddress = "127.0.0.2"; cidr = "10.77.0.0/24"; };
   };
   fixture = pkgs.writeText "management-backend.py" ''
-    import http.server, ssl
+    import http.server, ssl, json
     from pathlib import Path
     import runtime as rt
     import sys
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             self.send_response(204 if self.path == '/api/users/admin/check' else 200)
+            if self.path == '/cookie-probe':
+                self.send_header('Set-Cookie', 'nixlab_session=guest-value; Path=/; Secure; HttpOnly')
+                self.send_header('Set-Cookie', 'portainer_auth=native-auth; Path=/; Secure; HttpOnly; SameSite=Strict')
             self.end_headers()
+            if self.path == '/cookie-probe':
+                self.wfile.write(json.dumps({
+                    'portalLeaked': 'nixlab_session=' in self.headers.get('Cookie', ""),
+                    'nativeCookie': 'portainer_auth=native-auth' in self.headers.get('Cookie', ""),
+                    'bearerPreserved': self.headers.get('Authorization') == 'Bearer test-native-jwt',
+                }).encode())
+                return
             if self.path != '/api/users/admin/check': self.wfile.write(b'{"fixture":"NIXLAB_PROXY_READY"}')
         def log_message(self, *args): pass
     port = int(sys.argv[1])
@@ -119,6 +129,11 @@ in pkgs.testers.runNixOSTest {
         address = next(a["local"] for link in addresses for a in link["addr_info"] if a["scope"] == "global")
         assert address == "192.0.2.20", address
         machine.wait_until_succeeds(f"curl --fail --silent --show-error --max-time 5 --cacert /var/lib/nixlab-admin/ca.crt https://{address}:19443/api/status | grep NIXLAB_PROXY_READY", timeout=90)
+        probe = json.loads(machine.succeed(f"curl --fail --silent --show-error --max-time 5 --cacert /var/lib/nixlab-admin/ca.crt -D /tmp/cookie-headers -H 'Cookie: nixlab_session=host-secret; portainer_auth=native-auth; nixlab_session=second-secret' -H 'Authorization: Bearer test-native-jwt' https://{address}:19443/cookie-probe"))
+        assert probe == {"portalLeaked": False, "nativeCookie": True, "bearerPreserved": True}, probe
+        headers = machine.succeed("cat /tmp/cookie-headers").lower()
+        assert "nixlab_session=" not in headers, headers
+        assert "set-cookie: portainer_auth=native-auth; path=/; secure; httponly; samesite=strict" in headers, headers
         lan.wait_until_succeeds(f"curl --fail --silent --show-error --max-time 5 --insecure https://{address}:9090/ping", timeout=90)
         machine.succeed(f"python3 /etc/nixlab-test-cockpit.py https://{address}:9090")
         lan.succeed(f"sshpass -p vm-cockpit-password ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=password operator@{address} 'test $(id -un) = operator'")
