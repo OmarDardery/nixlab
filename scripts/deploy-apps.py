@@ -17,8 +17,11 @@ def main(closure):
         transport.retain('apps-onboarding', current['profile'], closure)
         try:
             transport.activate(closure)
-        except DeploymentError:
-            transport.activate(current['profile'])
+        except DeploymentError as original:
+            try:
+                transport.activate(current['profile'])
+            except DeploymentError as recovery:
+                raise DeploymentError(f'Applications VM activation failed: {original}; rollback also failed: {recovery}') from None
             raise
 
 

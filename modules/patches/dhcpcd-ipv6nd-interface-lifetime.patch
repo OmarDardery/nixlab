@@ -1,0 +1,87 @@
+From 0c1f40749f1d1dad280988ccbe53ac4ba6f1d6c4 Mon Sep 17 00:00:00 2001
+From: O_WRONLY <67067346+Hojun-Cho@users.noreply.github.com>
+Date: Thu, 13 Aug 2026 05:21:40 +0900
+Subject: [PATCH] ipv6nd: don't leave a carrier expiry timeout on a freed
+ interface
+
+ipv6nd_startexpire() adds a RTR_CARRIER_EXPIRE timeout with ifp as the
+argument even when the interface has no RAs, and nothing cancels it when
+the interface goes away. If the interface departs within those 17
+seconds, ipv6nd_expire() reads ifp->ctx->ra_routers after if_free().
+
+Only add the timeout when there is a router to expire, and cancel it in
+ipv6nd_drop() and ipv6nd_free().
+
+This drops the cancel 2a3fb4ef added to ipv6nd_removefreedrop_ra(),
+which is not reached when the interface never had an RA, and cancelled
+the whole interface's expiry when a single RA was freed.
+
+Fixes #614
+Helps #566
+Refs #584
+---
+ src/ipv6nd.c | 20 +++++++++++++++++---
+ 1 file changed, 17 insertions(+), 3 deletions(-)
+
+diff --git a/src/ipv6nd.c b/src/ipv6nd.c
+index a2693913b..3df731d11 100644
+--- a/src/ipv6nd.c
++++ b/src/ipv6nd.c
+@@ -454,17 +454,31 @@ ipv6nd_expire(void *arg)
+ 	ipv6nd_expirera(ifp);
+ }
+ 
++static void
++ipv6nd_cancelexpire(struct interface *ifp)
++{
++	eloop_q_timeout_delete(ifp->ctx->eloop, ELOOP_IPV6RA_EXPIRE,
++	    ipv6nd_expire, ifp);
++}
++
+ void
+ ipv6nd_startexpire(struct interface *ifp)
+ {
+ 	struct ra *rap;
++	bool found = false;
+ 
+ 	if (ifp->ctx->ra_routers == NULL)
+ 		return;
+ 
+ 	TAILQ_FOREACH(rap, ifp->ctx->ra_routers, next) {
+-		if (rap->iface == ifp)
++		if (rap->iface == ifp) {
+ 			rap->willexpire = true;
++			found = true;
++		}
++	}
++	if (!found) {
++		ipv6nd_cancelexpire(ifp);
++		return;
+ 	}
+ 	eloop_q_timeout_add_sec(ifp->ctx->eloop, ELOOP_IPV6RA_EXPIRE,
+ 	    RTR_CARRIER_EXPIRE, ipv6nd_expire, ifp);
+@@ -681,8 +695,6 @@ ipv6nd_removefreedrop_ra(struct ra *rap, int remove_ra, int drop_ra)
+ {
+ 	struct dhcpcd_ctx *ctx = rap->iface->ctx;
+ 
+-	eloop_q_timeout_delete(ctx->eloop, ELOOP_IPV6RA_EXPIRE, NULL,
+-	    rap->iface);
+ 	eloop_timeout_delete(ctx->eloop, NULL, rap->iface);
+ 	eloop_timeout_delete(ctx->eloop, NULL, rap);
+ 	if (remove_ra)
+@@ -712,6 +724,7 @@ ipv6nd_free(struct interface *ifp)
+ 		return 0;
+ 
+ 	ctx = ifp->ctx;
++	ipv6nd_cancelexpire(ifp);
+ #ifdef __sun
+ 	eloop_event_delete(ctx->eloop, state->nd_fd);
+ 	close(state->nd_fd);
+@@ -1935,6 +1948,7 @@ ipv6nd_drop(struct interface *ifp)
+ 	struct ra *rap, *ran;
+ 	bool expired = false;
+ 
++	ipv6nd_cancelexpire(ifp);
+ 	if (ifp->ctx->ra_routers == NULL)
+ 		return;
+ 

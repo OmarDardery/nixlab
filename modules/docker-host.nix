@@ -22,6 +22,15 @@ let
     text = ''PYTHONPATH=${../scripts} exec python3 ${../scripts/project.py} "$@"'';
   };
 in {
+  # Guest-only backport: an IPv6 expiry timer can outlive a removed interface
+  # (upstream #614). Remove when pinned dhcpcd contains commit 0c1f40749f1d.
+  nixpkgs.overlays = [ (_: previous: {
+    dhcpcd = previous.dhcpcd.overrideAttrs (old: {
+      patches = (old.patches or [ ]) ++ [ ./patches/dhcpcd-ipv6nd-interface-lifetime.patch ];
+    });
+  }) ];
+  # Docker owns these bridges and peer links; guest DHCP owns the uplink.
+  networking.dhcpcd.denyInterfaces = [ "docker*" "br-*" "veth*" ];
   virtualisation.docker = {
     enable = true;
     autoPrune.enable = false;

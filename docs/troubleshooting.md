@@ -1,5 +1,19 @@
 # Troubleshooting
 
+## Apps VM DHCP crashes during an update
+
+A core dump in `dhcpcd`'s `ipv6nd_expire` can match the upstream
+[interface-removal timer bug](https://github.com/NetworkConfiguration/dhcpcd/issues/614).
+The apps guest carries the [upstream fix](https://github.com/NetworkConfiguration/dhcpcd/commit/0c1f40749f1d1dad280988ccbe53ac4ba6f1d6c4)
+while the pinned package lacks it. Docker bridge/veth interfaces are also excluded
+from guest DHCP; the uplink retains DHCP and IPv6. Host networking is unaffected.
+
+The vendored patch is in `modules/patches/`; remove it when the pinned package
+includes that exact fix and the DHCP/Docker interface-churn test still passes.
+This source fix does not establish successful recovery of an already failed
+guest update. Inspect guest service logs and verify the guarded update, lease,
+Portainer and persistent data on the actual host before recording qualification.
+
 Start with the symptom. Keep the original error. Resist the traditional homelab
 ritual of changing six things and discovering none of them was the problem.
 
@@ -182,6 +196,19 @@ For Portainer, check the apps VM and its agent:
 sudo incus list --all-projects
 sudo homelab exec apps -- systemctl --failed
 ```
+
+If `nixlab-apps-onboarding` reports a guest activation failure, inspect the guest
+as well as the host. The transport reports the numeric exit status without
+copying guest output, which may contain sensitive data, into host/API errors:
+
+```sh
+sudo incus exec apps --project lab -- journalctl -b -p err -n 50 --no-pager -o cat
+```
+
+A matching active/profile generation alone does not prove service health. Check
+the native service failures and NixLab doctor results before retrying an update.
+An explicitly reported guest rollback failure also requires investigation;
+host rollback does not establish that guest recovery succeeded.
 
 Also check the client is on a trusted management subnet, the current host address
 and any customized ports. Management interfaces are private; this documentation
