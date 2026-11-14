@@ -115,6 +115,7 @@ class WorkflowTests(unittest.TestCase):
         settings = management_settings(); settings['management']['configure'] = False
         self.manager.effective_settings.return_value = settings
         self.manager.status.return_value = {'setupComplete': True}
+        self.stack.enter_context(patch.object(repair.shutil, 'which', side_effect=lambda name: '/usr/bin/' + name))
         self.stack.enter_context(patch.object(repair, 'DROPIN', self.folder / 'runtime.conf'))
         database = self.folder / 'local.db'; database.write_bytes(b'initialized fixture')
         self.stack.enter_context(patch.object(repair, 'DATABASE', database))

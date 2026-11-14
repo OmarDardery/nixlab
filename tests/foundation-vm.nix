@@ -52,7 +52,7 @@ in pkgs.testers.runNixOSTest {
     services.openssh = { enable = true; openFirewall = false; };
     # This fixture exercises real containers; it makes no KVM/VM-guest claim.
     systemd.services.nixlab-kvm-check = { serviceConfig.Type = "oneshot"; script = "true"; };
-    environment.systemPackages = [ pkgs.python3 pkgs.incus-lts.client pkgs.util-linux pkgs.networkmanager ];
+    environment.systemPackages = [ pkgs.python3 pkgs.incus-lts.client pkgs.util-linux pkgs.networkmanager pkgs.openssl ];
     # Only this isolated Ethernet fixture belongs to NetworkManager.
     networking.networkmanager = {
       enable = true;

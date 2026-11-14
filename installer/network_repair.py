@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import uuid
@@ -117,7 +118,14 @@ def check_profiles(selected, observed):
 
 def dropin(settings_path):
     # systemd command quoting: only immutable source/Python and a fixed state path.
-    arguments = [sys.executable, str(Path(__file__).resolve()), '--identity', str(settings_path)]
+    tools = {name: shutil.which(name) for name in ('env', 'ip', 'openssl')}
+    if not all(tools.values()):
+        raise ValueError('Recovery runtime needs env, ip and openssl')
+    # The native unit has a narrower PATH than the nix-run wrapper. Carry only
+    # its required, resolved tool directories into this one command.
+    tool_path = ':'.join(str(Path(tools[name]).resolve().parent) for name in ('ip', 'openssl'))
+    arguments = [tools['env'], 'PATH=' + tool_path, sys.executable,
+                 str(Path(__file__).resolve()), '--identity', str(settings_path)]
     if any('%' in value or '\n' in value for value in arguments):
         raise ValueError('Unsupported recovery runtime path')
     return '[Service]\nExecStart=\nExecStart=' + ' '.join(json.dumps(value) for value in arguments) + '\n'
