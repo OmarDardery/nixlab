@@ -18,11 +18,11 @@ let
   });
   fetch = pkgs.writeShellApplication {
     name = "nixlab-fetch";
-    runtimeInputs = [ pkgs.fastfetch ];
+    runtimeInputs = [ pkgs.fastfetch.minimal ];
     text = ''exec fastfetch --config ${fetchConfig} "$@"'';
   };
 in {
-  environment.systemPackages = [ status fetch pkgs.fastfetch ];
+  environment.systemPackages = [ status fetch (lib.lowPrio pkgs.fastfetch.minimal) ];
   environment.etc."xdg/fastfetch/config.jsonc".source = fetchConfig;
   programs.bash.completion.enable = lib.mkDefault true;
   programs.bash.blesh.enable = lib.mkDefault true;

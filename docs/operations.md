@@ -15,7 +15,8 @@ The prompt always identifies the user and host, highlights root, and shows Git/N
 context without remote lookups. Existing account shells and personal shell files
 are preserved; native NixOS program options remain overridable.
 
-Interactive login runs `nixlab-fetch`: Fastfetch hardware/resource information plus
+Interactive login runs `nixlab-fetch`, using upstream's minimal Fastfetch build
+without desktop/audio/image integrations. It shows hardware/resource information plus
 NixLab's observed management address and enabled service URLs, service states,
 backup-service result and test-activation/kernel notices. `nixlab-status` prints
 only the operational summary. These are bounded local observations, not endpoint
