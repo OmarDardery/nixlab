@@ -6,6 +6,7 @@ let
     ../scripts/backup.py
     ../scripts/backup_plan.py
     ../scripts/reconcile.py
+    ../scripts/recovery_guard.py
     ../scripts/infrastructure.py
     ../scripts/guest_deploy.py
     ../scripts/locking.py

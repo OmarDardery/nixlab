@@ -231,6 +231,8 @@ class Operations:
         return {'id': job_id}
 
     def perform(self, job):
+        from recovery_guard import require_normal
+        require_normal()
         action, project, guest = job['action'], name(job['project']), name(job['name'])
         if action in ('backup', 'backup-check'):
             unit = 'restic-backups-nixlab.service' if action == 'backup' else 'nixlab-backup-check.service'
