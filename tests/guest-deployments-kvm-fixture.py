@@ -1,4 +1,5 @@
 """Disposable real apps/Portainer test; never prints passwords, JWTs or bodies."""
+import copy
 import json
 from pathlib import Path
 import secrets
@@ -37,8 +38,13 @@ def authenticated():
     while True:
         try:
             with urllib.request.urlopen(request, context=context, timeout=5) as response:
-                assert response.status == 200 and json.load(response).get('jwt')
-            return
+                assert response.status == 200
+                token = json.load(response)['jwt']
+            request_user = urllib.request.Request('https://10.77.0.10:9443/api/users',
+                headers={'Authorization': 'Bearer ' + token})
+            with urllib.request.urlopen(request_user, context=context, timeout=5) as response:
+                users = json.load(response)
+                return next(user['Id'] for user in users if user['Username'] == 'admin')
         except urllib.error.HTTPError as exc:
             failure = 'HTTP ' + str(exc.code)
         except urllib.error.URLError as exc:
@@ -66,7 +72,7 @@ def authenticated():
         time.sleep(2)
 
 
-authenticated()
+portainer_user = authenticated()
 # Preserve safe switch diagnostics from this disposable guest. Production errors
 # intentionally omit command output; this fixture contains only generated secrets.
 original_execute = Transport.execute
@@ -87,43 +93,72 @@ def observed_execute(self, *args, **kwargs):
 
 Transport.execute = observed_execute
 
-# The hosted test contains two nested hypervisors and a software-backed Incus
-# guest disk. Its closure import is significantly slower than on a real host.
-# Keep the production 600 s bound; extend only the disposable test fixture.
-original_transfer = Transport.transfer
-
-def hosted_transfer(self, *roots, **kwargs):
-    print('KVM_STAGE: transfer starting for ' + self.name, flush=True)
-    kwargs.setdefault('timeout', 1200)
-    result = original_transfer(self, *roots, **kwargs)
-    print('KVM_STAGE: transfer complete for ' + self.name, flush=True)
-    return result
-
-Transport.transfer = hosted_transfer
+# Exercise the production transfer deadline on the dedicated physical runner.
 manifest = rt.read_json(Path('/etc/nixlab-test-deployments.json'))
-identities = {}
-for name in ('apps', 'worker'):
-    transport = Transport('lab', name); identities[name] = transport.inspect()['uuid']
+state = rt.STATE
+manager = d.Deployments(state / 'source', state)
+manager.spawn = lambda _: None
+identities = {name: Transport('lab', name).inspect() for name in ('apps', 'worker')}
+for name in identities:
+    transport = Transport('lab', name)
     transport.execute('mkdir', '-p', '/var/lib/nixlab')
-    transport.execute('touch', '/var/lib/nixlab/preserved-data')
-job_id = 'd' * 32
-state = rt.STATE; directory = state / 'jobs' / job_id; directory.mkdir(parents=True)
-source = directory / 'source'; source.mkdir(); rt.write_json(source / '.nixlab-files.json', [])
-(directory / 'system').symlink_to('/run/current-system')
-rt.write_json(directory / 'job.json', {'id': job_id, 'status': 'confirmed', 'baseDigest': 'fixture', 'candidateDigest': rt.digest_source(source)})
-rt.write_json(state / 'active.json', {'id': job_id})
-d.prepare(directory, manifest)
-manager = d.Deployments(state / 'source', state); manager.spawn = lambda _: None
-print('KVM_STAGE: guest inventory and Portainer authentication ready', flush=True)
-manager.submit(job_id)
-print('KVM_STAGE: deployment submitted; beginning live closure transfer and activation', flush=True)
-report = manager.run(job_id)
-print('KVM_STAGE: deployment completed with status ' + report['status'], flush=True)
+    transport.execute('sh', '-eu', '-c', 'printf "%s\n" original-data > /var/lib/nixlab/preserved-data')
+apps.execute('docker', 'volume', 'create', 'nixlab-persistence-test')
+volume = apps.execute('docker', 'volume', 'inspect', '--format', '{{.Mountpoint}}', 'nixlab-persistence-test').stdout.strip()
+assert volume.startswith('/var/lib/docker/volumes/') and volume.endswith('/_data')
+apps.execute('sh', '-eu', '-c', 'printf "%s\n" docker-volume-data > "$1/record"', 'fixture', volume)
+
+
+def preserved(expected):
+    for name, identity in identities.items():
+        transport = Transport('lab', name)
+        current = transport.inspect()
+        assert current['uuid'] == identity['uuid'] and current['fingerprint'] == identity['fingerprint']
+        assert current['active'] == expected[name]
+        assert transport.execute('cat', '/var/lib/nixlab/preserved-data').stdout.strip() == 'original-data'
+    assert apps.execute('cat', volume + '/record').stdout.strip() == 'docker-volume-data'
+    assert authenticated() == portainer_user
+
+
+def deploy(job_id, targets):
+    directory = state / 'jobs' / job_id
+    directory.mkdir(parents=True)
+    source = directory / 'source'; source.mkdir(); rt.write_json(source / '.nixlab-files.json', [])
+    (directory / 'system').symlink_to('/run/current-system')
+    rt.write_json(directory / 'job.json', {'id': job_id, 'status': 'confirmed', 'baseDigest': 'fixture', 'candidateDigest': rt.digest_source(source)})
+    rt.write_json(state / 'active.json', {'id': job_id})
+    d.prepare(directory, targets)
+    manager.submit(job_id)
+    return manager.run(job_id)
+
+
+failed = copy.deepcopy(manifest)
+failed['apps'].update(rt.read_json(Path('/etc/nixlab-test-failed-deployment.json')))
+failed['apps']['healthTimeout'] = 1
+report = deploy('c' * 32, failed)
+assert report['status'] == 'partial', report
+assert report['targets']['apps']['phase'] == 'rolled-back', report
+assert report['targets']['worker']['phase'] == 'blocked', report
+preserved({name: identity['active'] for name, identity in identities.items()})
+manager.abandon('c' * 32)
+print('KVM_STAGE: real apps OS health failure rolled back; dependent guest blocked; data and authentication preserved', flush=True)
+report = deploy('d' * 32, manifest)
 assert report['status'] == 'healthy', report
-for name in ('apps', 'worker'):
-    transport = Transport('lab', name); current = transport.inspect()
-    assert current['uuid'] == identities[name] and current['active'] == manifest[name]['system']
-    transport.execute('test', '-e', '/var/lib/nixlab/preserved-data')
-    assert transport.execute('cat', '/etc/nixlab-deploy-version').stdout.strip() == 'v2'
-authenticated()
-print('Real apps VM and second NixOS guest updated in place; Portainer authentication and persistent data survived.')
+preserved({name: spec['system'] for name, spec in manifest.items()})
+for name in identities:
+    assert Transport('lab', name).execute('cat', '/etc/nixlab-deploy-version').stdout.strip() == 'v2'
+
+previous_boot = apps.execute('cat', '/proc/sys/kernel/random/boot_id').stdout.strip()
+apps.reboot()
+deadline = time.monotonic() + 120
+while True:
+    try:
+        assert apps.execute('cat', '/proc/sys/kernel/random/boot_id', timeout=10).stdout.strip() != previous_boot
+        apps.execute('systemctl', 'is-active', 'docker-portainer.service', timeout=10)
+        break
+    except (DeploymentError, AssertionError):
+        if time.monotonic() >= deadline:
+            raise AssertionError('Apps VM did not recover after deliberate reboot') from None
+        time.sleep(2)
+preserved({name: spec['system'] for name, spec in manifest.items()})
+print('Real apps VM update, failed-update recovery and reboot verified; UUIDs, disk topology, Docker volume records and Portainer identity preserved.')

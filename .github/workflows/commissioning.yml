@@ -3,16 +3,28 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: nixlab-kvm-qualification
+  cancel-in-progress: false
 jobs:
   nested-apps:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, nixlab-kvm]
+    environment: nixlab-qualification
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
       - name: Require usable nested virtualization
         run: |
+          test "$(systemd-detect-virt)" = none
           test -c /dev/kvm
+          mkdir -p qualification-artifacts
+          printf '%s\n' "$GITHUB_SHA" > qualification-artifacts/source-revision.txt
+          printf '%s-%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > qualification-artifacts/run-attempt.txt
+          uname -r > qualification-artifacts/runner-kernel.txt
+          sed -n 's/^model name[[:space:]]*:[[:space:]]*//p' /proc/cpuinfo | head -n 1 > qualification-artifacts/runner-cpu.txt
           python3 - <<'PY'
           import os, fcntl
           fd = os.open('/dev/kvm', os.O_RDWR)
@@ -68,6 +80,7 @@ jobs:
               portainerImage = builtins.getEnv "NIXLAB_TEST_IMAGE_DIGEST";
               cpuVendor = builtins.getEnv "NIXLAB_TEST_CPU_VENDOR";
               revision = builtins.getEnv "NIXLAB_TEST_REVISION";
+              trial = "${builtins.getEnv "GITHUB_RUN_ID"}-${builtins.getEnv "GITHUB_RUN_ATTEMPT"}";
             }' -o result-commissioning -L
           find -L result-commissioning -name nested-apps.json -exec cp '{}' qualification-artifacts/ ';'
           test -s qualification-artifacts/nested-apps.json

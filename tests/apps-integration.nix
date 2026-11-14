@@ -1,6 +1,6 @@
 # Optional, expensive qualification test. The OCI archive is fetched/resolved by
 # the workflow before building, so the nested VM itself requires no registry.
-{ pkgs, apps, sopsModule, portainerArchive, portainerImage, cpuVendor, revision }:
+{ pkgs, apps, sopsModule, portainerArchive, portainerImage, cpuVendor, revision, trial ? "manual" }:
 let
   base = import ./site.nix;
   site = base // {
@@ -22,7 +22,9 @@ let
     disk = "${guest.config.system.build.qemuImage}/nixos.qcow2";
   };
 in pkgs.testers.runNixOSTest {
-  name = "nixlab-real-apps-commissioning";
+  # Give each qualification attempt fresh disks and execution while retaining
+  # cached guest closures. Reusing a successful test output is not a new drill.
+  name = "nixlab-real-apps-commissioning-${trial}";
   globalTimeout = 1800;
   node.specialArgs = {
     inventory = site; inherit appImage;
@@ -55,7 +57,7 @@ in pkgs.testers.runNixOSTest {
   };
   testScript = ''
     import json
-    host.start()
+    host.start(allow_reboot=True)
     host.wait_for_unit("nixlab-kvm-check.service")
     for boot in range(3):
         host.wait_for_unit("nixlab-instances.service", timeout=600)
