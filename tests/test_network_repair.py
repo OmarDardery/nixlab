@@ -175,6 +175,7 @@ class WorkflowTests(unittest.TestCase):
         self.stack.enter_context(patch.object(repair.rt, 'locked', return_value=contextlib.nullcontext()))
         self.stack.enter_context(patch.object(repair.rt, 'digest_source', return_value='source-digest'))
         self.stack.enter_context(patch.object(repair.rt, 'pin_worker_runtime'))
+        self.identity = self.stack.enter_context(patch.object(repair.diagnostics, 'identity'))
         self.observe = self.stack.enter_context(patch.object(repair, 'profiles', return_value=[BRIDGE, PORT]))
         self.plan = self.stack.enter_context(patch.object(repair, 'modules_for', return_value=({}, [])))
         self.commands = self.stack.enter_context(patch.object(repair, 'run', side_effect=lambda args, **kwargs:
@@ -213,12 +214,31 @@ class WorkflowTests(unittest.TestCase):
         ups = [command[-1] for command in commands if 'up' in command]
         self.assertEqual(ups, [BRIDGE['uuid'], PORT['uuid']])
         self.assertIn(['nmcli', '--wait', '0', 'connection', 'up', 'uuid', BRIDGE['uuid']], commands)
-        self.assertIn(['systemctl', 'restart', 'nixlab-management-identity.service'], commands)
+        self.assertIn(['systemctl', 'start', 'nixlab-management-identity.service'], commands)
+        self.assertEqual(self.identity.call_args.args[0]['management']['interface'], 'br0')
         self.assertEqual(commands[-1], ['systemctl', 'start', 'incus.service', 'incus-startup.service'])
         self.assertEqual(self.repair.record['phase'], 'reviewing')
         self.assertTrue(repair.DROPIN.is_file())
         self.assertFalse(any('nft' in command or 'preseed' in command or 'init' in command for command in commands))
         self.assertFalse(self.manager.review.called)
+
+    def test_active_guest_deployment_blocks_preflight_before_network_changes(self):
+        repair.rt.write_json(self.folder / 'deployment-active.json', {'id': 'active'})
+        with self.assertRaisesRegex(ValueError, 'active guest deployment'): self.prepare()
+        self.commands.assert_not_called()
+        self.assertFalse(repair.DROPIN.exists())
+
+    def test_resume_awaiting_confirmation_does_not_restart_identity_or_dependents(self):
+        self.prepare()
+        self.repair.reviewed({'id': 'a' * 32})
+        self.manager.status.return_value.update(
+            pending={'id': 'a' * 32}, job={'id': 'a' * 32, 'principal': 'root-update-command',
+                                         'status': 'awaiting-confirmation'})
+        self.commands.reset_mock()
+        again = repair.Repair(self.manager)
+        again.prepare(lambda _: self.fail('Already authorized'), self.choose)
+        self.assertFalse(any('restart' in call.args[0] for call in self.commands.call_args_list))
+        self.identity.assert_called()
 
     def test_connectivity_is_restored_before_nix_input_evaluation(self):
         def evaluate(root, selected):

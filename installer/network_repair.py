@@ -16,6 +16,7 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'admin'))
 import diagnostics
+from deployments import check_idle
 import runtime as rt
 import workflow
 
@@ -198,6 +199,7 @@ class Repair:
         if workflow.remote_session():
             raise ValueError('--repair-network requires the local host console')
         with rt.locked(blocking=False):
+            check_idle(self.manager.state)
             state = self.manager.status()
             record = rt.read_json(self.path, {})
             if not isinstance(record, dict):
@@ -269,7 +271,11 @@ class Repair:
             else:
                 raise ValueError('Another runtime identity override needs manual review')
             run(['systemctl', 'daemon-reload'])
-            run(['systemctl', 'restart', 'nixlab-management-identity.service'], timeout=150)
+            # Validate the selection even when the oneshot is already active.
+            # Starting it is idempotent; restarting it here would stop healthy
+            # dependents when resuming an update awaiting confirmation.
+            diagnostics.identity(settings)
+            run(['systemctl', 'start', 'nixlab-management-identity.service'], timeout=150)
             start_incus()
             self.save('reviewing')
             return self.record['interface']
