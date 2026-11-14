@@ -62,27 +62,31 @@ jobs:
           nix eval --impure --raw --expr '
             let flake = builtins.getFlake (builtins.getEnv "PWD");
                 pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; };
-            in (import ./tests/apps-integration.nix {
-              inherit pkgs;
+                fixture = trial: import ./tests/apps-integration.nix {
+              inherit pkgs trial;
               apps = flake.nixosConfigurations.validation-setup-apps;
               sopsModule = flake.inputs.sops-nix.nixosModules.sops;
               portainerArchive = pkgs.dockerTools.buildLayeredImage { name = "evaluation-only"; };
               portainerImage = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
               cpuVendor = "intel";
               revision = "0000000000000000000000000000000000000000";
-            }).drvPath'
+            };
+            in assert (fixture "evaluation-1").drvPath != (fixture "evaluation-2").drvPath;
+               (fixture "evaluation-1").drvPath'
       - name: Evaluate dedicated KVM deployment fixture (no integration claim)
         run: |
           nix eval --impure --raw --expr '
             let flake = builtins.getFlake (builtins.getEnv "PWD");
                 pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; };
-            in (import ./tests/guest-deployments-kvm.nix {
-              inherit pkgs;
+                fixture = trial: import ./tests/guest-deployments-kvm.nix {
+              inherit pkgs trial;
               apps = flake.nixosConfigurations.validation-setup-apps;
               portainerArchive = pkgs.dockerTools.buildLayeredImage { name = "evaluation-only"; };
               portainerImage = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
               cpuVendor = "intel";
-            }).drvPath'
+            };
+            in assert (fixture "evaluation-1").drvPath != (fixture "evaluation-2").drvPath;
+               (fixture "evaluation-1").drvPath'
       - name: Verify production firewall and DHCP management across reboot
         run: nix build .#checks.x86_64-linux.startup --no-link -L
       - name: Boot portal and verify real NixOS permissions

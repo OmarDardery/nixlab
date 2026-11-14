@@ -86,6 +86,12 @@ gh workflow run commissioning.yml --repo OmarDardery/nixlab --ref REVIEWED_BRANC
 ```
 
 Its report remains `nested-integration` and unqualified for physical installation.
+Each workflow run/attempt also changes the commissioning test derivation so a
+cached successful test cannot stand in for a new reboot drill. Standard CI
+evaluates both fixtures with two trial identifiers and requires different test
+derivations; this verifies cache separation, not guest execution. The commissioning
+artifact records the run/attempt, source revision and physical runner CPU/kernel
+even when a later image or boot phase fails.
 The two workflows share a concurrency group to avoid resource contention. Record
 tested Intel/AMD hardware separately: one successful CPU does not qualify another.
 Before beta publication, repeat both workflows on the resulting release revision
