@@ -7,6 +7,7 @@ regression tests; no Incus inventory responses are mocked here.
 import copy
 import json
 from pathlib import Path
+import re
 import subprocess
 from unittest.mock import patch
 
@@ -57,10 +58,18 @@ class Manager:
 
 manager = Manager()
 recovery = repair.Repair(manager)
+
+def firewall():
+    # Packet counters are observations, not policy changes.
+    return re.sub(r'counter packets \d+ bytes \d+', 'counter',
+                  command(['nft', 'list', 'table', 'inet', 'nixos-fw']))
+
+original_firewall = firewall()
 # Native saved profiles have no declarative Nix owner in this fixture.
 with patch.object(repair, 'modules_for', return_value=({}, [])):
     assert recovery.prepare(lambda _: True, management_change) == 'br-repair'
 assert command(['systemctl', 'is-active', 'incus.service']) == 'active'
+assert firewall() == original_firewall, 'Bootstrap changed the host firewall policy'
 assert command(['incus', 'config', 'get', 'native', 'volatile.uuid', '--project', 'lab']) == original
 assert command(['incus', 'exec', 'native', '--project', 'lab', '--disable-stdin', '--',
                 '/bin/cat', '/var/lib/test/index.html']) == 'preserved'

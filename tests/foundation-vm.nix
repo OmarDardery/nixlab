@@ -148,13 +148,16 @@ in pkgs.testers.runNixOSTest {
     host.succeed("incus start restored --project lab")
     assert host.succeed("incus config get native volatile.eth0.hwaddr --project lab").strip() != host.succeed("incus config get restored volatile.eth0.hwaddr --project lab").strip()
     assert host.succeed("incus exec restored --project lab --disable-stdin -- /bin/cat /var/lib/test/index.html").strip() == "preserved"
+    native_uuid = host.succeed("incus config get native volatile.uuid --project lab").strip()
+    assert native_uuid
     host.wait_for_unit("NetworkManager.service")
     host.succeed("PYTHONPATH=${../installer}:${../admin}:${../scripts} python3 ${./network-repair-integration.py}", timeout=180)
     host.reboot()
     host.wait_for_unit("NetworkManager.service")
     host.wait_until_succeeds("ip -4 address show dev br-repair | grep 198.51.100.10", timeout=60)
     host.wait_for_unit("incus.service")
-    assert host.succeed("incus config get native volatile.uuid --project lab").strip()
+    assert host.succeed("incus config get native volatile.uuid --project lab").strip() == native_uuid
+    host.wait_until_succeeds("incus exec native --project lab --disable-stdin -- /bin/cat /var/lib/test/index.html | grep -x preserved", timeout=60)
     host.succeed("test ! -e /run/systemd/system/nixlab-management-identity.service.d/90-nixlab-network-repair.conf")
   '';
 }

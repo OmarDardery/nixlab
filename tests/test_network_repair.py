@@ -71,6 +71,24 @@ class SelectionTests(unittest.TestCase):
             with patch.object(repair, 'run', side_effect=[Mock(stdout=BRIDGE['uuid']), Mock(stdout=stdout)]):
                 with self.assertRaises(ValueError): repair.profiles()
 
+    def test_profile_names_cannot_inject_terminal_control_sequences(self):
+        values = dict(BRIDGE, id='unsafe\x1b[2J')
+        reply = '\n'.join(values[key] for key in ('uuid', 'id', 'type', 'interface', 'controller', 'auto'))
+        with patch.object(repair, 'run', side_effect=[Mock(stdout=BRIDGE['uuid']), Mock(stdout=reply)]):
+            with self.assertRaisesRegex(ValueError, 'Ambiguous NetworkManager'):
+                repair.profiles()
+
+    def test_profile_observation_has_a_total_deadline_and_size_limit(self):
+        with patch.object(repair, 'run', return_value=Mock(stdout='\n'.join([BRIDGE['uuid']] * 129))):
+            with self.assertRaisesRegex(ValueError, 'profile limit exceeded'): repair.profiles()
+        with patch.object(repair, 'run', return_value=Mock(stdout=BRIDGE['uuid'])), \
+                patch.object(repair.time, 'monotonic', side_effect=[0, 31]):
+            with self.assertRaisesRegex(ValueError, 'exceeded its deadline'): repair.profiles()
+
+    def test_live_bridge_membership_must_be_represented_by_saved_port_profiles(self):
+        with self.assertRaisesRegex(ValueError, 'Live bridge membership differs'):
+            repair.select(self.settings(), LINKS + [{'ifname': 'eth9'}], [BRIDGE, dict(PORT, interface='eth9')])
+
     def test_only_selected_source_profiles_receive_a_reviewable_override(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

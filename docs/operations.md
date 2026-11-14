@@ -155,6 +155,9 @@ and rollback guard remain authoritative. Failed/cancelled preflight restores the
 previous autoconnect flags; the existing connection may remain active. Interrupted
 work retains `/var/lib/nixlab-admin/network-repair.json`; rerun the same command.
 Reboot persistence still requires an actual reboot check after confirmation.
+If an interrupted repair rebooted without connectivity, its pinned launcher can
+run the same preflight without downloading first:
+`sudo /var/lib/nixlab-admin/worker-runtime/bin/nixlab-update --repair-network`.
 
 When Incus is already available and only the selected management interface needs
 correction, `#update -- --interface YOUR_INTERFACE` reviews the observed address
@@ -169,8 +172,10 @@ before its deadline. No transaction IDs need copying. Rejection or failed health
 starts rollback; interruption leaves the existing rollback guard active. Run the
 same command to resume its own unfinished update at its original pinned revision.
 Unrelated configuration jobs and unfinished recovery block a new update. An
-already-current source is a no-op. This does not automatically reboot or deploy
-guest OS updates; retain independent backups and schedule any kernel reboot.
+already-current source is a no-op. The command does not reboot the host. Existing
+Incus reconciliation and application onboarding still follow the enabled
+configuration; inspect their effects and review any guest rollout separately.
+Retain independent backups and schedule any kernel reboot.
 
 `--refresh` refreshes Nix's cached launcher. The updater independently resolves
 main, so the candidate stays fixed even if main advances while it builds.

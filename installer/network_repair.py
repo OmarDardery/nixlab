@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'admin'))
@@ -36,14 +37,22 @@ def run(args, timeout=30, **kwargs):
 
 
 def profiles():
-    identities = run(['nmcli', '--get-values', 'UUID', 'connection', 'show'], capture_output=True).stdout.splitlines()
+    deadline = time.monotonic() + 30
+    identities = run(['nmcli', '--get-values', 'UUID', 'connection', 'show'],
+                     timeout=10, capture_output=True).stdout.splitlines()
+    if len(identities) > 128:
+        raise ValueError('Management recovery profile limit exceeded; review networking manually')
     result = []
     for identity in identities:
         if str(uuid.UUID(identity)) != identity.lower():
             raise ValueError('Invalid NetworkManager profile identity')
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ValueError('Management profile observation exceeded its deadline')
         values = run(['nmcli', '--escape', 'no', '--get-values', FIELDS,
-                      'connection', 'show', 'uuid', identity], capture_output=True).stdout.splitlines()
-        if len(values) != 6 or values[0] != identity or values[-1] not in ('yes', 'no'):
+                      'connection', 'show', 'uuid', identity], timeout=min(5, remaining), capture_output=True).stdout.splitlines()
+        if (len(values) != 6 or values[0] != identity or values[-1] not in ('yes', 'no')
+                or any(value and not value.isprintable() for value in values)):
             raise ValueError('Ambiguous NetworkManager profile metadata; no profile was changed')
         result.append(dict(zip(('uuid', 'id', 'type', 'interface', 'controller', 'auto'), values)))
     return result
@@ -51,7 +60,8 @@ def profiles():
 
 def select(settings, links, connections, requested=None):
     """Follow one existing bridge; never create profiles or guess another NIC."""
-    name = requested or settings['management']['interface']
+    origin = requested or settings['management']['interface']
+    name = origin
     by_name = {link['ifname']: link for link in links}
     name = by_name.get(name, {}).get('master') or name
     bound = [p for p in connections if p['interface'] == name]
@@ -77,7 +87,14 @@ def select(settings, links, connections, requested=None):
         ports = [p for p in connections if p['controller'] in (name, controller['uuid'], controller['id'])]
         if not ports or any(p['type'] != '802-3-ethernet' or p['interface'] not in by_name for p in ports):
             raise ValueError('Management bridge needs existing Ethernet port profiles and connected hardware')
+        for port in ports:
+            targets = [p for p in connections if p['type'] == 'bridge'
+                       and port['controller'] in (p['uuid'], p['id'], p['interface'])]
+            if len(targets) != 1 or targets[0]['uuid'] != controller['uuid']:
+                raise ValueError('Saved bridge port controller is ambiguous')
         selected += ports
+        if origin != name and not any(p['interface'] == origin for p in ports):
+            raise ValueError('Live bridge membership differs from saved management profiles')
     if settings['management']['configure']:
         raise ValueError('This recovery preserves existing networking; managed static networking needs a reviewed configuration change')
     return name, selected
@@ -147,6 +164,8 @@ class Repair:
         with rt.locked(blocking=False):
             state = self.manager.status()
             record = rt.read_json(self.path, {})
+            if not isinstance(record, dict):
+                raise ValueError('Invalid network recovery checkpoint')
             if record and (record.get('format') != 1 or record.get('phase') not in {
                     'prepared', 'reviewing', 'activating', 'needs-attention', 'completed', 'cancelled'}):
                 raise ValueError('Unknown network recovery checkpoint; inspect it before retrying')
