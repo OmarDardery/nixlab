@@ -160,7 +160,14 @@ in pkgs.testers.runNixOSTest {
     host.reboot()
     host.wait_for_unit("NetworkManager.service")
     host.wait_until_succeeds("ip -4 address show dev br-repair | grep 198.51.100.10", timeout=60)
-    host.wait_until_succeeds("bridge link show dev repair-port | grep 'state forwarding'", timeout=60)
+    try:
+        host.wait_until_succeeds("bridge link show dev repair-port | grep 'state forwarding'", timeout=60)
+    except Exception:
+        print(host.succeed("nmcli -f NAME,UUID,TYPE,AUTOCONNECT connection show"))
+        print(host.succeed("nmcli -f GENERAL device show repair-port"))
+        print(host.succeed("ip -d link show dev repair-port"))
+        print(host.succeed("journalctl -b -u NetworkManager --no-pager -n 80"))
+        raise
     port = json.loads(host.succeed("ip -j link show dev repair-port"))[0]
     assert port.get("master") == "br-repair" and port.get("operstate") == "UP", port
     host.wait_for_unit("incus.service")
