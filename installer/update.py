@@ -36,7 +36,7 @@ def already_current(manager, state, revision):
             and (manager.job_path(job_id) / 'system').resolve() == Path(state['currentSystem']))
 
 
-def management_change(settings, interface):
+def management_change(settings, interface, saved=None):
     """Select an existing address owner; never move addresses or expand trust."""
     current = settings['management']
     link = next((link for link in inventory()['interfaces'] if link['name'] == interface), None)
@@ -52,10 +52,12 @@ def management_change(settings, interface):
     if not any(selected.ip in ipaddress.ip_network(cidr) for cidr in current['trustedCIDRs']):
         raise ValueError('Selected address is outside existing trusted management networks; review access policy first')
     values = {'interface': interface, 'address': str(selected.ip), 'prefixLength': selected.network.prefixlen}
-    return {} if all(current[key] == value for key, value in values.items()) else {'management': values}
+    matches = all(current[key] == value for key, value in values.items())
+    persisted = saved is None or all(saved['management'][key] == value for key, value in values.items())
+    return {} if matches and persisted else {'management': values}
 
 
-def run(manager, interface=None):
+def run(manager, interface=None, repair=None):
     state = manager.status()
     record = state.get('job') or {}
     if record.get('status') in ACTIVE:
@@ -69,16 +71,18 @@ def run(manager, interface=None):
             raise ValueError('Activation recovery is pending; resolve it in the host console first')
         if not state.get('setupComplete'):
             raise ValueError('Finish initial NixLab setup before running #update')
-        changes = management_change(manager.effective_settings(), interface) if interface is not None else {}
+        changes = management_change(manager.effective_settings(), interface, manager.settings()) if interface is not None else {}
         revision = main_revision()
         print('NixLab main: ' + revision, flush=True)
-        if not changes and already_current(manager, state, revision):
+        if not changes and repair is None and already_current(manager, state, revision):
             print('Platform source and active system are already current.')
             if state.get('rebootRequired'): print('A kernel reboot is pending; reboot separately when ready.')
             return
         if changes:
             print('Management selection: ' + str(changes['management']), flush=True)
-        record = manager.review(changes, revision=revision, principal=PRINCIPAL)
+        kwargs = {'modules': repair.record['modules']} if repair else {}
+        record = manager.review(changes, revision=revision, principal=PRINCIPAL, **kwargs)
+        if repair: repair.reviewed(record)
         print('Building update; transaction ' + record['id'], flush=True)
         record = manager.job(record['id'])
     job_id = record['id']
@@ -94,6 +98,7 @@ def run(manager, interface=None):
             if expected.get('interface') != interface or any(
                     effective.get(key) != expected.get(key) for key in ('interface', 'address', 'prefixLength')):
                 raise ValueError('Built management selection differs from the request; review source-owned Nix overrides before activation')
+        if repair: repair.verify(record)
         plan = record.get('impactPlan')
         if not isinstance(plan, dict) or plan.get('blocked') is not False:
             raise ValueError('Update has an unavailable or blocked impact plan; inspect Changes in the host console')
@@ -113,6 +118,7 @@ def run(manager, interface=None):
     if record['status'] != 'awaiting-confirmation':
         raise ValueError('Unexpected update state; inspect the host console')
     try:
+        if repair: repair.native_identity()
         diagnostics.wait_ready(record.get('effectiveSettings') or manager.effective_settings())
         print('Health checks passed. Open a second SSH connection and check the web console and workloads.', flush=True)
         deadline = time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(record['deadline']))
@@ -138,6 +144,8 @@ def run(manager, interface=None):
 def main():
     parser = argparse.ArgumentParser(description='Update installed NixLab from main using guarded build/activation.')
     parser.add_argument('--interface', help='Use this already-addressed management interface through the reviewed update')
+    parser.add_argument('--repair-network', action='store_true',
+                        help='At the local console, recover existing Ethernet/bridge connections before the guarded update')
     args = parser.parse_args()
     if os.geteuid() != 0 or not Path('/etc/NIXOS').is_file():
         raise ValueError('Run on the installed NixOS host with administrator privileges')
@@ -145,7 +153,19 @@ def main():
         raise ValueError('No installed NixLab configuration found; use #install for initial installation')
     if not sys.stdin.isatty():
         raise ValueError('#update requires an interactive terminal for activation and access confirmation')
-    run(Manager(), interface=args.interface)
+    manager = Manager()
+    if args.repair_network:
+        from network_repair import Repair
+        repair = Repair(manager)
+        success = False
+        try:
+            interface = repair.prepare(ask, management_change, args.interface)
+            run(manager, interface=interface, repair=repair)
+            success = True
+        finally:
+            repair.finish(success)
+    else:
+        run(manager, interface=args.interface)
 
 
 if __name__ == '__main__':

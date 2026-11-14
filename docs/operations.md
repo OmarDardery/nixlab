@@ -126,21 +126,40 @@ For an existing NixLab server, run this in its interactive terminal:
 nix run --refresh github:OmarDardery/nixlab#update
 ```
 
-If management still names an Ethernet port after its address moved onto a bridge,
-select the already-addressed bridge from the host console:
+For a broken existing Ethernet/bridge management connection, run **at the host's
+local console**:
 
 ```sh
-nix run --refresh github:OmarDardery/nixlab#update -- --interface br0
+nix run --refresh github:OmarDardery/nixlab#update -- --repair-network
 ```
 
-This reviews the interface and its observed IPv4 address/prefix in the same guarded
-update. It preserves addressing mode, gateway, DNS, trusted networks and native
-bridge/profile ownership. It does not create a bridge, move addresses or enable
-profile autoconnection. Missing/ambiguous addresses, addresses outside existing
-trusted networks and conflicting Nix overrides are refused. Review the printed
-effects and verify remote access before confirmation; use the same command to
-resume an interrupted update. A different interface cannot replace an active
-review. Reboot persistence still needs a separate check of the native profile.
+It follows the saved port/controller relationship, previews the exact existing
+profiles, asks before enabling autoconnect, activates the ports and bridge, and
+selects their observed address within your existing trusted networks. If discovery
+is ambiguous, add `--interface YOUR_BRIDGE`. It creates no bridge/profile, assigns
+no new address and preserves gateway, DNS, addressing mode and ownership. Managed
+static networking, missing hardware, guest networks and ambiguous profiles require
+review rather than guesses. The launcher needs network access to fetch NixLab.
+
+A temporary systemd identity selection validates the observed address and generates
+the usual TLS identity so the existing Incus daemon can start. It changes no
+firewall rules or authentication and never initializes an empty replacement Incus
+database. Normal update review then observes the real guests and storage. Existing
+source-defined profiles with autoconnect disabled receive a small, reviewable
+machine module; native profiles remain owned by NetworkManager. A stronger custom
+Nix override blocks activation rather than being silently overridden.
+
+The temporary identity selection is removed, the native identity service restarted,
+and autoconnect checked before health/access confirmation. The normal activation
+and rollback guard remain authoritative. Failed/cancelled preflight restores the
+previous autoconnect flags; the existing connection may remain active. Interrupted
+work retains `/var/lib/nixlab-admin/network-repair.json`; rerun the same command.
+Reboot persistence still requires an actual reboot check after confirmation.
+
+When Incus is already available and only the selected management interface needs
+correction, `#update -- --interface YOUR_INTERFACE` reviews the observed address
+and prefix without modifying native profiles. Existing source-owned management
+overrides must agree with the built selection.
 
 The command requests sudo itself, resolves main once to a full commit SHA and
 builds through the existing transaction engine. It displays the build/impact

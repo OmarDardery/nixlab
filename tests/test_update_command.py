@@ -93,6 +93,7 @@ class UpdateTests(unittest.TestCase):
     def test_interface_correction_is_reviewed_even_when_platform_is_current(self):
         settings = management_settings()
         self.manager.effective_settings.return_value = settings
+        self.manager.settings.return_value = settings
         selected = {'interface': 'br0', 'address': '192.0.2.20', 'prefixLength': 24}
         built = copy.deepcopy(settings); built['management'].update(selected)
         self.ready.update(settings=built, effectiveSettings=built)
@@ -110,6 +111,7 @@ class UpdateTests(unittest.TestCase):
     def test_repeated_interface_selection_is_an_idempotent_noop(self):
         settings = management_settings(); settings['management']['interface'] = 'br0'
         self.manager.effective_settings.return_value = settings
+        self.manager.settings.return_value = settings
         with patch.object(update, 'inventory', return_value={'interfaces': [
                 {'name': 'br0', 'addresses': ['192.0.2.10/24']}]}), \
                 patch.object(update, 'already_current', return_value=True):
@@ -131,6 +133,29 @@ class UpdateTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaisesRegex(ValueError, 'source-owned Nix overrides'):
                 update.run(self.manager, interface='br0')
         self.manager.apply.assert_not_called()
+
+    def test_recovery_uses_normal_review_and_removes_override_before_health_and_confirmation(self):
+        recovery = Mock()
+        recovery.record = {'modules': {'recovery.nix': '{ ... }: {}'}}
+        order = []
+        recovery.native_identity.side_effect = lambda: order.append('native')
+        self.health.side_effect = lambda _: order.append('health')
+        self.manager.confirm.side_effect = lambda _: order.append('confirm')
+        update.run(self.manager, repair=recovery)
+        self.manager.review.assert_called_once_with({}, revision=SHA, principal=update.PRINCIPAL,
+                                                   modules=recovery.record['modules'])
+        recovery.reviewed.assert_called_once_with({'id': ID})
+        recovery.verify.assert_called_once_with(self.ready)
+        self.assertEqual(order, ['native', 'health', 'confirm'])
+
+    def test_recovery_persistence_failure_rolls_back_before_confirmation(self):
+        recovery = Mock(); recovery.record = {'modules': {}}
+        recovery.native_identity.side_effect = ValueError('autoconnect disabled')
+        self.manager.job.side_effect = [self.ready, self.pending]
+        with self.assertRaisesRegex(ValueError, 'autoconnect disabled'):
+            update.run(self.manager, repair=recovery)
+        self.manager.rollback.assert_called_once_with(ID)
+        self.manager.confirm.assert_not_called()
 
     def test_blocked_or_absent_impact_never_activates(self):
         for plan in ({'blocked': True}, None, {}):
