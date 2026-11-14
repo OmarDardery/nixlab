@@ -108,3 +108,29 @@ with tempfile.TemporaryDirectory(prefix='nixlab-direct-eval-') as folder:
     assert not evaluate(root, 'nixosConfigurations.hypervisor.config.services.openssh.settings.PasswordAuthentication')
     print('Direct conversion: preserved machine inputs and full hypervisor evaluation passed.')
 
+    # Source-defined native profiles must keep autoconnect after Nix activation,
+    # rather than relying on an nmcli runtime edit that the next reload erases.
+    import network_repair
+    module_dir = root / 'machine/modules'
+    module_dir.mkdir(parents=True, exist_ok=True)
+    fixture_module = module_dir / 'repair-profile-fixture.nix'
+    fixture_module.write_text('''{ ... }: {
+      networking.networkmanager.ensureProfiles.profiles.existing-management.connection = {
+        id = "existing-management"; type = "ethernet";
+        interface-name = "eth0"; autoconnect = false;
+      };
+    }''')
+    selected = [{'id': 'existing-management', 'interface': 'eth0'}]
+    modules, names = network_repair.modules_for(root, selected)
+    assert names == ['existing-management'], names
+    for name, content in modules.items(): (module_dir / name).write_text(content)
+    assert network_repair.declared_profiles(root)['existing-management']['auto'] is True
+    evaluate(root, 'nixosConfigurations.hypervisor.config.system.build.toplevel.drvPath')
+    fixture_module.write_text('''{ lib, ... }: {
+      networking.networkmanager.ensureProfiles.profiles.existing-management.connection = {
+        id = "existing-management"; type = "ethernet";
+        interface-name = "eth0"; autoconnect = lib.mkForce false;
+      };
+    }''')
+    assert network_repair.declared_profiles(root)['existing-management']['auto'] is False
+    print('Recovery profile module evaluates persistently; stronger user overrides remain visible to the activation refusal gate.')

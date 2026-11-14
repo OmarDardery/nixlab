@@ -126,16 +126,56 @@ For an existing NixLab server, run this in its interactive terminal:
 nix run --refresh github:OmarDardery/nixlab#update
 ```
 
+For a broken existing Ethernet/bridge management connection, run **at the host's
+local console**:
+
+```sh
+nix run --refresh github:OmarDardery/nixlab#update -- --repair-network
+```
+
+It follows the saved port/controller relationship, previews the exact existing
+profiles, asks before enabling autoconnect, activates the ports and bridge, and
+selects their observed address within your existing trusted networks. If discovery
+is ambiguous, add `--interface YOUR_BRIDGE`. It creates no bridge/profile, assigns
+no new address and preserves gateway, DNS, addressing mode and ownership. Managed
+static networking, missing hardware, guest networks and ambiguous profiles require
+review rather than guesses. The launcher needs network access to fetch NixLab.
+
+A temporary systemd identity selection validates the observed address and generates
+the usual TLS identity so the existing Incus daemon can start. It changes no
+firewall rules or authentication and never initializes an empty replacement Incus
+database. Normal update review then observes the real guests and storage. Existing
+source-defined profiles with autoconnect disabled receive a small, reviewable
+machine module; native profiles remain owned by NetworkManager. A stronger custom
+Nix override blocks activation rather than being silently overridden.
+
+The temporary identity selection is removed, the native identity service restarted,
+and autoconnect checked before health/access confirmation. The normal activation
+and rollback guard remain authoritative. Failed/cancelled preflight restores the
+previous autoconnect flags; the existing connection may remain active. Interrupted
+work retains `/var/lib/nixlab-admin/network-repair.json`; rerun the same command.
+Reboot persistence still requires an actual reboot check after confirmation.
+If an interrupted repair rebooted without connectivity, its pinned launcher can
+run the same preflight without downloading first:
+`sudo /var/lib/nixlab-admin/worker-runtime/bin/nixlab-update --repair-network`.
+
+When Incus is already available and only the selected management interface needs
+correction, `#update -- --interface YOUR_INTERFACE` reviews the observed address
+and prefix without modifying native profiles. Existing source-owned management
+overrides must agree with the built selection.
+
 The command requests sudo itself, resolves main once to a full commit SHA and
 builds through the existing transaction engine. It displays the build/impact
-review and asks before activation. After health checks, open another SSH
+review and asks before activation. After health checks it prints the verified service URLs; open another SSH
 connection and check the portal/workloads, then answer the confirmation prompt
 before its deadline. No transaction IDs need copying. Rejection or failed health
 starts rollback; interruption leaves the existing rollback guard active. Run the
 same command to resume its own unfinished update at its original pinned revision.
 Unrelated configuration jobs and unfinished recovery block a new update. An
-already-current source is a no-op. This does not automatically reboot or deploy
-guest OS updates; retain independent backups and schedule any kernel reboot.
+already-current source is a no-op. The command does not reboot the host. Existing
+Incus reconciliation and application onboarding still follow the enabled
+configuration; inspect their effects and review any guest rollout separately.
+Retain independent backups and schedule any kernel reboot.
 
 `--refresh` refreshes Nix's cached launcher. The updater independently resolves
 main, so the candidate stays fixed even if main advances while it builds.
