@@ -166,7 +166,7 @@ overrides must agree with the built selection.
 
 The command requests sudo itself, resolves main once to a full commit SHA and
 builds through the existing transaction engine. It displays the build/impact
-review and asks before activation. After health checks, open another SSH
+review and asks before activation. After health checks it prints the verified service URLs; open another SSH
 connection and check the portal/workloads, then answer the confirmation prompt
 before its deadline. No transaction IDs need copying. Rejection or failed health
 starts rollback; interruption leaves the existing rollback guard active. Run the

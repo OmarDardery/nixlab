@@ -119,7 +119,10 @@ def run(manager, interface=None, repair=None):
         raise ValueError('Unexpected update state; inspect the host console')
     try:
         if repair: repair.native_identity()
-        diagnostics.wait_ready(record.get('effectiveSettings') or manager.effective_settings())
+        report = diagnostics.wait_ready(record.get('effectiveSettings') or manager.effective_settings())
+        for check in report['checks']:
+            if check['name'] in ('Nixlab', 'Incus UI', 'Cockpit', 'Portainer') and check['ok']:
+                print(check['name'] + ': ' + check['url'], flush=True)
         print('Health checks passed. Open a second SSH connection and check the web console and workloads.', flush=True)
         deadline = time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(record['deadline']))
         print('Confirmation deadline: ' + deadline, flush=True)

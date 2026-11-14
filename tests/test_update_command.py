@@ -72,8 +72,10 @@ class UpdateTests(unittest.TestCase):
         self.resolve = self.stack.enter_context(patch.object(update, 'main_revision', return_value=SHA))
         self.wait = self.stack.enter_context(patch.object(update.direct, 'wait_for', return_value=self.pending))
         self.health = self.stack.enter_context(patch.object(update.diagnostics, 'wait_ready'))
+        self.health.return_value = {'checks': [
+            {'name': 'Nixlab', 'url': 'https://192.0.2.20:9440', 'ok': True}]}
         self.ask = self.stack.enter_context(patch.object(update, 'ask', return_value=True))
-        self.stack.enter_context(patch('builtins.print'))
+        self.print = self.stack.enter_context(patch('builtins.print'))
 
     def test_latest_main_is_pinned_once_without_changing_settings(self):
         update.run(self.manager)
@@ -83,6 +85,7 @@ class UpdateTests(unittest.TestCase):
         self.health.assert_called_once()
         self.manager.confirm.assert_called_once_with(ID)
         self.manager.rollback.assert_not_called()
+        self.print.assert_any_call('Nixlab: https://192.0.2.20:9440', flush=True)
 
     def test_declined_activation_discards_only_unapplied_candidate(self):
         self.ask.return_value = False
@@ -139,7 +142,7 @@ class UpdateTests(unittest.TestCase):
         recovery.record = {'modules': {'recovery.nix': '{ ... }: {}'}}
         order = []
         recovery.native_identity.side_effect = lambda: order.append('native')
-        self.health.side_effect = lambda _: order.append('health')
+        self.health.side_effect = lambda _: (order.append('health'), self.health.return_value)[1]
         self.manager.confirm.side_effect = lambda _: order.append('confirm')
         update.run(self.manager, repair=recovery)
         self.manager.review.assert_called_once_with({}, revision=SHA, principal=update.PRINCIPAL,
