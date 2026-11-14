@@ -70,12 +70,16 @@ in pkgs.testers.runNixOSTest {
       cockpit = site.cockpit // { enable = false; };
     });
     systemd.services.nixlab-management-identity = {
+      # Raw fixture directories are separate Nix store inputs; production
+      # launchers bundle installer/admin siblings instead. Preserve these
+      # imports for both the native command and its temporary ExecStart.
+      environment.PYTHONPATH = "${../admin}:${../scripts}";
       path = [ pkgs.iproute2 pkgs.openssl ];
       wants = [ "network-online.target" ]; after = [ "network-online.target" ];
       serviceConfig = { Type = "oneshot"; RemainAfterExit = true; Restart = "on-failure"; RestartSec = "3s"; TimeoutStartSec = "120s"; };
       preStart = "test -e /var/lib/nixlab-test-identity.json || cp /etc/nixlab-repair-base.json /var/lib/nixlab-test-identity.json";
       script = ''
-        PYTHONPATH=${../admin}:${../scripts} ${pkgs.python3}/bin/python -c 'import json,diagnostics; diagnostics.identity(json.load(open("/var/lib/nixlab-test-identity.json")))'
+        ${pkgs.python3}/bin/python -c 'import json,diagnostics; diagnostics.identity(json.load(open("/var/lib/nixlab-test-identity.json")))'
       '';
     };
     systemd.services.incus = {
