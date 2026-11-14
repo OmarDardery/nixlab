@@ -125,7 +125,8 @@ class WorkflowTests(unittest.TestCase):
         self.stack.enter_context(patch.object(repair.rt, 'pin_worker_runtime'))
         self.observe = self.stack.enter_context(patch.object(repair, 'profiles', return_value=[BRIDGE, PORT]))
         self.stack.enter_context(patch.object(repair, 'modules_for', return_value=({}, [])))
-        self.commands = self.stack.enter_context(patch.object(repair, 'run', return_value=Mock(stdout=json.dumps(LINKS))))
+        self.commands = self.stack.enter_context(patch.object(repair, 'run', side_effect=lambda args, **kwargs:
+            Mock(stdout=json.dumps(LINKS) if args[0] == 'ip' else 'Id=incus.service\nActiveState=active\n')))
         self.stack.enter_context(patch('builtins.print'))
         self.choose = Mock(return_value={'management': {'interface': 'br0', 'address': '192.0.2.20', 'prefixLength': 24}})
         self.repair = repair.Repair(self.manager)

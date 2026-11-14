@@ -31,7 +31,7 @@ ACTIVE = {'building', 'ready', 'applying', 'awaiting-confirmation', 'rolling-bac
 
 
 def run(args, timeout=30, **kwargs):
-    return subprocess.run(args, check=True, text=True, timeout=timeout,
+    return subprocess.run(args, check=kwargs.pop('check', True), text=True, timeout=timeout,
                           env=dict(os.environ, LC_ALL='C'), **kwargs)
 
 
@@ -240,7 +240,12 @@ class Repair:
         names = ['incus.service', 'incus-preseed.service', 'nixlab-instances.service',
                  'nixlab-admin-backend.service', 'nixlab-ui.service', 'nginx.service',
                  'cockpit.service', 'nixlab-apps-onboarding.service']
-        observed = run(['systemctl', 'show', '--property=Id,ActiveState', *names], capture_output=True).stdout
+        # Optional units may be absent. Require an Incus observation rather than
+        # treating a failed/empty query as an empty set of dependent services.
+        observed = run(['systemctl', 'show', '--property=Id,ActiveState', *names],
+                       capture_output=True, check=False).stdout
+        if 'Id=incus.service\n' not in observed and not observed.endswith('Id=incus.service'):
+            raise ValueError('Cannot observe Incus service dependencies before restoring identity')
         active = []
         for block in observed.strip().split('\n\n'):
             fields = dict(line.split('=', 1) for line in block.splitlines() if '=' in line)
