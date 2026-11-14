@@ -98,7 +98,8 @@ in pkgs.testers.runNixOSTest {
   };
   testScript = ''
     import json
-    start_all()
+    host.start(allow_reboot=True)
+    client.start()
     host.wait_for_unit("incus-preseed.service")
     host.wait_for_unit("nixlab-instances.service")
     client.wait_for_unit("network.target")
