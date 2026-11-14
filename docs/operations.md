@@ -23,7 +23,8 @@ only the operational summary. These are bounded local observations, not endpoint
 health or successful restore evidence. They do not authenticate, contact registries
 or request sudo. Missing observations stay unknown.
 
-`nixlab-update` runs the normal guarded main update; `failed` lists failed services.
+`nixlab-update` runs the normal guarded main update and forwards its options;
+`failed` lists failed services.
 Noninteractive shells print no welcome screen. `.hushlogin` or an inherited
 `NIXLAB_NO_FETCH=1` disables the login summary. Personal Starship configuration is
 respected. The banner uses ordinary characters, so a special terminal font is not
