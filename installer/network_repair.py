@@ -148,6 +148,18 @@ def dropin(settings_path):
     return '[Service]\nExecStart=\nExecStart=' + ' '.join(json.dumps(value) for value in arguments) + '\n'
 
 
+def start_incus():
+    # The native startup oneshot also owns graceful shutdown. Merely starting
+    # the daemon can leave this previously failed hook inactive across repair.
+    observed = run(['systemctl', 'show', 'incus-startup.service', '--property=LoadState', '--value'],
+                   capture_output=True, check=False).stdout.strip()
+    if observed not in ('loaded', 'not-found'):
+        raise ValueError('Incus shutdown hook needs review: ' + observed)
+    units = ['incus.service'] + (['incus-startup.service'] if observed == 'loaded' else [])
+    # start is idempotent; restarting this oneshot would shut down guests.
+    run(['systemctl', 'start', *units], timeout=150)
+
+
 class Repair:
     def __init__(self, manager):
         self.manager = manager
@@ -229,7 +241,7 @@ class Repair:
                 raise ValueError('Another runtime identity override needs manual review')
             run(['systemctl', 'daemon-reload'])
             run(['systemctl', 'restart', 'nixlab-management-identity.service'], timeout=150)
-            run(['systemctl', 'start', 'incus.service'], timeout=150)
+            start_incus()
             self.save('reviewing')
             return self.record['interface']
 
@@ -256,7 +268,7 @@ class Repair:
     def native_identity(self):
         # Restarting a required oneshot can stop its dependents. Restore only
         # units that were active, so an optional disabled service stays disabled.
-        names = ['incus.service', 'incus-preseed.service', 'nixlab-instances.service',
+        names = ['incus.service', 'incus-startup.service', 'incus-preseed.service', 'nixlab-instances.service',
                  'nixlab-admin-backend.service', 'nixlab-ui.service', 'nginx.service',
                  'cockpit.service', 'nixlab-apps-onboarding.service']
         # Optional units may be absent. Require an Incus observation rather than
@@ -277,6 +289,7 @@ class Repair:
             run(['systemctl', 'daemon-reload'])
         run(['systemctl', 'restart', 'nixlab-management-identity.service'], timeout=150)
         if active: run(['systemctl', 'start', *active], timeout=180)
+        start_incus()
         self.validate_live()
 
     def finish(self, success):

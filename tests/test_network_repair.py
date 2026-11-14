@@ -47,6 +47,17 @@ class SelectionTests(unittest.TestCase):
         settings = self.settings(); settings['management']['configure'] = True
         with self.assertRaisesRegex(ValueError, 'preserves existing'): repair.select(settings, LINKS, [BRIDGE, PORT])
 
+    def test_native_shutdown_hook_is_started_without_restarting_guests(self):
+        with patch.object(repair, 'run', return_value=Mock(stdout='loaded')) as run:
+            repair.start_incus()
+        self.assertEqual(run.call_args.args[0], ['systemctl', 'start', 'incus.service', 'incus-startup.service'])
+        with patch.object(repair, 'run', return_value=Mock(stdout='not-found')) as run:
+            repair.start_incus()
+        self.assertEqual(run.call_args.args[0], ['systemctl', 'start', 'incus.service'])
+        with patch.object(repair, 'run', return_value=Mock(stdout='masked')) as run:
+            with self.assertRaisesRegex(ValueError, 'shutdown hook needs review'): repair.start_incus()
+        self.assertEqual(run.call_count, 1)
+
     def test_plain_ethernet_is_supported_without_creating_a_bridge(self):
         port = dict(PORT, controller='')
         self.assertEqual(repair.select(self.settings(), [{'ifname': 'eth0'}], [port]), ('eth0', [port]))
@@ -144,7 +155,8 @@ class WorkflowTests(unittest.TestCase):
         self.observe = self.stack.enter_context(patch.object(repair, 'profiles', return_value=[BRIDGE, PORT]))
         self.stack.enter_context(patch.object(repair, 'modules_for', return_value=({}, [])))
         self.commands = self.stack.enter_context(patch.object(repair, 'run', side_effect=lambda args, **kwargs:
-            Mock(stdout=json.dumps(LINKS) if args[0] == 'ip' else 'Id=incus.service\nActiveState=active\n')))
+            Mock(stdout=json.dumps(LINKS) if args[0] == 'ip' else 'loaded' if '--value' in args
+                 else 'Id=incus.service\nActiveState=active\n')))
         self.stack.enter_context(patch('builtins.print'))
         self.choose = Mock(return_value={'management': {'interface': 'br0', 'address': '192.0.2.20', 'prefixLength': 24}})
         self.repair = repair.Repair(self.manager)
@@ -176,8 +188,8 @@ class WorkflowTests(unittest.TestCase):
         commands = [call.args[0] for call in self.commands.call_args_list]
         ups = [command[-1] for command in commands if 'up' in command]
         self.assertEqual(ups, [PORT['uuid'], BRIDGE['uuid']])
-        self.assertEqual(commands[-2:], [['systemctl', 'restart', 'nixlab-management-identity.service'],
-                                        ['systemctl', 'start', 'incus.service']])
+        self.assertIn(['systemctl', 'restart', 'nixlab-management-identity.service'], commands)
+        self.assertEqual(commands[-1], ['systemctl', 'start', 'incus.service', 'incus-startup.service'])
         self.assertEqual(self.repair.record['phase'], 'reviewing')
         self.assertTrue(repair.DROPIN.is_file())
         self.assertFalse(any('nft' in command or 'preseed' in command or 'init' in command for command in commands))
@@ -211,13 +223,13 @@ class WorkflowTests(unittest.TestCase):
     def test_identity_restart_restores_active_services_without_starting_disabled_ones(self):
         self.prepare()
         self.observe.return_value = [dict(p, auto='yes') for p in (BRIDGE, PORT)]
-        self.commands.side_effect = lambda args, **kwargs: Mock(stdout=(
+        self.commands.side_effect = lambda args, **kwargs: Mock(stdout='loaded' if '--value' in args else (
             'Id=incus.service\nActiveState=active\n\n'
             'Id=nixlab-ui.service\nActiveState=active\n\n'
             'Id=nginx.service\nActiveState=inactive\n'))
         self.repair.native_identity()
-        self.assertEqual(self.commands.call_args_list[-1].args[0],
-                         ['systemctl', 'start', 'incus.service', 'nixlab-ui.service'])
+        self.assertTrue(any(call.args[0] == ['systemctl', 'start', 'incus.service', 'nixlab-ui.service']
+                            for call in self.commands.call_args_list))
 
     def test_missing_dependency_observation_keeps_bootstrap_identity_for_inspection(self):
         self.prepare()

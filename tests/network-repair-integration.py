@@ -8,6 +8,7 @@ import copy
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 from unittest.mock import patch
 
@@ -43,6 +44,15 @@ broken['management'].update(interface='repair-port', address='198.51.100.10',
                             configure=False, trustedCIDRs=['198.51.100.0/24'])
 rt.write_json(Path('/var/lib/nixlab-test-identity.json'), broken)
 command(['systemctl', 'stop', 'incus.service'])
+# Fixture only: fail the native shutdown hook while the daemon is stopped, so
+# its ExecStop is a no-op and existing containers remain running.
+command(['systemctl', 'stop', 'incus-startup.service'])
+failed_hook = Path('/run/systemd/system/incus-startup.service.d/90-fixture-failure.conf')
+rt.atomic(failed_hook, '[Service]\nExecStart=\nExecStart=' + shutil.which('false') + '\n')
+command(['systemctl', 'daemon-reload'])
+assert subprocess.run(['systemctl', 'start', 'incus-startup.service']).returncode != 0
+failed_hook.unlink()
+command(['systemctl', 'daemon-reload'])
 assert subprocess.run(['systemctl', 'restart', 'nixlab-management-identity.service']).returncode != 0
 assert subprocess.run(['systemctl', 'start', 'incus.service']).returncode != 0
 assert subprocess.run(['systemctl', 'is-active', '--quiet', 'incus.service']).returncode != 0
@@ -69,6 +79,7 @@ original_firewall = firewall()
 with patch.object(repair, 'modules_for', return_value=({}, [])):
     assert recovery.prepare(lambda _: True, management_change) == 'br-repair'
 assert command(['systemctl', 'is-active', 'incus.service']) == 'active'
+assert command(['systemctl', 'is-active', 'incus-startup.service']) == 'active'
 assert firewall() == original_firewall, 'Bootstrap changed the host firewall policy'
 assert command(['incus', 'config', 'get', 'native', 'volatile.uuid', '--project', 'lab']) == original
 assert command(['incus', 'exec', 'native', '--project', 'lab', '--disable-stdin', '--',
