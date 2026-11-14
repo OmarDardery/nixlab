@@ -48,14 +48,20 @@ in {
     failed = lib.mkDefault "systemctl --failed --no-pager";
     nixlab-update = lib.mkDefault "nix run --refresh github:OmarDardery/nixlab#update";
   };
-  programs.bash.interactiveShellInit = ''
+  programs.bash.interactiveShellInit = lib.mkMerge [
+    # Pinned ble.sh requires the XDG cache directory to exist before sourcing.
+    # Otherwise a fresh account falls back to its read-only Nix store path.
+    (lib.mkOrder 400 ''
+      ${pkgs.coreutils}/bin/mkdir -p -m 700 -- "''${XDG_CACHE_HOME:-$HOME/.cache}"
+    '')
+    ''
     HISTCONTROL=ignoreboth
     HISTSIZE=10000
     HISTFILESIZE=20000
     shopt -s histappend checkwinsize
     bind 'set completion-ignore-case on'
     bind 'set show-all-if-ambiguous on'
-  '';
+  '' ];
   programs.bash.loginShellInit = ''
     if [[ $- == *i* && -t 1 && "$TERM" != dumb && ! -e "$HOME/.hushlogin" && -z "''${NIXLAB_NO_FETCH:-}" ]]; then
       ${fetch}/bin/nixlab-fetch
