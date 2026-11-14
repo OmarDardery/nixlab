@@ -56,6 +56,7 @@ in pkgs.testers.runNixOSTest {
     # Only this isolated Ethernet fixture belongs to NetworkManager.
     networking.networkmanager = {
       enable = true;
+      settings.main.no-auto-default = "*";
       unmanaged = [ "*" "except:interface-name:repair-port" "except:interface-name:repair-peer" "except:interface-name:br-repair" ];
     };
     systemd.services.nixlab-test-port = {

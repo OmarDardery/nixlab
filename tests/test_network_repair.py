@@ -190,6 +190,31 @@ class WorkflowTests(unittest.TestCase):
         self.repair.finish(True)
         self.assertEqual(json.loads(self.repair.path.read_text())['phase'], 'completed')
 
+    def test_identity_restart_restores_active_services_without_starting_disabled_ones(self):
+        self.prepare()
+        self.observe.return_value = [dict(p, auto='yes') for p in (BRIDGE, PORT)]
+        self.commands.side_effect = lambda args, **kwargs: Mock(stdout=(
+            'Id=incus.service\nActiveState=active\n\n'
+            'Id=nixlab-ui.service\nActiveState=active\n\n'
+            'Id=nginx.service\nActiveState=inactive\n'))
+        self.repair.native_identity()
+        self.assertEqual(self.commands.call_args_list[-1].args[0],
+                         ['systemctl', 'start', 'incus.service', 'nixlab-ui.service'])
+
+    def test_missing_dependency_observation_keeps_bootstrap_identity_for_inspection(self):
+        self.prepare()
+        self.commands.return_value = Mock(stdout='')
+        self.commands.side_effect = None
+        with self.assertRaisesRegex(ValueError, 'Cannot observe Incus'):
+            self.repair.native_identity()
+        self.assertTrue(repair.DROPIN.exists())
+
+    def test_unknown_checkpoint_is_not_silently_replaced(self):
+        repair.rt.write_json(self.repair.path, {'format': 99, 'phase': 'prepared'})
+        with self.assertRaisesRegex(ValueError, 'Unknown network recovery checkpoint'):
+            self.prepare()
+        self.commands.assert_not_called()
+
     def test_drift_or_foreign_dropin_cannot_be_hidden_by_recovery(self):
         self.prepare()
         repair.DROPIN.write_text('foreign override')
