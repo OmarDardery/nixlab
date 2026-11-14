@@ -1,20 +1,8 @@
 { pkgs }:
 let
   source = pkgs.runCommand "nixlab-admin-source" { } ''
-    mkdir -p $out
-    cp -r ${./.}/. $out/
+    cp -r ${import ./source.nix { inherit pkgs; }} $out
     chmod -R u+w $out
-    cp ${../scripts/preflight.py} $out/preflight.py
-    cp ${../scripts/backup.py} $out/backup.py
-    cp ${../scripts/backup_plan.py} $out/backup_plan.py
-    cp ${../scripts/reconcile.py} $out/reconcile.py
-    cp ${../scripts/infrastructure.py} $out/infrastructure.py
-    cp ${../scripts/guest_deploy.py} $out/guest_deploy.py
-    cp ${../scripts/locking.py} $out/locking.py
-    cp ${../scripts/foundation.py} $out/foundation.py
-    cp ${../scripts/backup_health.py} $out/backup_health.py
-    cp ${../scripts/incus_client.py} $out/incus_client.py
-    cp ${pkgs.writeText "nixlab-default-settings.json" (builtins.toJSON (import ../site-defaults.nix))} $out/default-settings.json
     cp -r ${../docs} $out/docs
     cp ${../helpers/sources.json} $out/helper-sources.json
     cp ${../helpers/compatibility.json} $out/helper-compatibility.json
