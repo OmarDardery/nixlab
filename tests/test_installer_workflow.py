@@ -198,6 +198,24 @@ class ReadinessTests(unittest.TestCase):
         self.assertFalse(report['ok'])
         self.assertEqual([c['name'] for c in report['checks'] if not c['ok']], ['Portainer administrator'])
 
+    def test_portainer_status_prefers_current_api_and_only_falls_back_for_old_images(self):
+        cfg = initial(); cfg['apps']['enable'] = True
+        for status in (200, 404, 401, 500):
+            calls = []
+            def response(address, port, path):
+                calls.append(path)
+                if port != cfg['apps']['portainerPort']: return 200, b'{}'
+                return ({'/api/system/status': status, '/api/status': 200,
+                         '/api/users/admin/check': 204}[path]), b'{}'
+            with self.subTest(status=status), \
+                 patch('diagnostics.management_address', return_value='192.0.2.20'), \
+                 patch('diagnostics.request', side_effect=response), \
+                 patch('diagnostics.http_entry', return_value=(308, True)):
+                report = diagnostics.probe(cfg)
+                self.assertEqual(report['ok'], status in (200, 404))
+                self.assertIn('/api/system/status', calls)
+                self.assertEqual('/api/status' in calls, status == 404)
+
     def test_resume_waits_for_existing_worker_and_checks_health_before_confirm(self):
         manager = Mock()
         ready = {'id': 'a' * 32, 'status': 'ready', 'settings': initial()}

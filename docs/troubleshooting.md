@@ -28,6 +28,10 @@ systemctl --failed
 including Portainer administrator readiness. Its concise report is saved at
 `/var/lib/nixlab-admin/last-health.json`.
 
+Portainer status probes use `/api/system/status` to avoid deprecated-endpoint
+warnings. Older custom images fall back to `/api/status` only on HTTP 404;
+authentication, TLS and server failures still fail the health check.
+
 The installer reports its original failure separately from rollback failures.
 Its report is `/var/lib/nixlab-admin/installation-failure.json`; detailed build
 logs are under `/var/lib/nixlab-admin/jobs/<transaction-id>/build.log`.

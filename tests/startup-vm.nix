@@ -18,6 +18,9 @@ let
     import sys
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
+            if port == 9443 and self.path == '/api/status':
+                self.send_error(404)
+                return
             self.send_response(204 if self.path == '/api/users/admin/check' else 200)
             if self.path == '/cookie-probe':
                 self.send_header('Set-Cookie', 'nixlab_session=guest-value; Path=/; Secure; HttpOnly')
@@ -128,7 +131,7 @@ in pkgs.testers.runNixOSTest {
         addresses = json.loads(machine.succeed("ip -j -4 address show dev eth1"))
         address = next(a["local"] for link in addresses for a in link["addr_info"] if a["scope"] == "global")
         assert address == "192.0.2.20", address
-        machine.wait_until_succeeds(f"curl --fail --silent --show-error --max-time 5 --cacert /var/lib/nixlab-admin/ca.crt https://{address}:19443/api/status | grep NIXLAB_PROXY_READY", timeout=90)
+        machine.wait_until_succeeds(f"curl --fail --silent --show-error --max-time 5 --cacert /var/lib/nixlab-admin/ca.crt https://{address}:19443/api/system/status | grep NIXLAB_PROXY_READY", timeout=90)
         probe = json.loads(machine.succeed(f"curl --fail --silent --show-error --max-time 5 --cacert /var/lib/nixlab-admin/ca.crt -D /tmp/cookie-headers -H 'Cookie: nixlab_session=host-secret; portainer_auth=native-auth; nixlab_session=second-secret' -H 'Authorization: Bearer test-native-jwt' https://{address}:19443/cookie-probe"))
         assert probe == {"portalLeaked": False, "nativeCookie": True, "bearerPreserved": True}, probe
         headers = machine.succeed("cat /tmp/cookie-headers").lower()
