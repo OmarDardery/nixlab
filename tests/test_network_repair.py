@@ -58,6 +58,29 @@ class SelectionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'shutdown hook needs review'): repair.start_incus()
         self.assertEqual(run.call_count, 1)
 
+    def test_active_bridge_and_ports_are_never_reactivated(self):
+        observed = BRIDGE['uuid'] + '\n' + PORT['uuid'] + '\n'
+        with patch.object(repair, 'run', side_effect=lambda args, **kwargs:
+                Mock(stdout=observed if '--active' in args else '100 (connected)')) as run:
+            repair.activate([BRIDGE, PORT])
+        self.assertFalse(any('up' in call.args[0] for call in run.call_args_list))
+
+    def test_bridge_readiness_is_observed_without_repeated_activation(self):
+        state = iter(['70 (connecting)', '100 (connected)'])
+        with patch.object(repair, 'run', side_effect=lambda args, **kwargs:
+                Mock(stdout=next(state) if 'GENERAL.STATE' in args else '')) as run, \
+                patch.object(repair.time, 'sleep'):
+            repair.activate([BRIDGE, PORT])
+        self.assertEqual(sum('up' in call.args[0] for call in run.call_args_list), 2)
+        with patch.object(repair, 'run', return_value=Mock(stdout='70 (connecting)')), \
+                patch.object(repair.time, 'monotonic', side_effect=[0, 61]):
+            with self.assertRaisesRegex(ValueError, 'did not become ready'):
+                repair.activate([BRIDGE, PORT])
+        for observed in ('120 (failed)', '', 'unexpected'):
+            with patch.object(repair, 'run', return_value=Mock(stdout=observed)):
+                with self.assertRaisesRegex(ValueError, 'did not become ready'):
+                    repair.activate([BRIDGE, PORT])
+
     def test_plain_ethernet_is_supported_without_creating_a_bridge(self):
         port = dict(PORT, controller='')
         self.assertEqual(repair.select(self.settings(), [{'ifname': 'eth0'}], [port]), ('eth0', [port]))
@@ -153,9 +176,10 @@ class WorkflowTests(unittest.TestCase):
         self.stack.enter_context(patch.object(repair.rt, 'digest_source', return_value='source-digest'))
         self.stack.enter_context(patch.object(repair.rt, 'pin_worker_runtime'))
         self.observe = self.stack.enter_context(patch.object(repair, 'profiles', return_value=[BRIDGE, PORT]))
-        self.stack.enter_context(patch.object(repair, 'modules_for', return_value=({}, [])))
+        self.plan = self.stack.enter_context(patch.object(repair, 'modules_for', return_value=({}, [])))
         self.commands = self.stack.enter_context(patch.object(repair, 'run', side_effect=lambda args, **kwargs:
             Mock(stdout=json.dumps(LINKS) if args[0] == 'ip' else 'loaded' if '--value' in args
+                 else '100 (connected)' if 'GENERAL.STATE' in args else '' if '--active' in args
                  else 'Id=incus.service\nActiveState=active\n')))
         self.stack.enter_context(patch('builtins.print'))
         self.choose = Mock(return_value={'management': {'interface': 'br0', 'address': '192.0.2.20', 'prefixLength': 24}})
@@ -183,17 +207,28 @@ class WorkflowTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'existing Incus database'): self.prepare()
         self.commands.assert_not_called()
 
-    def test_prepare_activates_ports_before_bridge_then_unlocks_real_incus(self):
+    def test_prepare_starts_controller_asynchronously_then_ports_and_unlocks_real_incus(self):
         self.assertEqual(self.prepare(), 'br0')
         commands = [call.args[0] for call in self.commands.call_args_list]
         ups = [command[-1] for command in commands if 'up' in command]
-        self.assertEqual(ups, [PORT['uuid'], BRIDGE['uuid']])
+        self.assertEqual(ups, [BRIDGE['uuid'], PORT['uuid']])
+        self.assertIn(['nmcli', '--wait', '0', 'connection', 'up', 'uuid', BRIDGE['uuid']], commands)
         self.assertIn(['systemctl', 'restart', 'nixlab-management-identity.service'], commands)
         self.assertEqual(commands[-1], ['systemctl', 'start', 'incus.service', 'incus-startup.service'])
         self.assertEqual(self.repair.record['phase'], 'reviewing')
         self.assertTrue(repair.DROPIN.is_file())
         self.assertFalse(any('nft' in command or 'preseed' in command or 'init' in command for command in commands))
         self.assertFalse(self.manager.review.called)
+
+    def test_connectivity_is_restored_before_nix_input_evaluation(self):
+        def evaluate(root, selected):
+            self.assertTrue(any('GENERAL.STATE' in call.args[0] for call in self.commands.call_args_list))
+            self.choose.assert_called_once()
+            return {}, []
+        self.plan.side_effect = evaluate
+        self.prepare()
+        self.plan.assert_called_once()
+        self.assertEqual(self.repair.record['modules'], {})
 
     def test_interrupted_preflight_resumes_same_checkpoint(self):
         self.prepare()

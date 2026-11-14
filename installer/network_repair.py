@@ -148,6 +148,30 @@ def dropin(settings_path):
     return '[Service]\nExecStart=\nExecStart=' + ' '.join(json.dumps(value) for value in arguments) + '\n'
 
 
+def activate(selected):
+    # Starting an already active bridge reactivates it, detaches its ports and
+    # clears its address. Leave active connections alone. Start an inactive
+    # controller asynchronously before its ports, so it can wait for carrier.
+    for profile in selected:
+        active = run(['nmcli', '--get-values', 'UUID', 'connection', 'show', '--active'],
+                     timeout=5, capture_output=True).stdout.splitlines()
+        if profile['uuid'] not in active:
+            wait = '0' if profile['type'] == 'bridge' else '30'
+            run(['nmcli', '--wait', wait, 'connection', 'up', 'uuid', profile['uuid']], timeout=40)
+    # NM can report a bridge activation request accepted while still waiting
+    # for ports. Allow bounded STP/carrier + DHCP convergence, without another
+    # activation or weakening the subsequent address/trust checks.
+    deadline = time.monotonic() + 60
+    while True:
+        state = run(['nmcli', '--get-values', 'GENERAL.STATE', 'device', 'show', selected[0]['interface']],
+                    timeout=5, capture_output=True).stdout.strip()
+        number = state.split(maxsplit=1)[0] if state else ''
+        if number == '100': return
+        if not number.isdigit() or number == '120' or time.monotonic() >= deadline:
+            raise ValueError('Management connection did not become ready: ' + state)
+        time.sleep(0.5)
+
+
 def start_incus():
     # The native startup oneshot also owns graceful shutdown. Merely starting
     # the daemon can leave this previously failed hook inactive across repair.
@@ -206,14 +230,13 @@ class Repair:
                 settings = self.manager.effective_settings()
                 links = json.loads(run(['ip', '-j', '-d', 'address', 'show'], capture_output=True).stdout)
                 name, selected = select(settings, links, profiles(), interface)
-                modules, declared = modules_for(self.manager.root, selected)
                 print('Repair existing management connection on ' + name + '; enable autoconnect on:', flush=True)
                 for p in selected: print('  ' + p['id'] + ' [' + p['uuid'] + ']', flush=True)
                 print('No address assignment, new profile or firewall change. Incus may autostart its existing guests.', flush=True)
                 if not ask('Enable these saved connections and review the normal guarded update?'):
                     raise ValueError('Repair cancelled before changes')
                 self.record = {'format': 1, 'interface': name, 'profiles': selected,
-                               'modules': modules, 'declared': declared, 'job': None,
+                               'modules': None, 'declared': [], 'job': None,
                                'sourceDigest': rt.digest_source(self.manager.root)}
                 rt.pin_worker_runtime(self.manager.state)
                 self.save('prepared')
@@ -224,14 +247,17 @@ class Repair:
             check_profiles(self.record['profiles'], profiles())
             for p in self.record['profiles']:
                 run(['nmcli', 'connection', 'modify', 'uuid', p['uuid'], 'connection.autoconnect', 'yes'])
-            # A port activation also activates its controller; doing the bridge
-            # first can wait for DHCP before any Ethernet port supplies carrier.
-            for p in sorted(self.record['profiles'], key=lambda p: p['type'] == 'bridge'):
-                run(['nmcli', '--wait', '30', 'connection', 'up', 'uuid', p['uuid']], timeout=40)
+            activate(self.record['profiles'])
             changes = choose_management(self.manager.effective_settings(), self.record['interface'])
             settings = copy.deepcopy(self.manager.effective_settings())
             settings['management'].update(changes.get('management', {}))
             self.record['management'] = settings['management']
+            # Restoring connectivity must precede Nix evaluation: old flake
+            # inputs may have been garbage-collected on an offline host.
+            if self.record['modules'] is None:
+                self.record['modules'], self.record['declared'] = modules_for(
+                    self.manager.root, self.record['profiles'])
+                self.save('prepared')
             rt.write_json(self.manager.state / 'network-repair-settings.json', settings)
             # Genuine identity validation/certificate generation for the observed
             # address unlocks Incus's local socket. Source and firewall stay intact.

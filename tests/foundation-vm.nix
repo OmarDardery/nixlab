@@ -155,6 +155,9 @@ in pkgs.testers.runNixOSTest {
     host.reboot()
     host.wait_for_unit("NetworkManager.service")
     host.wait_until_succeeds("ip -4 address show dev br-repair | grep 198.51.100.10", timeout=60)
+    port = json.loads(host.succeed("ip -j link show dev repair-port"))[0]
+    assert port.get("master") == "br-repair" and port.get("operstate") == "UP", port
+    host.wait_until_succeeds("bridge link show dev repair-port | grep 'state forwarding'", timeout=60)
     host.wait_for_unit("incus.service")
     assert host.succeed("incus config get native volatile.uuid --project lab").strip() == native_uuid
     host.wait_until_succeeds("incus exec native --project lab --disable-stdin -- /bin/cat /var/lib/test/index.html | grep -x preserved", timeout=60)
