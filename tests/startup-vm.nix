@@ -61,7 +61,7 @@ in pkgs.testers.runNixOSTest {
     environment.systemPackages = [ pkgs.curl pkgs.openssh pkgs.sshpass ];
   };
   nodes.machine = { lib, ... }: {
-    imports = [ ../modules/networking.nix ../modules/admin-ui.nix ../modules/apps-onboarding.nix ../modules/cockpit.nix ../modules/security.nix ../modules/quality-of-life.nix ];
+    imports = [ ../modules/networking.nix ../modules/admin-ui.nix ../modules/apps-onboarding.nix ../modules/cockpit.nix ../modules/security.nix ../modules/quality-of-life.nix ../modules/console.nix ];
     _module.args.site = settings;
     virtualisation.memorySize = 1536;
     networking.useDHCP = false;
@@ -82,6 +82,7 @@ in pkgs.testers.runNixOSTest {
     environment.systemPackages = [ pkgs.curl (pkgs.python3.withPackages (ps: [ ps.websocket-client ])) ];
     users.users.operator.initialPassword = "vm-cockpit-password"; # disposable VM only
     environment.etc."nixlab-test-cockpit.py".source = ./cockpit-client.py;
+    environment.etc."nixlab-console-client.py".source = ./console-client.py;
     environment.etc."nixlab-test-settings.json".text = builtins.toJSON settings;
     environment.etc."nixlab/effective-settings.json".text = builtins.toJSON settings;
     systemd.services.nixlab-test-fixture = {
@@ -131,6 +132,15 @@ in pkgs.testers.runNixOSTest {
         addresses = json.loads(machine.succeed("ip -j -4 address show dev eth1"))
         address = next(a["local"] for link in addresses for a in link["addr_info"] if a["scope"] == "global")
         assert address == "192.0.2.20", address
+        summary = machine.succeed("nixlab-status")
+        assert f"https://{address}:9440" in summary, summary
+        assert "https://192.0.2.10:" not in summary, summary
+        machine.succeed("bash -n /etc/profile && bash -n /etc/bashrc")
+        assert machine.succeed("bash --login -c 'printf NONINTERACTIVE_OK'") == "NONINTERACTIVE_OK"
+        fetch = machine.succeed("nixlab-fetch --pipe")
+        assert "NixLab" in fetch and address in fetch, fetch
+        if boot == 0:
+            machine.succeed("python3 /etc/nixlab-console-client.py", timeout=30)
         machine.wait_until_succeeds(f"curl --fail --silent --show-error --max-time 5 --cacert /var/lib/nixlab-admin/ca.crt https://{address}:19443/api/system/status | grep NIXLAB_PROXY_READY", timeout=90)
         probe = json.loads(machine.succeed(f"curl --fail --silent --show-error --max-time 5 --cacert /var/lib/nixlab-admin/ca.crt -D /tmp/cookie-headers -H 'Cookie: nixlab_session=host-secret; portainer_auth=native-auth; nixlab_session=second-secret' -H 'Authorization: Bearer test-native-jwt' https://{address}:19443/cookie-probe"))
         assert probe == {"portalLeaked": False, "nativeCookie": True, "bearerPreserved": True}, probe

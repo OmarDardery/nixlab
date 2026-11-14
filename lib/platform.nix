@@ -4,6 +4,7 @@
     ../modules/settings.nix
     ../modules/installed-base.nix
     ../modules/admin-ui.nix
+    ../modules/console.nix
   ];
 
   hypervisor.imports = [
@@ -22,6 +23,7 @@
     ../modules/networking.nix
     ../modules/monitoring.nix
     ../modules/quality-of-life.nix
+    ../modules/console.nix
     ../modules/installed-base.nix
     ../modules/cockpit.nix
     ../modules/connectivity.nix
