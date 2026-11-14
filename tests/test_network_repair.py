@@ -238,6 +238,17 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(again.record['sourceDigest'], checkpoint['sourceDigest'])
         self.assertEqual(again.record['profiles'], checkpoint['profiles'])
 
+    def test_resume_reuses_pinned_identity_when_a_new_launcher_is_downloaded(self):
+        self.prepare()
+        previous = repair.DROPIN.read_text()
+        again = repair.Repair(self.manager)
+        with patch.object(repair, 'dropin', return_value='different launcher'):
+            again.prepare(lambda _: self.fail('Already authorized'), self.choose)
+            self.assertEqual(repair.DROPIN.read_text(), previous)
+            self.observe.return_value = [dict(p, auto='yes') for p in (BRIDGE, PORT)]
+            again.native_identity()
+        self.assertFalse(repair.DROPIN.exists())
+
     def test_source_edits_and_profile_rebinding_refuse_resume(self):
         self.prepare()
         with patch.object(repair.rt, 'digest_source', return_value='edited'):

@@ -237,10 +237,11 @@ class Repair:
                     raise ValueError('Repair cancelled before changes')
                 self.record = {'format': 1, 'interface': name, 'profiles': selected,
                                'modules': None, 'declared': [], 'job': None,
+                               'identityOverride': dropin(self.manager.state / 'network-repair-settings.json'),
                                'sourceDigest': rt.digest_source(self.manager.root)}
                 rt.pin_worker_runtime(self.manager.state)
                 self.save('prepared')
-            if self.record.get('format') != 1:
+            if self.record.get('format') != 1 or not isinstance(self.record.get('identityOverride'), str):
                 raise ValueError('Unsupported network repair checkpoint')
             if not self.record.get('job') and rt.digest_source(self.manager.root) != self.record['sourceDigest']:
                 raise ValueError('Source changed since the recovery checkpoint; review it before retrying')
@@ -261,8 +262,10 @@ class Repair:
             rt.write_json(self.manager.state / 'network-repair-settings.json', settings)
             # Genuine identity validation/certificate generation for the observed
             # address unlocks Incus's local socket. Source and firewall stay intact.
-            if not DROPIN.exists() or DROPIN.read_text() == dropin(self.manager.state / 'network-repair-settings.json'):
-                rt.atomic(DROPIN, dropin(self.manager.state / 'network-repair-settings.json'), mode=0o644)
+            # Keep the checkpoint's pinned helper when main has advanced
+            # between retries. Its runtime remains rooted for this repair.
+            if not DROPIN.exists() or DROPIN.read_text() == self.record['identityOverride']:
+                rt.atomic(DROPIN, self.record['identityOverride'], mode=0o644)
             else:
                 raise ValueError('Another runtime identity override needs manual review')
             run(['systemctl', 'daemon-reload'])
@@ -309,7 +312,7 @@ class Repair:
             if fields.get('Id') in names and fields.get('ActiveState') == 'active':
                 active.append(fields['Id'])
         if DROPIN.exists():
-            if DROPIN.read_text() != dropin(self.manager.state / 'network-repair-settings.json'):
+            if DROPIN.read_text() != self.record['identityOverride']:
                 raise ValueError('Runtime identity override changed; inspect it before continuing')
             rt.durable_unlink(DROPIN)
             run(['systemctl', 'daemon-reload'])
