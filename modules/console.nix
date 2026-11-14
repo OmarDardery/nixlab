@@ -43,7 +43,8 @@ in {
     };
   };
   programs.bash.shellAliases = {
-    ll = lib.mkDefault "ls -lah --group-directories-first --color=auto";
+    # Override the upstream default; ordinary user definitions still win.
+    ll = lib.mkOverride 900 "ls -lah --group-directories-first --color=auto";
     failed = lib.mkDefault "systemctl --failed --no-pager";
     nixlab-update = lib.mkDefault "nix run --refresh github:OmarDardery/nixlab#update";
   };
