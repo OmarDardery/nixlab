@@ -1,6 +1,8 @@
 """Single-command updates retain pinned revisions, ownership and rollback gates."""
 import contextlib
+import copy
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -14,6 +16,47 @@ spec = importlib.util.spec_from_file_location('update_command', BASE / 'installe
 update = importlib.util.module_from_spec(spec); spec.loader.exec_module(update)
 SHA = 'a' * 40
 ID = 'b' * 32
+
+
+def management_settings():
+    settings = json.loads((BASE / 'tests/fixtures/defaults.json').read_text())
+    settings['management'].update(interface='eth0', address='192.0.2.10', prefixLength=24,
+                                  trustedCIDRs=['192.0.2.0/24'])
+    return settings
+
+
+class InterfaceSelectionTests(unittest.TestCase):
+    def test_selects_address_owner_and_preserves_addressing_policy_and_trust(self):
+        for configure in (False, True):
+            settings = management_settings(); settings['management']['configure'] = configure
+            original = copy.deepcopy(settings)
+            with patch.object(update, 'inventory', return_value={'interfaces': [
+                    {'name': 'eth0', 'addresses': []}, {'name': 'br0', 'addresses': ['192.0.2.20/24']}]}):
+                self.assertEqual(update.management_change(settings, 'br0'), {'management': {
+                    'interface': 'br0', 'address': '192.0.2.20', 'prefixLength': 24}})
+            self.assertEqual(settings, original)
+
+    def test_refuses_unaddressed_ambiguous_or_unusable_interfaces(self):
+        for addresses in ([], ['169.254.1.2/16'], ['127.0.0.1/8'], ['2001:db8::1/64'],
+                          ['0.0.0.0/0'], ['224.0.0.1/24'],
+                          ['192.0.2.20/24', '192.0.2.30/24']):
+            with self.subTest(addresses=addresses), patch.object(update, 'inventory', return_value={
+                    'interfaces': [{'name': 'br0', 'addresses': addresses}]}):
+                with self.assertRaisesRegex(ValueError, 'unambiguous usable IPv4'):
+                    update.management_change(management_settings(), 'br0')
+        with patch.object(update, 'inventory', return_value={'interfaces': []}):
+            with self.assertRaises(ValueError): update.management_change(management_settings(), 'missing')
+
+    def test_does_not_expand_trusted_networks(self):
+        with patch.object(update, 'inventory', return_value={'interfaces': [
+                {'name': 'br0', 'addresses': ['198.51.100.10/24']}]}):
+            with self.assertRaisesRegex(ValueError, 'outside existing trusted'):
+                update.management_change(management_settings(), 'br0')
+
+    def test_keeps_known_address_when_bridge_has_multiple_addresses(self):
+        with patch.object(update, 'inventory', return_value={'interfaces': [
+                {'name': 'br0', 'addresses': ['192.0.2.20/24', '192.0.2.10/24']}]}):
+            self.assertEqual(update.management_change(management_settings(), 'br0')['management']['address'], '192.0.2.10')
 
 
 class UpdateTests(unittest.TestCase):
@@ -46,6 +89,48 @@ class UpdateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'cancelled'): update.run(self.manager)
         self.manager.cancel.assert_called_once_with(ID)
         self.manager.apply.assert_not_called(); self.manager.confirm.assert_not_called()
+
+    def test_interface_correction_is_reviewed_even_when_platform_is_current(self):
+        settings = management_settings()
+        self.manager.effective_settings.return_value = settings
+        selected = {'interface': 'br0', 'address': '192.0.2.20', 'prefixLength': 24}
+        built = copy.deepcopy(settings); built['management'].update(selected)
+        self.ready.update(settings=built, effectiveSettings=built)
+        self.pending['effectiveSettings'] = built
+        with patch.object(update, 'inventory', return_value={'interfaces': [
+                {'name': 'eth0', 'addresses': []}, {'name': 'br0', 'addresses': ['192.0.2.20/24']}]}), \
+                patch.object(update, 'already_current', return_value=True) as unchanged:
+            update.run(self.manager, interface='br0')
+        unchanged.assert_not_called()
+        self.manager.review.assert_called_once_with({'management': selected}, revision=SHA, principal=update.PRINCIPAL)
+        self.manager.apply.assert_called_once_with(ID)
+        self.health.assert_called_once_with(built)
+        self.manager.confirm.assert_called_once_with(ID)
+
+    def test_repeated_interface_selection_is_an_idempotent_noop(self):
+        settings = management_settings(); settings['management']['interface'] = 'br0'
+        self.manager.effective_settings.return_value = settings
+        with patch.object(update, 'inventory', return_value={'interfaces': [
+                {'name': 'br0', 'addresses': ['192.0.2.10/24']}]}), \
+                patch.object(update, 'already_current', return_value=True):
+            update.run(self.manager, interface='br0')
+        self.manager.review.assert_not_called(); self.manager.apply.assert_not_called()
+
+    def test_resume_refuses_a_different_interface_without_changing_the_job(self):
+        self.manager.status.return_value = {'job': {**self.ready, 'settings': {'management': {'interface': 'br0'}}}}
+        with self.assertRaisesRegex(ValueError, 'differs from the existing reviewed update'):
+            update.run(self.manager, interface='eth0')
+        self.manager.review.assert_not_called(); self.manager.apply.assert_not_called()
+
+    def test_source_override_of_requested_management_selection_never_activates(self):
+        settings = management_settings(); settings['management']['interface'] = 'br0'
+        self.manager.status.return_value = {'job': {**self.ready, 'settings': settings}}
+        for key, value in (('interface', 'eth0'), ('address', '192.0.2.99'), ('prefixLength', 25)):
+            built = copy.deepcopy(settings); built['management'][key] = value
+            self.manager.status.return_value['job']['effectiveSettings'] = built
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, 'source-owned Nix overrides'):
+                update.run(self.manager, interface='br0')
+        self.manager.apply.assert_not_called()
 
     def test_blocked_or_absent_impact_never_activates(self):
         for plan in ({'blocked': True}, None, {}):

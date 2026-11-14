@@ -126,6 +126,22 @@ For an existing NixLab server, run this in its interactive terminal:
 nix run --refresh github:OmarDardery/nixlab#update
 ```
 
+If management still names an Ethernet port after its address moved onto a bridge,
+select the already-addressed bridge from the host console:
+
+```sh
+nix run --refresh github:OmarDardery/nixlab#update -- --interface br0
+```
+
+This reviews the interface and its observed IPv4 address/prefix in the same guarded
+update. It preserves addressing mode, gateway, DNS, trusted networks and native
+bridge/profile ownership. It does not create a bridge, move addresses or enable
+profile autoconnection. Missing/ambiguous addresses, addresses outside existing
+trusted networks and conflicting Nix overrides are refused. Review the printed
+effects and verify remote access before confirmation; use the same command to
+resume an interrupted update. A different interface cannot replace an active
+review. Reboot persistence still needs a separate check of the native profile.
+
 The command requests sudo itself, resolves main once to a full commit SHA and
 builds through the existing transaction engine. It displays the build/impact
 review and asks before activation. After health checks, open another SSH

@@ -1,5 +1,6 @@
 """One-command platform updates through the existing durable transaction engine."""
 import argparse
+import ipaddress
 import os
 from pathlib import Path
 import re
@@ -12,6 +13,7 @@ import direct
 import diagnostics
 import runtime as rt
 from controller import Manager
+from model import inventory
 from upgrades import main_revision
 
 PRINCIPAL = 'root-update-command'
@@ -34,25 +36,49 @@ def already_current(manager, state, revision):
             and (manager.job_path(job_id) / 'system').resolve() == Path(state['currentSystem']))
 
 
-def run(manager):
+def management_change(settings, interface):
+    """Select an existing address owner; never move addresses or expand trust."""
+    current = settings['management']
+    link = next((link for link in inventory()['interfaces'] if link['name'] == interface), None)
+    addresses = [ipaddress.ip_interface(value) for value in (link or {}).get('addresses', [])]
+    addresses = [value for value in addresses if value.version == 4
+                 and not value.ip.is_loopback and not value.ip.is_link_local
+                 and not value.ip.is_unspecified and not value.ip.is_multicast]
+    selected = next((value for value in addresses if str(value.ip) == current['address']), None)
+    if selected is None:
+        if len(addresses) != 1:
+            raise ValueError('Selected interface needs one unambiguous usable IPv4 address')
+        selected = addresses[0]
+    if not any(selected.ip in ipaddress.ip_network(cidr) for cidr in current['trustedCIDRs']):
+        raise ValueError('Selected address is outside existing trusted management networks; review access policy first')
+    values = {'interface': interface, 'address': str(selected.ip), 'prefixLength': selected.network.prefixlen}
+    return {} if all(current[key] == value for key, value in values.items()) else {'management': values}
+
+
+def run(manager, interface=None):
     state = manager.status()
     record = state.get('job') or {}
     if record.get('status') in ACTIVE:
         if record.get('principal') != PRINCIPAL or not re.fullmatch(r'[0-9a-f]{40}', record.get('platformRevision') or ''):
             raise ValueError('Another configuration transaction is active; finish it in the host console first')
+        if interface is not None and record.get('settings', {}).get('management', {}).get('interface') != interface:
+            raise ValueError('Requested interface differs from the existing reviewed update; finish or cancel that update first')
         print('Resuming update to ' + record['platformRevision'], flush=True)
     else:
         if state.get('pending'):
             raise ValueError('Activation recovery is pending; resolve it in the host console first')
         if not state.get('setupComplete'):
             raise ValueError('Finish initial NixLab setup before running #update')
+        changes = management_change(manager.effective_settings(), interface) if interface is not None else {}
         revision = main_revision()
         print('NixLab main: ' + revision, flush=True)
-        if already_current(manager, state, revision):
+        if not changes and already_current(manager, state, revision):
             print('Platform source and active system are already current.')
             if state.get('rebootRequired'): print('A kernel reboot is pending; reboot separately when ready.')
             return
-        record = manager.review({}, revision=revision, principal=PRINCIPAL)
+        if changes:
+            print('Management selection: ' + str(changes['management']), flush=True)
+        record = manager.review(changes, revision=revision, principal=PRINCIPAL)
         print('Building update; transaction ' + record['id'], flush=True)
         record = manager.job(record['id'])
     job_id = record['id']
@@ -62,6 +88,12 @@ def run(manager):
     if record['status'] == 'building':
         record = direct.wait_for(manager, job_id, {'ready'})
     if record['status'] == 'ready':
+        if interface is not None:
+            expected = record.get('settings', {}).get('management', {})
+            effective = record.get('effectiveSettings', {}).get('management', {})
+            if expected.get('interface') != interface or any(
+                    effective.get(key) != expected.get(key) for key in ('interface', 'address', 'prefixLength')):
+                raise ValueError('Built management selection differs from the request; review source-owned Nix overrides before activation')
         plan = record.get('impactPlan')
         if not isinstance(plan, dict) or plan.get('blocked') is not False:
             raise ValueError('Update has an unavailable or blocked impact plan; inspect Changes in the host console')
@@ -104,14 +136,16 @@ def run(manager):
 
 
 def main():
-    argparse.ArgumentParser(description='Update installed NixLab from main using guarded build/activation.').parse_args()
+    parser = argparse.ArgumentParser(description='Update installed NixLab from main using guarded build/activation.')
+    parser.add_argument('--interface', help='Use this already-addressed management interface through the reviewed update')
+    args = parser.parse_args()
     if os.geteuid() != 0 or not Path('/etc/NIXOS').is_file():
         raise ValueError('Run on the installed NixOS host with administrator privileges')
     if not (rt.ROOT / 'flake.nix').is_file() or not rt.machine_path(rt.ROOT, 'settings').is_file():
         raise ValueError('No installed NixLab configuration found; use #install for initial installation')
     if not sys.stdin.isatty():
         raise ValueError('#update requires an interactive terminal for activation and access confirmation')
-    run(Manager())
+    run(Manager(), interface=args.interface)
 
 
 if __name__ == '__main__':
