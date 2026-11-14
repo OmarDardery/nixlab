@@ -57,6 +57,12 @@ in pkgs.testers.runNixOSTest {
     networking.networkmanager = {
       enable = true;
       settings.main.no-auto-default = "*";
+      # NetworkManager's udev defaults exclude veth. This veth simulates the
+      # physical Ethernet port under test, so explicitly assign only it to NM.
+      settings.device-nixlab-test-port = {
+        match-device = "interface-name:repair-port";
+        managed = true;
+      };
       unmanaged = [ "*" "except:interface-name:repair-port" "except:interface-name:repair-peer" "except:interface-name:br-repair" ];
     };
     systemd.services.nixlab-test-port = {
