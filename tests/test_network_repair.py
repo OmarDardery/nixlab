@@ -26,6 +26,15 @@ class SelectionTests(unittest.TestCase):
         settings = management_settings(); settings['management']['configure'] = False
         return settings
 
+    def test_remote_detection_includes_sudo_inside_cockpit_and_ssh_terminals(self):
+        for parent in ('cockpit-bridge', 'cockpit-session', 'sshd-session', 'login'):
+            files = {'/proc/123/comm': 'sudo', '/proc/123/status': 'PPid:\t124\n',
+                     '/proc/124/comm': parent, '/proc/124/status': 'PPid:\t1\n'}
+            with self.subTest(parent=parent), patch.dict(repair.os.environ, {}, clear=True), \
+                    patch.object(repair.os, 'getpid', return_value=123), \
+                    patch.object(Path, 'read_text', autospec=True, side_effect=lambda path: files[str(path)]):
+                self.assertEqual(repair.workflow.remote_session(), parent != 'login')
+
     def test_follows_active_bridge_and_retains_exact_profile_identities(self):
         self.assertEqual(repair.select(self.settings(), LINKS, [BRIDGE, PORT]), ('br0', [BRIDGE, PORT]))
 
