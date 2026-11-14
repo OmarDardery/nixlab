@@ -7,6 +7,30 @@ covers target-machine acceptance.
 
 ## Daily work
 
+### Host console
+
+Bash includes ble.sh suggestions/highlighting, Tab completion, fzf history search
+with **Ctrl+R** and file search with **Ctrl+T**, and a compact Starship prompt.
+The prompt always identifies the user and host, highlights root, and shows Git/Nix
+context without remote lookups. Existing account shells and personal shell files
+are preserved; native NixOS program options remain overridable.
+
+Interactive login runs `nixlab-fetch`: Fastfetch hardware/resource information plus
+NixLab's observed management address and enabled service URLs, service states,
+backup-service result and test-activation/kernel notices. `nixlab-status` prints
+only the operational summary. These are bounded local observations, not endpoint
+health or successful restore evidence. They do not authenticate, contact registries
+or request sudo. Missing observations stay unknown.
+
+`nixlab-update` runs the normal guarded main update; `failed` lists failed services.
+Noninteractive shells print no welcome screen. `.hushlogin` or an inherited
+`NIXLAB_NO_FETCH=1` disables the login summary. Personal Starship configuration is
+respected. The banner uses ordinary characters, so a special terminal font is not
+required. Bash history ignores space-prefixed commands; avoid entering credentials
+on a command line.
+
+### Maintenance
+
 The Backups page coordinates independent backups, repository checks,
 archive restores, recovery downloads and host health. Use Incus for ordinary guest
 lifecycle, consoles and snapshots. Legacy commands below remain for compatibility.
