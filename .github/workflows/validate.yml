@@ -29,7 +29,9 @@ jobs:
           python3 -m compileall -q admin scripts tests helpers installer
           python3 -m unittest discover -s tests -v
       - name: Build and verify one-command update entrypoint
-        run: nix run .#update -- --help
+        run: |
+          nix run .#update -- --help
+          nix build .#checks.x86_64-linux.installer-runtime --no-link -L
       - name: Validate UI JavaScript
         run: |
           node --check admin/static/app.js

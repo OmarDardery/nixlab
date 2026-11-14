@@ -172,6 +172,7 @@
             (builtins.attrValues bootstrap.config.users.users)));
       };
       checks.x86_64-linux = {
+        installer-runtime = self.packages.x86_64-linux.installer.tests.recovery-guard;
         startup = import ./tests/startup-vm.nix { inherit pkgs; };
         management = import ./tests/management-vm.nix { inherit pkgs; };
         portal = import ./tests/portal-vm.nix { inherit pkgs; };
