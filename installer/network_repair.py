@@ -139,6 +139,9 @@ class Repair:
         with rt.locked(blocking=False):
             state = self.manager.status()
             record = rt.read_json(self.path, {})
+            if record and (record.get('format') != 1 or record.get('phase') not in {
+                    'prepared', 'reviewing', 'activating', 'needs-attention', 'completed', 'cancelled'}):
+                raise ValueError('Unknown network recovery checkpoint; inspect it before retrying')
             job = state.get('job') or {}
             if state.get('pending') or job.get('status') in ACTIVE:
                 # Recover the small disconnect window between review creation
