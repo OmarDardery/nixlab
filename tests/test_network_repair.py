@@ -226,6 +226,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(['systemctl', 'start', 'nixlab-management-identity.service'], commands)
         self.assertEqual(self.identity.call_args.args[0]['management']['interface'], 'br0')
         self.assertEqual(commands[-1], ['systemctl', 'start', 'incus.service', 'incus-startup.service'])
+        resets = [command for command in commands if 'reset-failed' in command]
+        self.assertEqual(resets, [['systemctl', 'reset-failed', 'nixlab-management-identity.service'],
+                                  ['systemctl', 'reset-failed', 'incus.service', 'incus-startup.service']])
         self.assertEqual(self.repair.record['phase'], 'reviewing')
         self.assertTrue(repair.DROPIN.is_file())
         self.assertFalse(any('nft' in command or 'preseed' in command or 'init' in command for command in commands))

@@ -181,6 +181,9 @@ def start_incus():
     if observed not in ('loaded', 'not-found'):
         raise ValueError('Incus shutdown hook needs review: ' + observed)
     units = ['incus.service'] + (['incus-startup.service'] if observed == 'loaded' else [])
+    # Clear stale rate-limit counters after fixing the identity dependency;
+    # real startup must still succeed. Never clear unrelated failed units.
+    run(['systemctl', 'reset-failed', *units])
     # start is idempotent; restarting this oneshot would shut down guests.
     run(['systemctl', 'start', *units], timeout=150)
 
@@ -275,6 +278,7 @@ class Repair:
             # Starting it is idempotent; restarting it here would stop healthy
             # dependents when resuming an update awaiting confirmation.
             diagnostics.identity(settings)
+            run(['systemctl', 'reset-failed', 'nixlab-management-identity.service'])
             run(['systemctl', 'start', 'nixlab-management-identity.service'], timeout=150)
             start_incus()
             self.save('reviewing')
@@ -322,6 +326,7 @@ class Repair:
                 raise ValueError('Runtime identity override changed; inspect it before continuing')
             rt.durable_unlink(DROPIN)
             run(['systemctl', 'daemon-reload'])
+        run(['systemctl', 'reset-failed', 'nixlab-management-identity.service'])
         run(['systemctl', 'restart', 'nixlab-management-identity.service'], timeout=150)
         if active: run(['systemctl', 'start', *active], timeout=180)
         start_incus()
