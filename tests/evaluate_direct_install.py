@@ -35,6 +35,8 @@ with tempfile.TemporaryDirectory(prefix='nixlab-direct-eval-') as folder:
       imports = [ ./hardware-configuration.nix ];
       system.stateVersion = "25.11";
       networking.networkmanager.enable = true;
+      programs.bash.shellAliases.ll = "ls --all";
+      programs.starship.settings.directory.truncation_length = 5;
       users.users.root.openssh.authorizedKeys.keys = [ %s ];
       users.users.reader = { isNormalUser = true; openssh.authorizedKeys.keys = [ %s ]; };
       users.users.administrator = {
@@ -69,6 +71,8 @@ with tempfile.TemporaryDirectory(prefix='nixlab-direct-eval-') as folder:
       displayManager = c.services.displayManager.enable;
       suspend = c.systemd.sleep.settings.Sleep.AllowSuspend;
       readerKeys = c.users.users.reader.openssh.authorizedKeys.keys;
+      alias = c.programs.bash.shellAliases.ll;
+      promptLength = c.programs.starship.settings.directory.truncation_length;
     }''')
     assert actual['stateVersion'] == '25.11', actual
     assert actual['rootDevice'] == '/dev/disk/by-label/TEST-ONLY', actual
@@ -77,6 +81,7 @@ with tempfile.TemporaryDirectory(prefix='nixlab-direct-eval-') as folder:
     assert actual['passwordSSH'] and actual['rootSSH'] == 'no', actual
     assert not actual['displayManager'] and not actual['suspend'], actual
     assert actual['readerKeys'] == [key(2)], actual
+    assert actual['alias'] == 'ls --all' and actual['promptLength'] == 5, actual
     assert actual['settings']['management'] == settings['management'], actual
     assert set(actual['settings']['adminKeys']) == {key(1), key(3)}, actual
     # Evaluate the actual system derivation to force NixOS assertions too.

@@ -6,7 +6,7 @@ let
     text = ''exec python3 ${../scripts/console_status.py} "$@"'';
   };
   fetchConfig = pkgs.writeText "nixlab-fastfetch.json" (builtins.toJSON {
-    logo = { type = "data"; source = "NIXLAB\nNixOS + Incus"; };
+    logo = { type = "data"; source = "NIXLAB\nNixOS + Incus"; padding.right = 4; };
     modules = [
       "title" "separator"
       { type = "custom"; key = "NixLab"; format = lib.removeSuffix "\n" (builtins.readFile ../VERSION); }
@@ -29,7 +29,7 @@ in {
   programs.fzf = { keybindings = lib.mkDefault true; fuzzyCompletion = lib.mkDefault true; };
   programs.starship = {
     enable = lib.mkDefault true;
-    settings = {
+    settings = lib.mapAttrsRecursive (_: value: lib.mkDefault value) {
       add_newline = true;
       command_timeout = 250;
       scan_timeout = 50;
