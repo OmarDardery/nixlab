@@ -75,6 +75,9 @@ corrected = copy.deepcopy(broken)
 corrected['management']['interface'] = 'br-repair'
 rt.write_json(Path('/var/lib/nixlab-test-identity.json'), corrected)
 recovery.native_identity()
+assert command(['incus', 'config', 'get', 'native', 'volatile.uuid', '--project', 'lab']) == original
+assert command(['incus', 'exec', 'native', '--project', 'lab', '--disable-stdin', '--',
+                '/bin/cat', '/var/lib/test/index.html']) == 'preserved'
 assert not repair.DROPIN.exists()
 recovery.finish(True)
 assert rt.read_json(recovery.path)['phase'] == 'completed'

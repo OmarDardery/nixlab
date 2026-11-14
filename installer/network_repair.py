@@ -235,12 +235,24 @@ class Repair:
             raise ValueError('A management profile has autoconnect disabled after activation')
 
     def native_identity(self):
+        # Restarting a required oneshot can stop its dependents. Restore only
+        # units that were active, so an optional disabled service stays disabled.
+        names = ['incus.service', 'incus-preseed.service', 'nixlab-instances.service',
+                 'nixlab-admin-backend.service', 'nixlab-ui.service', 'nginx.service',
+                 'cockpit.service', 'nixlab-apps-onboarding.service']
+        observed = run(['systemctl', 'show', '--property=Id,ActiveState', *names], capture_output=True).stdout
+        active = []
+        for block in observed.strip().split('\n\n'):
+            fields = dict(line.split('=', 1) for line in block.splitlines() if '=' in line)
+            if fields.get('Id') in names and fields.get('ActiveState') == 'active':
+                active.append(fields['Id'])
         if DROPIN.exists():
             if DROPIN.read_text() != dropin(self.manager.state / 'network-repair-settings.json'):
                 raise ValueError('Runtime identity override changed; inspect it before continuing')
             rt.durable_unlink(DROPIN)
             run(['systemctl', 'daemon-reload'])
         run(['systemctl', 'restart', 'nixlab-management-identity.service'], timeout=150)
+        if active: run(['systemctl', 'start', *active], timeout=180)
         self.validate_live()
 
     def finish(self, success):
