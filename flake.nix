@@ -54,7 +54,7 @@
         hardware.serialAliases = [ { name = "example"; vendorId = "1234"; productId = "5678"; serial = "FIXTURE-ONLY"; } ];
       };
     in {
-      nixosModules = import ./lib/platform.nix { lib = nixpkgs.lib; };
+      nixosModules = import ./lib/platform.nix;
       nixosConfigurations = {
         hypervisor = mkHost site apps [ ];
         inherit apps bootstrap;

@@ -1,6 +1,6 @@
 { lib, pkgs, site ? import ./site.nix, ... }:
 {
-  imports = [ (import ./lib/platform.nix { inherit lib; }).hypervisor ]
+  imports = [ (import ./lib/platform.nix).hypervisor ]
     ++ (import ./lib/site-modules.nix (import ./lib/machine.nix ./.).modules);
   assertions = [
     { assertion = site.ready; message = "Complete site.nix from real hardware/network inventory and set ready=true."; }

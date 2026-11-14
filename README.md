@@ -179,7 +179,7 @@ recovery, but are no longer authoritative after migration.
 
 See [file configuration](docs/file-modules.md) for typed settings, named guests,
 disks, reviewed uploads and the migration procedure. Feature composition is
-covered in `platform-modules/`; mutable guest data still needs independent backups.
+listed in `lib/platform.nix`; mutable guest data still needs independent backups.
 
 ### Focused host foundation
 

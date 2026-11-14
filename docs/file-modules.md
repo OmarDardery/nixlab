@@ -77,20 +77,19 @@ Use `cancel` for an unapplied candidate, or `rollback` with the transaction ID.
 The CLI does not wait for builds or implicitly confirm connectivity. Use the
 returned status/log to decide when to apply. No extra network service is started.
 
-## Platform feature composition
+## Platform role composition
 
-`platform-modules/features/` is an automatically discovered tree of top-level
-Nix modules. Each feature contributes deferred NixOS modules under
-`nixosModules.hypervisor`, `.bootstrap` or `.applications`. `lib/platform.nix`
-evaluates the feature tree using `lib.evalModules`; no additional flake dependency
-is required. The flake exports these role modules for reuse. This follows the
-dendritic top-level-module pattern without requiring flake-parts.
+`lib/platform.nix` lists the NixOS implementations for three explicit roles:
+bootstrap, hypervisor and applications. The flake exports them as
+`nixosModules.bootstrap`, `.hypervisor` and `.applications`. Implementations live
+in `modules/` and retain their own enable flags; bootstrap loads only settings,
+the installed base and administration.
 
-The existing `modules/` implementations remain lower-level compatibility modules.
-Do not drop them into `platform-modules/` directly: wrap them as a feature's
-`nixosModules.<role>.imports`. Hardware and site data remain separate, and the
-bootstrap role deliberately loads only installed-base and administration features.
-Discovery makes features available; optional services retain their enable flags.
+Machine/site modules are still discovered separately using the rules above.
+They are not platform feature wrappers. Add local customization there, or consume
+the public flake role exports. The former internal `platform-modules/features/`
+forwarding layer is removed; `lib/platform.nix` is now an attribute set rather
+than a function taking `lib`. This changes no settings schema or persistent data.
 
 ## Migrating an existing installation
 

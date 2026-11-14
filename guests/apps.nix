@@ -1,6 +1,6 @@
-{ lib, pkgs, modulesPath, site, ... }:
+{ lib, site, ... }:
 {
-  imports = [ (import ../lib/platform.nix { inherit lib; }).applications ];
+  imports = [ (import ../lib/platform.nix).applications ];
   networking.hostName = "apps";
   networking.useDHCP = true;
   time.timeZone = site.maintenance.timeZone;
