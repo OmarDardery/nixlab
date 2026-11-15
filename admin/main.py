@@ -566,6 +566,36 @@ def guests_cli(argv):
     print(json.dumps(result, indent=2))
 
 
+def enroll_key(manager, public_key_file, settings):
+    """Stage a public key without claiming that local probes prove client access."""
+    import diagnostics
+    keys = [line.strip() for line in Path(public_key_file).read_text().splitlines()
+            if line.strip() and not line.lstrip().startswith('#')]
+    if not keys: raise ValueError('The public key file is empty')
+    candidate = manager.settings()
+    candidate['adminKeys'] = sorted(set(candidate['adminKeys'] + keys))
+    # Use the same reviewed transaction and health checks as setup.
+    job_id = manager.review(candidate, principal='root-key-enrollment')['id']
+    print('Building key enrollment transaction: ' + job_id, flush=True)
+    # Poll locally; workers survive this CLI being disconnected.
+    while True:
+        manager.status()  # Reconcile a stopped worker before reading this exact job.
+        record = manager.job(job_id)
+        if record['status'] != 'building': break
+        time.sleep(1)
+    if record['status'] != 'ready': raise ValueError(record.get('error', record['status']))
+    manager.apply(job_id)
+    while True:
+        record = manager.job(job_id)
+        if record['status'] != 'applying': break
+        time.sleep(1)
+    if record['status'] != 'awaiting-confirmation': raise ValueError(record.get('error', record['status']))
+    diagnostics.wait_ready(record.get('effectiveSettings', candidate))
+    print('Test the new key in a fresh session: ssh operator@' + diagnostics.management_address(settings), flush=True)
+    rt.pending_access(job_id, record)
+    return record
+
+
 if __name__ == '__main__':
     os.umask(0o027)
     action = sys.argv[1] if len(sys.argv) > 1 else ''
@@ -593,29 +623,7 @@ if __name__ == '__main__':
                         time.sleep(2)
             elif action == 'enroll-key':
                 if len(sys.argv) != 3: raise ValueError('Usage: sudo nixlab enroll-key laptop.pub')
-                keys = [line.strip() for line in Path(sys.argv[2]).read_text().splitlines()
-                        if line.strip() and not line.lstrip().startswith('#')]
-                if not keys: raise ValueError('The public key file is empty')
-                candidate = manager.settings()
-                candidate['adminKeys'] = sorted(set(candidate['adminKeys'] + keys))
-                # Use the same reviewed transaction and health checks as setup.
-                job_id = manager.review(candidate, principal='root-key-enrollment')['id']
-                print('Building key enrollment transaction: ' + job_id, flush=True)
-                # Poll locally; workers survive this CLI being disconnected.
-                while True:
-                    record = manager.status()['job']
-                    if record['status'] != 'building': break
-                    time.sleep(1)
-                if record['status'] != 'ready': raise ValueError(record.get('error', record['status']))
-                manager.apply(job_id)
-                while True:
-                    record = manager.job(job_id)
-                    if record['status'] != 'applying': break
-                    time.sleep(1)
-                if record['status'] != 'awaiting-confirmation': raise ValueError(record.get('error', record['status']))
-                diagnostics.wait_ready(record.get('effectiveSettings', candidate))
-                manager.confirm(job_id)
-                print('Client key enrolled for operator. Connect with ssh operator@' + diagnostics.management_address(settings))
+                enroll_key(manager, sys.argv[2], settings)
             else:
                 if sys.argv[2:] != ['reset-password']: raise ValueError('Usage: sudo nixlab portainer reset-password')
                 import portainer
