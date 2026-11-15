@@ -16,6 +16,53 @@ changing them. Planned changes are not claims that a feature already exists.
 | Independent backup and restore evidence | `scripts/backup.py`, `admin/operations.py`, `admin/recovery.py` | `tests/test_backup_plan.py`, `tests/test_platform.py` |
 | Dependencies and qualification | `flake.lock` pins Nix inputs; `scripts/release.py` validates release evidence | `tests/test_release.py`, `.github/workflows/release.yml` |
 
+### Frozen compatibility surface (CR-01)
+
+`tests/fixtures/architecture-contract.json` is the **versioned public-surface
+inventory**, with assertions in `tests/test_compatibility_surface.py`. It
+characterizes existing interfaces; it is not a specification that unsafe defaults
+or implementation details must be retained. Running the source-only tests does
+not replace the evaluated NixOS/Incus and rollback integration tests.
+
+| Boundary | Canonical source / data owner | Public/stable surface | Failure or migration gate |
+|---|---|---|---|
+| Host settings, defaults, and legacy schema | `site-defaults.nix`, `lib/settings-migrations.nix`, `lib/settings.nix`, `site.nix`; Python only validates request inputs | `machine/settings.json` (layout v1), legacy `local/settings.json`, `schemaVersion`, file-module overrides | #49; default/list/override/legacy tests and reject unknown future versions |
+| Host mutation | `admin/controller.py` `Manager` + `admin/worker.py` | Review, build, impact plan, apply, confirm, rollback, cancel; `active.json`, `pending.json`, `last-confirmed.json`, `jobs/` | #50/#52; preserved previous generation, live access check, interrupt and stopped-worker tests |
+| Entry points and HTTPS API | `installer/package.nix`, `admin/package.nix`, `admin/main.py` | `nix run .#install`, `nix run .#update`, `nixlab-admin` and authenticated `/api/*` paths/response fields | #50/#55/#62; public alias/route/shape regression before renaming; sensitive output is **not** protected compatibility |
+| Listener/exposure policy | `modules/settings.nix`, `modules/networking.nix`, `modules/admin-ui.nix`, service-owned listeners | Management HTTPS, Cockpit, Incus, optional app proxy and explicit trusted CIDRs | #51; collision/bind/scope tests, management access/rollback. Present fragmented policy is a gap |
+| Identity and certificate lifecycle | `modules/admin-ui.nix` management identity; `admin/runtime.py` certificate and password primitives; Linux PAM for Cockpit, Incus trust for UI, Portainer DB for apps | Existing portal session and separate Cockpit/Incus/Portainer identity; `nixlab-management-identity.service` | #57/#61–#68; never freeze credential printing, blanket trust or weak onboarding |
+| Incus declared infrastructure | Native Incus preseed + `scripts/infrastructure.py`; reconciled instance fields via `scripts/reconcile.py` | Reserved project/profile/network/pool, last-applied state, ETag/ownership; **native** guests survive source changes | #47/#9; drift and changed-precondition refusal, no deletion of unowned guest state |
+| Apps VM and Compose | Incus owns apps VM/disk; Docker/Portainer or user's Compose repository owns containers/stacks and Portainer DB | Persistent guest disks, volumes and specialist UI | #10/#16/#58; updates cannot claim data rollback or overwrite existing specialist identity |
+| Backup and restore evidence | `scripts/backup.py`, `admin/operations.py`, `admin/recovery.py` and restic | Staged manifest, independent archive, integrity result and **actual restore proof** are distinct | #11/#12/#53; incomplete stage, exclusions and interruption never count as verified restore |
+| Monitoring and alerts | `modules/monitoring.nix`, `modules/notifications.nix` | Prometheus/optional historical metrics, failure notification | #53; Alertmanager is the planned normal router, **not currently assumed implemented** |
+| Nix/OCI dependencies | Single `flake.lock`; OCI image/template references currently live in their owning services | `nixosModules`, `nixosConfigurations`, `packages`, `apps`, `checks` | #54/#58; one lock and planned reviewed OCI manifest, no second dependency authority |
+| Release evidence | `scripts/release.py`, CI workflows, commissioning/recovery reports | `VERSION`, checks/qualification gates, source revision | #56/#8; machine-readable release contract planned, physical evidence remains distinct |
+
+**Compatibility policy.** Changes to the manifest's flake paths, CLI aliases,
+authenticated portal routes/response fields, state paths, machine format, or
+systemd unit identities require an explicit compatibility adapter or migration,
+a tested rollback and an intentional inventory update. New endpoints/options
+can be added without forcing all clients to change. The independent state
+formats (`machine/format.json` and settings `schemaVersion`) must not be
+conflated. No test should preserve installer auto-confirmation, plain-text
+password disclosure, overly broad exposure, or an unverified health/restore
+claim just because those behaviors once existed.
+
+**Failure traceability (S02–S09).** Legacy/modern snapshots, list overlay and
+future-layout refusal: `test_architecture_contract.py`,
+`test_compatibility_surface.py`, `test_setup.py`,
+`tests/settings-checks.nix`. Worker interruption and action locks:
+`test_worker_inspection.py`, `test_installer_workflow.py`,
+`test_update_command.py`, `test_bootstrap_transaction.py`,
+`tests/bootstrap-transaction-vm.nix`. Incus ETags/native preservation and
+partial inventory: `test_impact.py`, `test_guest_network.py`,
+`tests/foundation-vm.nix`. Secret cleanup and recoverability:
+`test_secret_cleanup.py`, `test_backup_plan.py`,
+`tests/management-vm.nix`. Release evidence:
+`test_release.py`, `.github/workflows/validate.yml`.
+The current installed system or guest-data recovery is **never** inferred from
+a source-only passing test; on-host commissioning is a separate qualification.
+
 Settings JSON uses `schemaVersion = 1`; `machine/format.json` independently
 versions the directory layout. `lib/settings-migrations.nix` is the only migration
 implementation. The broker reads normalized desired settings through the selected
