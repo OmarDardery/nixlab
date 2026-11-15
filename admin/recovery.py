@@ -173,19 +173,19 @@ def export(directory, recipient=None, include_secrets=False):
         output = directory / 'nixlab-secrets.tar.gz.age'
         output.unlink(missing_ok=True)
         process = subprocess.Popen(['age', '--encrypt', '--recipient', recipient, '--output', str(output)], stdin=subprocess.PIPE,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             write_archive(process.stdin, secret_files(), 'secrets')
             process.stdin.close()
-            error = process.stderr.read()
-            if process.wait(timeout=60): raise ValueError('Secret encryption failed: ' + error.decode(errors='replace')[-1000:])
+            if process.wait(timeout=60):
+                raise ValueError('Secret encryption failed; verify the age recipient and retry')
             output.chmod(0o600)
         except Exception:
             if process.poll() is None: process.kill(); process.wait()
             output.unlink(missing_ok=True)
             raise
         finally:
-            process.stderr.close()
+            process.stdin.close()
         result['encryptedSecrets'] = str(output)
     return result
 
