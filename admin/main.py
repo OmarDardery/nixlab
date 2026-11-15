@@ -193,7 +193,7 @@ def backend():
                     import recovery
                     result = recovery.download(body.get('recipient'))
                 elif self.path == '/browser-certificate':
-                    result = manager.browser_certificate()
+                    result = manager.browser_certificate(body.get('device'), body.get('passphrase'))
                 else:
                     return reply(self, 404, {'error': 'Unknown action'})
                 reply(self, 200, result)

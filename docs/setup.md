@@ -173,9 +173,11 @@ existing VM's NixOS configuration; importing a new image alone would not do that
 Runtime credentials and a separate application TLS key are delivered through Incus file/exec
 operations. Portainer remains stopped until its required files exist. The host portal links to:
 
-- `https://HOST_IP:8443`: Incus Web UI. **Create browser certificate** downloads a revocable,
-  password-encrypted PKCS#12 identity. Import it into your browser/OS personal certificates,
-  then open Incus. The password is shown once; keep it and the identity private.
+- `https://HOST_IP:8443` is the Incus Web UI. Under access settings, enter a device name
+  and a dedicated bundle passphrase, then choose **Create an Incus browser identity**.
+  Import the encrypted PKCS#12 file using that passphrase. Open Incus and select the
+  `lab` project. The identity is restricted to that project and expires after 90 days.
+  To revoke it, use the displayed fingerprint in the native Incus trust list.
 - `https://HOST_IP:9441`: Portainer through Nginx. The proxy checks the applications VM's TLS
   chain/name against the local CA. It permits trusted management CIDRs and supports WebSockets.
   The host TLS key is not shared with the VM. Log in with the Portainer bootstrap credential.
