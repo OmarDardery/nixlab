@@ -170,6 +170,10 @@ def main():
             page.wait_for_function("state.platformRevision === 'b'.repeat(40)")
             page.locator('#platform-password').fill('disposable-ui-fixture-password')
             page.locator('#platform-ack').check()
+            # A status refresh rerenders the page; privileged approval must survive.
+            page.evaluate("shell()")
+            assert page.locator('#platform-password').input_value() == 'disposable-ui-fixture-password'
+            assert page.locator('#platform-ack').is_checked()
             page.get_by_role('button', name='Build & review configuration', exact=True).click()
             page.wait_for_function("state.status.job?.status === 'building'")
             request = next(body for action, body in submitted if action == 'review')
