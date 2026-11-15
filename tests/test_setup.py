@@ -753,12 +753,21 @@ main.backend()
             body={'settings':{},'modules':{'archive.nix':'{}'}} | extra
             data,_,status=self.request('/api/review',body,origin=self.origin)
             self.assertEqual(status,400)
-            self.assertIn('Reauthenticate',data['error'])
+            self.assertIn('Acknowledge' if not extra else 'password verification failed',data['error'])
 
     def test_platform_upgrade_requires_reauthentication_before_a_job_is_created(self):
         data,_,status=self.request('/api/review',{'settings':{},'revision':'a'*40},origin=self.origin)
         self.assertEqual(status,400)
-        self.assertIn('Reauthenticate',data['error'])
+        self.assertIn('Acknowledge',data['error'])
+        for approval in ('true', False, None):
+            data, _, status = self.request('/api/review', {'settings': {}, 'revision': 'a'*40,
+                'acknowledgePrivilegedModules': approval, 'adminPassword': 'https-test-password'}, origin=self.origin)
+            self.assertEqual(status, 400)
+            self.assertIn('Acknowledge', data['error'])
+        data, _, status = self.request('/api/review', {'settings': {}, 'revision': 'a'*40,
+            'acknowledgePrivilegedModules': True, 'adminPassword': 'wrong'}, origin=self.origin)
+        self.assertEqual(status, 400)
+        self.assertIn('password verification failed', data['error'])
         self.assertEqual(list((self.state/'jobs').iterdir()),[])
 
     def test_viewer_cannot_mutate_and_role_changes_revoke_live_https_session(self):
