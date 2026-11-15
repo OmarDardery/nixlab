@@ -1,5 +1,13 @@
 # Operating the single-host release
 
+The Backups page distinguishes export/off-host backup status from repository
+verification. Its repository result includes actual metadata/full-read scope,
+schedule, interrupted/failed/unknown states and clock warnings. Changing the target
+requires new evidence; a previous repository's success does not carry over. See
+[repository verification](recovery.md#scheduled-repository-verification) for the
+existing service, typed Nix policy and recovery limits. A successful integrity
+check is separate from a tested guest/application restore.
+
 Install from an existing NixOS system using the [single command](plain-nixos.md).
 The installer configures and verifies Incus, Cockpit and the Portainer VM, preserves
 installed data and resumes interrupted work. The [commissioning checklist](commissioning.md)

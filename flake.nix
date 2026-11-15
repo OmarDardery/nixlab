@@ -175,6 +175,12 @@
             (builtins.attrValues bootstrap.config.users.users)));
       };
       checks.x86_64-linux = {
+        backup-verification = pkgs.runCommand "nixlab-backup-verification" {
+          nativeBuildInputs = [ pkgs.python3 pkgs.restic ];
+        } ''
+          PYTHONPATH=${./admin}:${./scripts}:${./tests} python3 ${./tests/backup-verification-integration.py}
+          touch $out
+        '';
         startup = import ./tests/startup-vm.nix { inherit pkgs; };
         management = import ./tests/management-vm.nix { inherit pkgs; };
         portal = import ./tests/portal-vm.nix { inherit pkgs; };

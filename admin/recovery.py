@@ -51,6 +51,9 @@ def health():
     import backup_health
     settings = rt.read_json(Path('/etc/nixlab/effective-settings.json'), rt.read_json(rt.machine_path(rt.ROOT, 'settings'), {}))
     result['backup']['health'] = backup_health.status(settings.get('backup', {}).get('enable', False))
+    import backup_verification
+    result['backup']['verification'] = backup_verification.status(settings.get('backup', {}).get('enable', False),
+                                                                repository=settings.get('backup', {}).get('repository'))
     # No arbitrary journal or command output is collected: either can contain
     # bootstrap passwords, URLs with tokens, application data or private material.
     return result

@@ -27,6 +27,63 @@ and root worker journal from a local console if recovery fails; the retained
 original OS generation and bootloader remain the fallback. Recovery does not need
 the apps VM, Portainer or an application identity service.
 
+## Scheduled repository verification
+
+When restic backups are enabled, the existing `nixlab-backup-check.service` has a
+persistent Sunday 05:00 timer with up to 30 minutes of jitter. It defaults to
+metadata checks, which validate repository structure and indexes but **do not read
+every data block**. A full repository read is available through the same service:
+
+```nix
+{ ... }: {
+  nixlab.backupVerification = {
+    enable = true;
+    mode = "full";
+    schedule = "Sun *-*-* 05:00:00";
+  };
+}
+```
+
+Review this module through the existing file configuration workflow. These are
+typed NixOS options, not a second mutable settings file. The portal displays the
+configured schedule, actual last-check scope and outcome; the existing **Check
+restic repository** action and `sudo nixlab-admin guests backup-check` run the
+same service. Setting `enable=false` disables scheduling while preserving manual
+checks. Changing policy lets an active read finish; its evidence retains its
+actual scope and the next run uses the new policy.
+
+Full reads can consume substantial bandwidth and I/O. Neither mode stops guests,
+imports archives, prunes snapshots or proves that an application can be restored.
+Restic's own repository locks remain in force; a simultaneous backup/prune,
+unreachable repository or bad credential can fail a check. Adjust scheduling to
+avoid long backups and rerun after resolving the cause. Existing service-failure
+webhooks also cover checks when notifications are configured; full Alertmanager
+routing and restore-drill qualification remain separate work.
+
+The root-only `/var/lib/nixlab/backup-verification.json` stores the latest result
+and previous success. Root-only target fingerprints prevent evidence for an old
+repository from qualifying a new one; fingerprints and repository URLs are not
+public status fields. Raw restic stdout/stderr is discarded because remote errors
+can contain credentials or server responses. The journal provides a static failure
+notice, and protected host credentials remain available for deliberate console
+diagnosis. Keep repository URI credentials outside Nix/Git; use the supported
+runtime environment/password files, including RESTIC_REST_USERNAME/PASSWORD for
+REST authentication.
+
+Missing/corrupt/future evidence is unknown, an interrupted read remains
+interrupted, and a later failure takes precedence over a previous success. A timer
+trigger with no completed check becomes overdue using native systemd trigger
+timestamps. Unsynchronized/invalid clock observations warn against treating check
+timestamps as reliable freshness evidence. This does not certify off-host transfer
+or a restore drill.
+
+Existing settings JSON stays at schema version 1. A reviewed source update adds
+the timer for hosts already enabling backups; no repository is reformatted and no
+credential or guest state is migrated. Reverting source removes the new timer and
+returns the previous check command. The extra evidence file can remain and is not
+interpreted as backup/application state by older code. A failed evidence write or
+read-only/full state filesystem fails verification rather than reporting success.
+
 ## Storage policy
 
 | Backend | Benefits | Limits |

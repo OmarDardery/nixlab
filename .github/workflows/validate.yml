@@ -60,6 +60,13 @@ jobs:
           nix-instantiate --eval --strict --json site.nix > /tmp/nixlab-desired.json
           python3 -c 'import json; assert json.load(open("/tmp/nixlab-desired.json"))["schemaVersion"] == 1'
       # Fail native lifecycle/network recovery early, before larger guest images.
+      - name: Verify real restic integrity checks and corruption detection
+        run: |
+          nix build .#checks.x86_64-linux.backup-verification --no-link -L
+          test "$(nix eval --json .#nixosConfigurations.validation-services.config.nixlab.backupVerification.enable)" = "true"
+          test "$(nix eval --json .#nixosConfigurations.validation-minimal.config.nixlab.backupVerification.enable)" = "false"
+          nix eval --json .#nixosConfigurations.validation-services.config.systemd.timers.nixlab-backup-check.timerConfig > /tmp/nixlab-verification-timer.json
+          python3 -c 'import json; timer=json.load(open("/tmp/nixlab-verification-timer.json")); assert timer["Persistent"] and timer["OnCalendar"] == "Sun *-*-* 05:00:00"'
       - name: Activate bootstrap and verify rollback after reboot
         run: nix build .#checks.x86_64-linux.bootstrap-transaction --no-link -L
       - name: Boot real Incus containers and verify host integration and restore

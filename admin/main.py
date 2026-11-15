@@ -115,13 +115,15 @@ def backend():
                     result = guest_network.inventory() if manager.effective_settings()['ready'] else {'available': False, 'guests': [], 'conflicts': []}
                 elif self.path == '/operations':
                     import backup
+                    import backup_verification
                     settings = manager.effective_settings()
                     unit = subprocess.run(['systemctl', 'show', 'restic-backups-nixlab.service',
                                            '--property=ActiveState,SubState,Result'], capture_output=True, text=True, timeout=10)
                     result = {'jobs': operations.status(), 'archives': operations.archives(),
                               'generations': backup.generations(Path(settings['backup']['stagingDirectory'])),
                               'backupService': dict(line.split('=', 1) for line in unit.stdout.splitlines() if '=' in line),
-                              'backupStatus': rt.read_json(Path('/var/lib/nixlab/backup-status.json'), {})}
+                              'backupStatus': rt.read_json(Path('/var/lib/nixlab/backup-status.json'), {}),
+                              'backupVerification': backup_verification.status(settings['backup']['enable'], repository=settings['backup']['repository'])}
                 elif self.path == '/guests':
                     result = {'guests': guests() if manager.settings()['ready'] else []}
                 elif self.path.startswith('/deployment/'):
