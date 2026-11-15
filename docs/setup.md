@@ -320,13 +320,23 @@ copyable commands and upstream credits; its links never execute installers. See
 
 ## Access confirmation after terminal installation
 
-The direct installer, initial wizard bootstrap and resumed installations leave activation awaiting
-confirmation after local health checks pass. Open a new SSH connection or use
-the local console, verify management access and workloads, then confirm in the
-portal or run `sudo nixlab-admin config confirm TRANSACTION_ID` using the ID
-printed by the installer. The printed deadline applies; without confirmation the
-existing independent guard rolls back. A successful local probe or an SSH session
-that remained open through activation does not prove that a new login works.
+The direct installer, initial wizard bootstrap, resumed installations and `#update`
+share the same Manager/worker review, exact built closure and rollback guard.
+After local health checks pass, activation remains **unconfirmed**. Open a new
+SSH or Cockpit terminal **after** the new system is ready, or use the physical
+host console; verify management access and then run
+`sudo nixlab-admin config confirm TRANSACTION_ID` in that new session. A
+`/dev/pts` session that predates activation cannot confirm. Alternatively,
+reconnect to the current HTTPS portal from a non-loopback client, **sign out
+and sign in again after activation**, then click **Confirm access**. A previous
+browser cookie or a loopback-only portal probe cannot confirm remote access.
+
+The printed deadline applies; without confirmation the independent guard
+restores the previous generation. You may request `config rollback` before
+expiry if a new session fails. An existing-host installer retry now snapshots
+source and installation metadata into the *same* guarded transaction; it does
+not publish either during planning. A host generation rollback restores
+matching NixLab platform/settings/inventory, not arbitrary guest or app data.
 
 Bootstrap jobs use the fixed `bootstrap` role and preserve `ready=false`; ordinary
 host jobs use `hypervisor`. Historical jobs without a role remain hypervisor jobs.
