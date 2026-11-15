@@ -216,7 +216,7 @@ class ReadinessTests(unittest.TestCase):
                 self.assertIn('/api/system/status', calls)
                 self.assertEqual('/api/status' in calls, status == 404)
 
-    def test_resume_waits_for_existing_worker_and_checks_health_before_confirm(self):
+    def test_resume_checks_health_but_cannot_confirm_remote_access(self):
         manager = Mock()
         ready = {'id': 'a' * 32, 'status': 'ready', 'settings': initial()}
         awaiting = dict(ready, status='awaiting-confirmation')
@@ -225,7 +225,7 @@ class ReadinessTests(unittest.TestCase):
         manager.review.assert_not_called()
         manager.apply.assert_called_once_with('a' * 32)
         healthy.assert_called_once()
-        manager.confirm.assert_called_once_with('a' * 32)
+        manager.confirm.assert_not_called()
         with patch('diagnostics.wait_ready', side_effect=ValueError('not ready')):
             manager.reset_mock()
             with self.assertRaises(ValueError): direct.resume(manager, awaiting)
