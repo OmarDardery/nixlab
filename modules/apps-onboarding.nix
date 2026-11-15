@@ -77,9 +77,6 @@ in {
         };
       };
     };
-    networking.firewall.extraInputRules = ''
-      iifname ${builtins.toJSON site.management.interface} ip saddr { ${lib.concatStringsSep ", " site.management.trustedCIDRs} } tcp dport ${toString site.apps.portainerPort} accept
-    '';
   };
 }
 

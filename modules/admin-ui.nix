@@ -6,6 +6,7 @@ let
     then builtins.fromJSON (builtins.readFile (import ../lib/machine.nix ../.).installation)
     else { interface = site.management.interface; trustedCIDRs = site.management.trustedCIDRs; };
 in {
+  imports = [ ./management.nix ];
   config = lib.mkIf enabled {
     users.groups.nixlab-ui = { };
     users.users.nixlab-ui = { isSystemUser = true; group = "nixlab-ui"; };
@@ -29,7 +30,8 @@ in {
     ];
     # During bootstrap retain the existing firewall implementation. The HTTPS process
     # also enforces source CIDRs; after conversion the host uses nftables.
-    networking.firewall.interfaces."${if site.ready then site.management.interface else install.interface}".allowedTCPPorts = [ 80 site.setup.port ];
+    networking.firewall.interfaces."${if site.ready then site.management.interface else install.interface}".allowedTCPPorts =
+      lib.mkIf (!config.nixlab.managementPolicy.enforceFirewall) [ 80 site.setup.port ];
     # Port 80 is an entry point only. Authenticate over the existing private
     # HTTPS portal, never a plaintext HTTP login/session. Keep the NixLab host
     # UI separate from guest applications which may also use port 80 on their IP.

@@ -134,8 +134,32 @@
         c = self.nixosConfigurations.validation-management.config;
         legacy = self.nixosConfigurations.validation-setup.config;
         proxy = c.services.nginx.virtualHosts.nixlab-portainer;
+        lib = nixpkgs.lib;
+        inventory = builtins.fromJSON c.environment.etc."nixlab/management-exposure.json".text;
+        filtered = builtins.filter (item: item.exposure == "local") inventory.listeners;
+        actualLocalPorts = map (item: item.port) filtered;
+        case = address: ([ ./tests/hardware.nix {
+          services.openssh.listenAddresses = [{ addr = address; port = 9090; }];
+          nixlab.settings.cockpit.enable = true;
+        } ]);
+        collisions = address: builtins.filter (entry:
+          !entry.assertion && lib.hasPrefix "Management listener collision" entry.message)
+          (mkHost testSite null (case address)).config.assertions;
+        monitoringCollision = (mkHost testSite null [ ./tests/hardware.nix {
+          nixlab.settings.cockpit = { enable = true; port = 9091; };
+          nixlab.settings.monitoring.history = true;
+        } ]).config.assertions;
       in {
         onlyLoopbackTrusted = c.networking.firewall.trustedInterfaces == [ "lo" ];
+        listenerInventory = inventory.firewallManaged && !inventory.ipv6TrustedIngress
+          && actualLocalPorts == [ 9091 9100 ]
+          && lib.any (item: item.service == "Portainer proxy" && item.port == 9443) inventory.listeners;
+        scopedRuleExcludesMetrics = lib.hasInfix "tcp dport { 22, 80, 9440, 9090, 9443, 8443 } accept" c.networking.firewall.extraInputRules
+          && !(lib.hasInfix "9091" c.networking.firewall.extraInputRules);
+        ipv4Collision = builtins.length (collisions "127.0.0.1") == 1;
+        ipv6SeparateBind = collisions "::1" == [ ];
+        cockpitPrometheusCollision = lib.any (entry:
+          !entry.assertion && lib.hasPrefix "Management listener collision on tcp/9091" entry.message) monitoringCollision;
         cockpitEnabled = c.services.cockpit.enable;
         cockpitLocalOnly = !c.services.cockpit.settings.WebService.LoginTo;
         cockpitAddress = c.systemd.sockets.cockpit.listenStreams == [ "" "0.0.0.0:9090" ];
