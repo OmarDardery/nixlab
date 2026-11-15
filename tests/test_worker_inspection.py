@@ -19,6 +19,13 @@ SENTINEL = 'private-systemd-error-sentinel'
 
 
 class WorkerObservationTests(unittest.TestCase):
+    def test_every_transaction_worker_phase_can_be_observed(self):
+        for phase in ('build', 'apply', 'rollback'):
+            unit = 'nixlab-' + phase + '-' + ID
+            with self.subTest(phase=phase), patch.object(rt.subprocess, 'run', return_value=Mock(returncode=3)) as run:
+                self.assertFalse(rt.worker_active(unit))
+                self.assertEqual(run.call_args.args[0], ['systemctl', 'is-active', '--quiet', unit])
+
     def test_active_inactive_and_missing_workers(self):
         for code, active in ((0, True), (3, False), (4, False)):
             with self.subTest(code=code), patch.object(rt.subprocess, 'run', return_value=Mock(returncode=code)) as run:

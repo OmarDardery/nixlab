@@ -37,7 +37,7 @@ def verify():
         path = directory(index)
         assert not list(path.glob('.secrets.json*'))
         if index < 7:
-            assert not (path / 'secrets.json').exists()
+            assert not (path / 'secrets.json').exists(), 'Unexpected retained staging in fixture state: ' + str(index)
         else:
             assert rt.read_staged_secrets(path, ['portainerPassword']) == {'portainerPassword': SECRET}
         if index < 8:
