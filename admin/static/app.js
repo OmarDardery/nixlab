@@ -197,12 +197,13 @@ function shell() {
   const requiredUnits = ["incus.service", "nixlab-admin-backend.service", "nixlab-ui.service",
     ...(settings.cockpit?.enable ? ["cockpit.socket"] : []), ...(settings.apps?.enable ? ["nginx.service"] : [])];
   const units = operationView.health?.services || [];
-  const live = observedHealth && requiredUnits.every(id => units.some(u => u.Id === id && u.ActiveState === "active"));
-  const hostStatus = !observedHealth ? "Unknown" : live ? "Active" : "Needs attention";
+  const knownHealth = observedHealth && units.length > 0;
+  const live = knownHealth && requiredUnits.every(id => units.some(u => u.Id === id && u.ActiveState === "active"));
+  const hostStatus = !knownHealth ? "Unknown" : live ? "Active" : "Needs attention";
   app.innerHTML = `<div class="layout"><div id="ui-shade" class="drawer-shade" aria-hidden="true"></div>
   <aside class="sidebar" id="ui-sidebar" aria-label="Host console navigation">
     ${brandLogo()}<div class="sidebar-navigation">${navigationHtml()}</div>${quickManagementLinks(settings)}
-    <div class="sidebar-bottom"><div class="sidebar-server"><span class="status-dot ${live ? "active" : observedHealth ? "warning" : "unknown"}" aria-hidden="true"></span><div><b>${esc(settings.hostName)}</b><span class="host-state">${esc(hostStatus)}</span><span>NixOS host · ${esc(address)}</span></div></div>
+    <div class="sidebar-bottom"><div class="sidebar-server"><span class="status-dot ${live ? "active" : knownHealth ? "warning" : "unknown"}" aria-hidden="true"></span><div><b>${esc(settings.hostName)}</b><span class="host-state">${esc(hostStatus)}</span><span>NixOS host · ${esc(address)}</span></div></div>
       <div class="sidebar-links"><a href="/docs/troubleshooting.md">Offline help</a><a href="https://nixlab.dardery.work/" target="_blank" rel="noopener noreferrer">Website ↗</a></div><button class="small" data-action="logout">Sign out</button>
     </div>
   </aside>
