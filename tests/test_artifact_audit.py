@@ -65,8 +65,8 @@ class AuditTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             files = {
-                'admin/main.py': 'one\\ntwo\\n',
-                'tests/test_sample.py': 'test\\n',
+                'admin/main.py': 'one\ntwo\n',
+                'tests/test_sample.py': 'test\n',
                 'tests/fixtures/architecture-contract.json': (
                     '{"cliBinaries":{"nixlab-admin":"admin/package.nix"},'
                     '"flakeAttributes":["apps.x86_64-linux.install"],'
@@ -95,7 +95,7 @@ class AuditTests(unittest.TestCase):
     def test_inspection_limits_are_explicit_and_symlinks_are_not_traversed(self):
         with tempfile.TemporaryDirectory() as folder, tempfile.TemporaryDirectory() as elsewhere:
             root = Path(folder)
-            (root / 'font.woff2').write_bytes(b'\\0\\xff')
+            (root / 'font.woff2').write_bytes(b'\0\xff')
             (root / 'giant.md').write_text('x' * (audit.MAX_TEXT_BYTES + 1))
             (root / 'outside').symlink_to(Path(elsewhere), target_is_directory=True)
             (Path(elsewhere) / 'private.py').write_text('NEVER_READ_THIS')
@@ -113,7 +113,7 @@ class AuditTests(unittest.TestCase):
     def test_generated_artifact_is_not_confused_with_source_file(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            (root / 'untracked.pyc').write_bytes(b'\\0\\xff')
+            (root / 'untracked.pyc').write_bytes(b'\0\xff')
             row = audit.audit(root, ['untracked.pyc'])['artifacts'][0]
             self.assertEqual(row['classification'], 'generated (tracked)')
             self.assertEqual(row['inspection'], 'not-inspected')
@@ -122,7 +122,7 @@ class AuditTests(unittest.TestCase):
     def test_known_referenced_asset_has_a_named_consumer(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            (root / 'web.py').write_text("serve('theme.css')\\n")
+            (root / 'web.py').write_text("serve('theme.css')\n")
             (root / 'theme.css').write_text('a { color: inherit; }')
             rows = {row['path']: row for row in
                     audit.audit(root, ['theme.css', 'web.py'])['artifacts']}
@@ -132,7 +132,7 @@ class AuditTests(unittest.TestCase):
 
     def test_nul_and_absolute_paths_are_not_accepted(self):
         with tempfile.TemporaryDirectory() as folder:
-            for name in ('../secret', '/etc/shadow', 'invalid\\0name'):
+            for name in ('../secret', '/etc/shadow', 'invalid\0name'):
                 with self.subTest(name=repr(name)), self.assertRaisesRegex(ValueError, 'Invalid tracked path'):
                     audit.audit(Path(folder), [name])
 
