@@ -500,6 +500,39 @@ class RecoveryTests(unittest.TestCase):
             self.assertEqual(rt.read_json(root/'local/settings.json'),{'old':True})
             self.assertFalse(secret.exists())
 
+
+    def test_staged_platform_and_installation_rollback_restores_original_files(self):
+        import worker
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / 'repo'
+            state = Path(folder) / 'state'
+            job = state / 'jobs' / ('a' * 32)
+            rt.write_json(root / '.nixlab-files.json', [
+                'flake.nix', 'admin/main.py', 'machine/format.json',
+                'machine/settings.json', 'machine/installation.json'])
+            rt.atomic(root / 'flake.nix', '{}')
+            rt.atomic(root / 'admin/main.py', 'original-platform')
+            rt.write_json(root / 'machine/format.json', {'version': 1})
+            rt.write_json(root / 'machine/settings.json', settings())
+            rt.write_json(root / 'machine/installation.json', {'interface': 'eth0'})
+            rt.write_json(state / 'platform-baseline.json', {'admin/main.py': 'prior'})
+            rt.write_json(job / 'job.json', {'sourceStaged': True, 'sourcePlatformUpdated': True,
+                                             'effectiveSettings': {'cockpit': {'managePassword': False}}})
+            with patch.object(rt, 'ROOT', root), patch.object(rt, 'STATE', state), \
+                 patch.object(rt, 'SECRET_PATHS', {}):
+                worker.save_recovery(job)
+                rt.atomic(root / 'admin/main.py', 'updated-platform')
+                rt.write_json(root / 'machine/installation.json', {'interface': 'eth1'})
+                rt.write_json(root / 'machine/settings.json', dict(settings(), hostName='new'))
+                rt.write_json(state / 'platform-baseline.json', {'admin/main.py': 'changed'})
+                worker.restore_files(job)
+                worker.restore_files(job)  # Interrupted recovery must remain retryable.
+            self.assertEqual((root / 'admin/main.py').read_text(), 'original-platform')
+            self.assertEqual(rt.read_json(root / 'machine/installation.json'), {'interface': 'eth0'})
+            self.assertEqual(rt.read_json(root / 'machine/settings.json')['hostName'], 'fixture')
+            self.assertEqual(rt.read_json(state / 'platform-baseline.json'), {'admin/main.py': 'prior'})
+
+
 class HttpsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
