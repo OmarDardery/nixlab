@@ -13,22 +13,36 @@ const state = {
   platformRevision: "",
 };
 const app = document.querySelector("#app");
+// Page IDs continue to match the existing renderers and API handlers.
 const pages = [
-  ["overview", "Overview"], ["network", "Host"], ["operations", "Backups"],
-  ["review", "Changes"], ["commands", "Help"],
+  ["overview","Overview"],["guests","Guests"],["network","Networking"],["storage","Storage"],
+  ["hardware","Hardware"],["integrations","Services"],["security","Access"],
+  ["accounts","Accounts"],["ingress","Public ingress"],["operations","Backups"],
+  ["review","Changes"],["system","Maintenance"],["files","Advanced"],["commands","Help"],
 ];
-const hostPages = [
-  ["network", "Networking"], ["hardware", "Hardware & storage"],
-  ["integrations", "Services"], ["security", "Access"],
-  ["system", "System"], ["files", "Advanced"],
+const navigationGroups = [
+  ["WORKSPACE",["overview","guests"]],
+  ["INFRASTRUCTURE",["network","storage","hardware","integrations"]],
+  ["SECURITY",["security","accounts","ingress"]],
+  ["OPERATIONS",["operations","review","system","files"]],
+  ["RESOURCES",["commands"]],
 ];
-function primaryPage() {
-  return hostPages.some(([id]) => id === state.page) ? "network" : state.page;
+const pageIcons = {overview:"◫",guests:"▤",network:"◎",storage:"▱",hardware:"⌘",integrations:"▦",security:"◇",accounts:"♧",ingress:"↗",operations:"◷",review:"⇄",system:"⚙",files:"{ }",commands:"?"};
+function primaryPage() { return state.page; }
+function hostTabs() { return ""; }
+function validPage(id) { return pages.some(([page]) => page === id); }
+function selectedHash() {
+  try { const id = decodeURIComponent(window.location.hash.slice(1)); return validPage(id) ? id : "overview"; }
+  catch { return "overview"; }
 }
-function hostTabs() {
-  return primaryPage() === "network"
-    ? `<nav class="host-tabs">${hostPages.map(([id, label]) => `<button data-go="${id}" ${state.page === id ? 'aria-current="page"' : ""}>${label}</button>`).join("")}</nav>`
-    : "";
+function navigateTo(id, replace = false) {
+  if (!validPage(id)) return;
+  const jump = document.querySelector("#ui-jump");
+  if (jump?.open) jump.close();
+  state.page = id;
+  if (window.history) window.history[replace ? "replaceState" : "pushState"](null, "", "#" + id);
+  shell();
+  window.scrollTo(0, 0);
 }
 const esc = (v) =>
   String(v ?? "").replace(
@@ -91,7 +105,7 @@ function toggle(label, path, hint = "") {
 function secret(label, key, hint = "", textarea = false) {
   return `<label class="field full"><span>${esc(label)} ${state.host?.secretPresent?.[key] ? '<span class="tag">Already provisioned</span>' : ""}</span>${textarea ? `<textarea data-secret="${key}" spellcheck="false" placeholder="Leave empty to keep the current value">${esc(state.secrets[key] || "")}</textarea>` : `<input data-secret="${key}" type="password" autocomplete="new-password" value="${esc(state.secrets[key] || "")}" placeholder="${state.host?.secretPresent?.[key] ? "Leave empty to keep current" : "Enter an initial password"}">`}${hint ? `<small>${esc(hint)}</small>` : ""}</label>`;
 }
-const pageGuides = { overview: "start.md", network: "networking.md", hardware: "hardware.md", integrations: "homelab.md", security: "administration.md", system: "setup.md", files: "file-modules.md", review: "setup.md", operations: "recovery.md", commands: "helpers.md" };
+const pageGuides = {overview:"start.md",guests:"networking.md",network:"networking.md",storage:"hardware.md",hardware:"hardware.md",integrations:"homelab.md",security:"administration.md",accounts:"administration.md",ingress:"networking.md",system:"setup.md",files:"file-modules.md",review:"setup.md",operations:"recovery.md",commands:"helpers.md"};
 const title = (eyebrow, heading, text) =>
   `<div class="page-title"><div><h1>${heading}</h1><p>${text}</p><a class="page-guide" href="/docs/${pageGuides[state.page] || "setup.md"}" target="_blank" rel="noopener noreferrer">Guide</a></div>${["overview", "operations", "review", "commands"].includes(state.page) ? "" : '<button class="primary" data-go="review">Review changes ↗</button>'}</div>`;
 const card = (heading, body, caption = "") =>
@@ -113,25 +127,108 @@ function quickManagementLinks() {
   return links.length ? `<div class="sidebar-shortcuts"><div class="nav-label">MANAGE</div>${links.map(service => `<a href="${esc(service.url)}" target="_blank" rel="noopener noreferrer">${esc(service.name)}</a>`).join("")}</div>` : "";
 }
 
+function draftChanges() {
+  if (!state.draft || !state.status?.settings) return [];
+  const differences = [];
+  const walk = (before, after, path) => {
+    if (JSON.stringify(before) === JSON.stringify(after)) return;
+    if (before && after && typeof before === "object" && typeof after === "object" && !Array.isArray(before) && !Array.isArray(after)) {
+      for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) walk(before[key], after[key], path ? path + "." + key : key);
+    } else differences.push(path);
+  };
+  walk(state.status.settings, state.draft, "");
+  return differences;
+}
+function stagedCount() { return draftChanges().length + Object.keys(state.modules).length + Object.values(state.secrets).filter(Boolean).length; }
+function stagedBanner() {
+  const n = stagedCount();
+  return n ? `<div class="draft-bar" role="status"><div><strong>${n} staged change${n === 1 ? "" : "s"}</strong><span>Not applied to your host</span></div><div class="draft-actions"><button class="small" data-ui-discard>Discard drafts</button><button class="primary" data-go="review">Review changes</button></div></div>` : "";
+}
+function navigationHtml() {
+  return navigationGroups.map(([heading, ids]) =>
+    `<div class="nav-group"><div class="nav-label">${heading}</div><nav class="nav" aria-label="${heading.toLowerCase()}">${ids.map(id => {
+      const label = pages.find(([key]) => key === id)[1];
+      return `<button type="button" data-go="${id}" class="${state.page === id ? "active" : ""}" ${state.page === id ? 'aria-current="page"' : ""}><span class="nav-symbol" aria-hidden="true">${pageIcons[id]}</span><span>${label}</span>${id === "review" && stagedCount() ? `<span class="nav-count">${stagedCount()}</span>` : ""}</button>`;
+    }).join("")}</nav></div>`).join("");
+}
+function bindUiChrome() {
+  const sidebar = document.querySelector("#ui-sidebar");
+  const shade = document.querySelector("#ui-shade");
+  const navToggle = document.querySelector("#ui-nav-toggle");
+  const closeNav = () => { sidebar?.classList.remove("open"); shade?.classList.remove("open"); navToggle?.setAttribute("aria-expanded", "false"); };
+  navToggle?.addEventListener("click", () => {
+    const open = sidebar.classList.toggle("open");
+    shade.classList.toggle("open", open);
+    navToggle.setAttribute("aria-expanded", String(open));
+  });
+  shade?.addEventListener("click", closeNav);
+  const dialog = document.querySelector("#ui-jump");
+  const search = dialog?.querySelector("#ui-search-input");
+  const openSearch = () => { dialog.showModal(); search.value = ""; search.dispatchEvent(new Event("input")); search.focus(); };
+  document.querySelector("#ui-search-open")?.addEventListener("click", openSearch);
+  search?.addEventListener("input", () => {
+    const query = search.value.trim().toLowerCase();
+    dialog.querySelectorAll("[data-go]").forEach(btn => { btn.hidden = !btn.textContent.toLowerCase().includes(query); });
+  });
+  document.querySelector("#ui-theme-toggle")?.addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem("nixlab-theme", next); } catch {}
+  });
+  document.querySelector("[data-ui-discard]")?.addEventListener("click", () => {
+    if (!window.confirm("Discard all staged settings, uploaded modules and pending secret input?")) return;
+    state.draft = copy(state.status.settings);
+    state.modules = {}; state.secrets = {}; state.updateInputs = false; state.platformRevision = "";
+    shell();
+  });
+  // A per-render handler is used so detached dialogs do not retain listeners.
+  document.onkeydown = event => {
+    if (event.key === "Escape") closeNav();
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k" && !event.repeat) {
+      event.preventDefault(); openSearch();
+    }
+  };
+}
 function shell() {
   const settings = state.status.effectiveSettings || state.status.settings;
-  app.innerHTML = `<div class="layout"><aside class="sidebar">${brandLogo()}<div><div class="nav-label">YOUR INFRASTRUCTURE</div><nav class="nav">${pages.map(([id, label]) => `<button data-go="${id}" class="${primaryPage() === id ? "active" : ""}">${label}</button>`).join("")}</nav></div>${quickManagementLinks(settings)}<div class="sidebar-bottom"><b>${esc(settings.hostName)}</b>Declarative host · NixOS<br><span class="mono">${esc(state.status.managementAddress || settings.management.address)}</span><div class="sidebar-links"><a href="/docs/troubleshooting.md">Offline help</a><a href="https://nixlab.dardery.work/" target="_blank" rel="noopener noreferrer">Website ↗</a></div><button class="small" data-action="logout">Sign out</button></div></aside><div class="content"><header class="topbar"><div class="breadcrumb">Host console <span class="muted">/</span> <b>${esc(hostPages.find((p) => p[0] === state.page)?.[1] || pages.find((p) => p[0] === state.page)?.[1])}</b></div><div class="top-actions"><a class="pill" href="/docs/beta.md">${esc(state.status.release?.version || "Development")}</a><span class="mono muted">${esc(state.principal.username)} · ${esc(state.principal.role)}</span></div></header><main class="page">${pendingBanner()}${ownershipBanner()}${hostTabs()}${renderPage()}<footer class="footer-note">NixOS host · Incus guests · <a href="/docs/projects.md">Upstream credits</a></footer></main></div></div>`;
+  const current = pages.find(([id]) => id === state.page)?.[1] || "Overview";
+  const address = state.status.managementAddress || settings.management.address;
+  app.innerHTML = `<div class="layout"><div id="ui-shade" class="drawer-shade" aria-hidden="true"></div>
+  <aside class="sidebar" id="ui-sidebar" aria-label="Host console navigation">
+    ${brandLogo()}<div class="sidebar-navigation">${navigationHtml()}</div>${quickManagementLinks(settings)}
+    <div class="sidebar-bottom"><div class="sidebar-server"><span class="status-dot" aria-hidden="true"></span><div><b>${esc(settings.hostName)}</b><span>NixOS host · ${esc(address)}</span></div></div>
+      <div class="sidebar-links"><a href="/docs/troubleshooting.md">Offline help</a><a href="https://nixlab.dardery.work/" target="_blank" rel="noopener noreferrer">Website ↗</a></div><button class="small" data-action="logout">Sign out</button>
+    </div>
+  </aside>
+  <div class="content"><header class="topbar"><div class="topbar-left"><button class="mobile-nav-toggle" type="button" id="ui-nav-toggle" aria-label="Open navigation" aria-controls="ui-sidebar" aria-expanded="false">☰</button><div class="breadcrumb">NixLab <span class="muted">/</span> <b>${esc(current)}</b></div></div>
+    <div class="top-actions"><button type="button" class="search-trigger" id="ui-search-open" aria-label="Search console pages">⌕ <span>Search pages</span> <kbd>Ctrl K</kbd></button>
+      <button class="theme-toggle" id="ui-theme-toggle" aria-label="Toggle light and dark theme" type="button">◐</button>
+      <a class="pill" href="/docs/beta.md">${esc(state.status.release?.version || "Development")}</a>
+      <span class="principal" title="Signed-in portal identity">${esc(state.principal.username)} · ${esc(state.principal.role)}</span></div>
+  </header><main id="main" class="page" tabindex="-1">${pendingBanner()}${ownershipBanner()}${renderPage()}${stagedBanner()}
+     <footer class="footer-note">NixOS owns the host · Incus owns guests · <a href="/docs/projects.md">Upstream credits</a></footer>
+  </main></div></div>
+  <dialog id="ui-jump" class="ui-dialog" aria-label="Navigate to a console page"><div class="ui-dialog-heading"><strong>Go to a page</strong><form method="dialog"><button aria-label="Close page search" type="submit">✕</button></form></div><label for="ui-search-input">Search navigation</label><input id="ui-search-input" type="search" placeholder="Guests, backups, access…" autocomplete="off"><nav aria-label="Search results">${pages.map(([id,label]) => `<button type="button" data-go="${id}">${esc(label)}</button>`).join("")}</nav></dialog>`;
   bind();
   bindOperations();
   bindFoundation();
   bindCommands();
+  bindUiChrome();
   countdown();
 }
 function renderPage() {
   return {
     overview: hostOverview,
+    guests: () => title("", "Guests & addresses", "Observed Incus guests and IP addresses. Manage guest lifecycles in Incus.") + guestNetwork(),
     network: hostConnectivity,
     hardware: hostHardware,
-    storage: hostHardware,
+    storage: () => title("", "Storage & mounts", "Discovered disks, existing filesystems and staged Nix-managed mounts.") + storage(),
     integrations,
     apps: integrations,
     security,
-    system,
+    ingress: ingressPage,
+    accounts: () => title("", "Portal accounts", "Portal permissions are separate from Linux accounts and Incus certificates.") + (administrator() ? accountCard() : card("Account permissions", "<p>Only administrators can manage portal accounts.</p>")),
+    system: () => system() + card("Host health", healthSummary()),
     files,
     review,
     operations: operationsPage,
@@ -284,7 +381,7 @@ function formatBytes(v) {
 function login(message = "") {
   clearInterval(state.timer);
   state.timer = null;
-  app.innerHTML = `<main class="login"><section class="login-card">${brandLogo()}<h1>Sign in to your host.</h1><p>Use your NixLab portal account. First sign-in: <code>admin</code> and the setup password printed by the installer.</p><form id="login-form"><label class="field"><span>Account</span><input name="username" value="admin" autocomplete="username" required></label><label class="field"><span>Portal password</span><input name="password" type="password" autocomplete="current-password" required autofocus></label><p class="error" id="login-error">${esc(message)}</p><button class="primary">Sign in →</button></form><p class="note">SSH, Cockpit and Portainer use separate identities. Verify the local CA fingerprint before signing in. <a href="/ca.crt">Download the management CA</a>.</p></section></main>`;
+  app.innerHTML = `<main class="login"><section class="login-card">${brandLogo()}<h1>Sign in to your host.</h1><p>Use your NixLab portal account. First installation? The host must approve one-time administrator enrollment before you create your portal password.</p><form id="login-form"><label class="field"><span>Account</span><input name="username" value="admin" autocomplete="username" required></label><label class="field"><span>Portal password</span><input name="password" type="password" autocomplete="current-password" required autofocus></label><p class="error" id="login-error">${esc(message)}</p><button class="primary">Sign in →</button></form><p class="note">SSH, Cockpit and Portainer use separate identities. Verify the local CA fingerprint before signing in. <a href="/ca.crt">Download the management CA</a>.</p></section></main>`;
   document.querySelector("#login-form").onsubmit = async (e) => {
     e.preventDefault();
     const button = e.target.querySelector("button");
@@ -331,7 +428,7 @@ async function load() {
   state.host = await api("inventory");
   await refreshOverview();
   state.draft = copy(state.status.settings);
-  state.page = state.status.pending ? "review" : "overview";
+  state.page = state.status.pending ? "review" : selectedHash();
   shell();
   if (!state.timer) state.timer = setInterval(poll, 3000);
 }
@@ -381,6 +478,12 @@ function countdown() {
   }
 }
 setInterval(countdown, 1000);
+
+if (typeof window !== "undefined") {
+  try { document.documentElement.dataset.theme = localStorage.getItem("nixlab-theme") === "light" ? "light" : "dark"; } catch {}
+  window.addEventListener("popstate", () => { if (state.status) { state.page = selectedHash(); shell(); } });
+  window.addEventListener("hashchange", () => { if (state.status && selectedHash() !== state.page) { state.page = selectedHash(); shell(); } });
+}
 
 (async () => {
   try {
