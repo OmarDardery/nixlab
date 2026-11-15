@@ -100,7 +100,8 @@ def main():
             assert page.evaluate("document.fonts.check('16px Space Grotesk')")
             assert page.get_by_role('heading', name='Guests & addresses', exact=True).is_visible()
             assert page.get_by_text('10.77.0.20', exact=True).count() == 2
-            assert page.locator('.nav > button').count() == 5
+            assert page.locator('.nav > button').count() == 14
+            assert page.locator('.nav [aria-current="page"]').count() == 1
             page.screenshot(path=str(args.output / 'overview.png'), full_page=True)
             page.set_viewport_size({'width': 390, 'height': 844})
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
@@ -127,7 +128,7 @@ def main():
             page.get_by_role('button', name='Revoke', exact=True).click()
             page.wait_for_function("document.querySelector('#certificate-list').textContent.includes('revoked')")
             assert page.get_by_role('button', name='Revoke', exact=True).is_disabled()
-            page.locator('nav [data-go="commands"]').click()
+            page.locator('.sidebar nav [data-go="commands"]').click()
             page.get_by_role('heading', name='Help', exact=True).wait_for()
             commands = page.locator('[data-copy-command]').evaluate_all("nodes => nodes.map(n => n.dataset.copyCommand)")
             assert len(commands) == len(set(commands))
@@ -138,15 +139,15 @@ def main():
             page.wait_for_function("['Copied', 'Selected'].includes(document.querySelector('[data-copy-command=commissioning]').textContent)")
             assert page.locator('[data-action=build]').count() == 0
             assert page.locator('a[href="https://github.com/community-scripts/Incus"]').count() == 1
-            page.locator('nav [data-go="network"]').click()
+            page.locator('.sidebar nav [data-go="network"]').click()
             page.locator('[data-record-add="connectivity.bridges"]').click()
             page.locator('[data-record="connectivity.bridges"][data-key="interfaces"]').fill('eth0')
             page.locator('[data-path="management.interface"]').fill('br-lan')
             page.locator('[data-path="management.configure"]').check()
-            page.locator('[data-go="hardware"]').click()
+            page.locator('.sidebar [data-go="hardware"]').click()
             page.get_by_role('button', name='Declare stable alias').click()
             assert page.locator('[data-record="hardware.serialAliases"][data-key="serial"]').input_value() == 'EXAMPLE'
-            page.locator('nav [data-go="integrations"]').click()
+            page.locator('.sidebar nav [data-go="integrations"]').click()
             page.locator('[data-path="cockpit.enable"]').check()
             page.locator('[data-path="apps.enable"]').check()
             page.locator('[data-path="apps.portainerPort"]').fill('9443')
@@ -159,10 +160,10 @@ def main():
             page.get_by_text('Optional provisioning tools', exact=True).click()
             page.get_by_text('Compatibility & pinned revisions', exact=True).click()
             assert page.get_by_text('Upstream-supported; unverified here', exact=True).count() == 3
-            page.locator('nav [data-go="operations"]').click()
+            page.locator('.sidebar nav [data-go="operations"]').click()
             page.get_by_role('heading', name='Scheduled off-host backup').wait_for()
             assert page.locator('[data-guest-action]').count() == 0
-            page.locator('nav [data-go="review"]').click()
+            page.locator('.sidebar nav [data-go="review"]').click()
             page.locator('[data-load-main]').click()
             page.wait_for_function("state.platformRevision === 'b'.repeat(40)")
             page.locator('#platform-password').fill('disposable-ui-fixture-password')
