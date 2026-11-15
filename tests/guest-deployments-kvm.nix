@@ -1,6 +1,6 @@
 # Expensive optional check: real apps VM, real Portainer, and a second NixOS guest.
 # The workflow archives an OCI image and passes its immutable manifest digest.
-{ pkgs, apps, portainerArchive, portainerImage, cpuVendor }:
+{ pkgs, apps, portainerArchive, portainerImage, cpuVendor, trial ? "manual" }:
 let
   lib = pkgs.lib;
   base = import ./site.nix;
@@ -19,6 +19,10 @@ let
   nextApps = initialApps.extendModules { modules = [ ({ lib, ... }: {
     environment.etc."nixlab-deploy-version".text = lib.mkForce "v2";
   }) ]; };
+  failedApps = initialApps.extendModules { modules = [ ({ lib, ... }: {
+    environment.etc."nixlab-deploy-version".text = lib.mkForce "failed-candidate";
+  }) ]; };
+  failedProbe = pkgs.writeShellApplication { name = "nixlab-guest-health"; text = "exit 1"; };
   worker = version: import (pkgs.path + "/nixos/lib/eval-config.nix") {
     system = pkgs.stdenv.hostPlatform.system;
     modules = [ ({ modulesPath, ... }: {
@@ -36,7 +40,7 @@ let
     disk = "${initialApps.config.system.build.qemuImage}/nixos.qcow2";
   };
 in pkgs.testers.runNixOSTest {
-  name = "nixlab-apps-and-guest-rollout";
+  name = "nixlab-apps-and-guest-rollout-${trial}";
   globalTimeout = 3300;
   node.specialArgs = { inherit site appImage; installedNetworking.networkManager = false; };
   nodes.host = { config, ... }: {
@@ -55,6 +59,9 @@ in pkgs.testers.runNixOSTest {
       worker = { system = nextWorker.config.system.build.toplevel; dependsOn = [ "apps" ]; };
     };
     environment.etc."nixlab-test-deployments.json".text = builtins.toJSON config.nixlab.deployment.manifest;
+    environment.etc."nixlab-test-failed-deployment.json".text = builtins.toJSON {
+      system = failedApps.config.system.build.toplevel; probe = failedProbe;
+    };
     # Prepare an existing source-owned VM with a second, fixture-only QMP socket.
     # The normal reconciler still applies its settings and starts it; rollout
     # preparation happens later, after these initial settings are settled.

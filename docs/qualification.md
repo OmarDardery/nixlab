@@ -53,7 +53,7 @@ review the corresponding configuration to determine how broadly a result applies
 ## Optional real applications VM test
 
 Run **Real apps commissioning** in GitHub Actions on the revision under review.
-It requires a runner with working nested KVM. The resulting `nested-apps-evidence`
+It requires the [dedicated disposable physical runner](kvm-qualification.md) with working KVM nesting. The resulting `nested-apps-evidence`
 artifact records the actual source revision and resolved OCI image digest. The
 machine-readable report remains `nested-integration`, even if every automated
 probe passes. A partial artifact from a failed run is not successful evidence.
@@ -67,6 +67,13 @@ nested guest. No production machine or existing user's data is used.
 The routine validation suite continues to test controlled management backends,
 actual containers and independent Docker forwarding. Those checks retain their
 individual scopes; a successful container test does not qualify the apps VM.
+
+The real apps deployment lane also requires three independent successful trials
+on the exact candidate revision; see the dedicated runner procedure. Neither lane
+replaces physical installation, upgrade, management recovery or off-host restore.
+The beta minimum remains two deliberate physical reboots. Ten successful reboots
+and fourteen days of representative operation are reported targets, not mandatory
+beta gates. Report actual counts/duration and any unexplained failure.
 
 ## Source-only beta publication
 
