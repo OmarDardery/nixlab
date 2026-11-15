@@ -358,7 +358,8 @@ def apply(directory):
         rt.write_json(directory / 'health.json', report)
         deadline = time.time() + effective['setup']['confirmationSeconds']
         rt.write_json(rt.STATE / 'pending.json', {'id': directory.name, 'previousSystem': previous, 'deadline': deadline})
-        update(directory, status='awaiting-confirmation', deadline=deadline)
+        update(directory, status='awaiting-confirmation', deadline=deadline,
+               awaitingAt=time.time())
         rt.audit('awaiting-confirmation', job=directory.name)
     except Exception as original:
         recover_activation(directory, original)
