@@ -83,7 +83,7 @@ class UpdateTests(unittest.TestCase):
         self.manager.review.assert_called_once_with({}, revision=SHA, principal=update.PRINCIPAL)
         self.manager.apply.assert_called_once_with(ID)
         self.health.assert_called_once()
-        self.manager.confirm.assert_called_once_with(ID)
+        self.manager.confirm.assert_not_called()
         self.manager.rollback.assert_not_called()
         self.print.assert_any_call('Nixlab: https://192.0.2.20:9440', flush=True)
 
@@ -109,7 +109,7 @@ class UpdateTests(unittest.TestCase):
         self.manager.review.assert_called_once_with({'management': selected}, revision=SHA, principal=update.PRINCIPAL)
         self.manager.apply.assert_called_once_with(ID)
         self.health.assert_called_once_with(built)
-        self.manager.confirm.assert_called_once_with(ID)
+        self.manager.confirm.assert_not_called()
 
     def test_repeated_interface_selection_is_an_idempotent_noop(self):
         settings = management_settings(); settings['management']['interface'] = 'br0'
@@ -143,13 +143,13 @@ class UpdateTests(unittest.TestCase):
         order = []
         recovery.native_identity.side_effect = lambda: order.append('native')
         self.health.side_effect = lambda _: (order.append('health'), self.health.return_value)[1]
-        self.manager.confirm.side_effect = lambda _: order.append('confirm')
+
         update.run(self.manager, repair=recovery)
         self.manager.review.assert_called_once_with({}, revision=SHA, principal=update.PRINCIPAL,
                                                    modules=recovery.record['modules'])
         recovery.reviewed.assert_called_once_with({'id': ID})
         recovery.verify.assert_called_once_with(self.ready)
-        self.assertEqual(order, ['native', 'health', 'confirm'])
+        self.assertEqual(order, ['native', 'health'])
 
     def test_recovery_persistence_failure_rolls_back_before_confirmation(self):
         recovery = Mock(); recovery.record = {'modules': {}}
@@ -178,7 +178,7 @@ class UpdateTests(unittest.TestCase):
         self.wait.side_effect = [self.ready, self.pending]
         update.run(self.manager)
         self.resolve.assert_not_called(); self.manager.review.assert_not_called()
-        self.manager.apply.assert_called_once_with(ID); self.manager.confirm.assert_called_once_with(ID)
+        self.manager.apply.assert_called_once_with(ID); self.manager.confirm.assert_not_called()
 
     def test_resume_applying_or_awaiting_confirmation_never_reapplies(self):
         for phase in ('applying', 'awaiting-confirmation'):
@@ -186,7 +186,7 @@ class UpdateTests(unittest.TestCase):
                 self.manager.status.return_value = {'job': {**self.pending, 'status': phase}}
                 update.run(self.manager)
         self.resolve.assert_not_called(); self.manager.review.assert_not_called(); self.manager.apply.assert_not_called()
-        self.assertEqual(self.manager.confirm.call_count, 2)
+        self.manager.confirm.assert_not_called()
 
     def test_other_configuration_and_unfinished_recovery_are_not_adopted(self):
         for state in ({'job': {**self.ready, 'principal': 'root'}}, {'pending': {'id': ID}}):
@@ -222,16 +222,18 @@ class UpdateTests(unittest.TestCase):
                     self.manager.review.assert_called_once()
                     self.manager.apply.assert_called_once_with(ID)
 
-    def test_failed_health_or_rejected_access_rolls_back_without_confirmation(self):
+    def test_failed_health_rolls_back_but_unverified_access_remains_pending(self):
         self.manager.job.side_effect = [self.ready, self.pending]
         self.health.side_effect = ValueError('Health failed')
         with self.assertRaisesRegex(ValueError, 'Health failed'): update.run(self.manager)
         self.manager.rollback.assert_called_once_with(ID); self.manager.confirm.assert_not_called()
         self.health.side_effect = None; self.manager.reset_mock()
         self.manager.job.side_effect = [self.ready, self.pending]
-        self.ask.side_effect = [True, False]
-        with self.assertRaisesRegex(ValueError, 'not confirmed'): update.run(self.manager)
-        self.manager.rollback.assert_called_once_with(ID); self.manager.confirm.assert_not_called()
+        update.run(self.manager)
+        self.manager.rollback.assert_not_called()
+        self.manager.confirm.assert_not_called()
+        # An intact old SSH session is never enough to confirm the new system.
+        self.assertEqual(self.ask.call_count, 2)  # One activation prompt per run.
 
     def test_main_resolution_is_bounded_and_rejects_other_refs(self):
         # Exercise the actual resolver independently of the orchestration mock.
