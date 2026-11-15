@@ -28,7 +28,7 @@ function commandGroups() {
       ["quick-config", "Current change status", "Host terminal", "View reviewed configuration transactions.", "sudo nixlab-admin config status"],
     ] },
     { id: "updates", title: "Install & update", guide: "plain-nixos.md", items: [
-      ["platform-update", "Update Nixlab", "Host terminal", "Update from main with build/impact review, activation and access-confirmation prompts. Requests sudo and resumes its own interrupted update; no automatic reboot.", "nix run --refresh github:OmarDardery/nixlab#update"],
+      ["platform-update", "Update Nixlab", "Host terminal", "Update from main with build/impact review, guarded activation and separate fresh-session access confirmation. Requests sudo and resumes interrupted updates; no automatic reboot.", "nix run --refresh github:OmarDardery/nixlab#update"],
       ["package-review", "Review a package refresh", "Host terminal", "Build a candidate with refreshed pinned inputs. This does not activate it; inspect and apply it under Changes.", "sudo nixlab-admin config review --update-inputs"],
       ["review-status", "Inspect the current transaction", "Host terminal", "Check build, activation or confirmation state before starting another change.", "sudo nixlab-admin config status"],
     ] },
