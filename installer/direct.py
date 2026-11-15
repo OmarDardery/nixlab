@@ -72,7 +72,7 @@ def wait_for(manager, job_id, statuses, timeout=10800):
                 output = log.read()
                 position = log.tell()
             if output:
-                print(output, end='', flush=True)
+                print(rt.public_progress(output), end='', flush=True)
         manager.status()  # Detect stopped durable workers, including before first activation.
         record = manager.job(job_id)
         if record['status'] in statuses:

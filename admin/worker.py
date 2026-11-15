@@ -39,8 +39,10 @@ def restore_operator_password(recovery):
 
 
 def run(args, log, timeout=7200, check=True):
-    log.write('\n$ ' + ' '.join(args) + '\n'); log.flush()
-    process = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    # Activation tools can echo credentials from their runtime inputs. Keep only
+    # progress in the public build log; never copy their output or argv there.
+    log.write('\nHost command started\n'); log.flush()
+    process = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     try:
         code = process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -49,9 +51,10 @@ def run(args, log, timeout=7200, check=True):
             process.wait(timeout=10)
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL); process.wait()
-        raise
+        raise ValueError('Host command timed out') from None
+    log.write('Host command finished with status ' + str(code) + '\n'); log.flush()
     if check and code:
-        raise subprocess.CalledProcessError(code, args)
+        raise ValueError('Host command failed')
     return subprocess.CompletedProcess(args, code)
 
 
@@ -259,7 +262,7 @@ def rollback(directory, reason='requested'):
                 if uuid in existing:
                     run(['nmcli', '--wait', '30', 'connection', 'up', 'uuid', uuid], log, timeout=40, check=False)
                 else:
-                    log.write('Skipped connection no longer present: ' + uuid + '\n')
+                    log.write('Skipped connection no longer present\n')
         restart_loaded(['nixlab-admin-backend.service', 'nixlab-ui.service', 'nginx.service', 'cockpit.service'], log)
     update(directory, status='rolled-back', rolledBackAt=time.time())
     pending = rt.read_json(rt.STATE / 'pending.json')
@@ -280,13 +283,13 @@ def restart_loaded(units, log):
 
 
 def recover_activation(directory, original):
-    update(directory, error=str(original))
+    update(directory, error='Activation failed')
     try:
         rollback(directory, 'activation failed')
     except Exception as recovery:
-        update(directory, status='failed', error=str(original), rollbackError=str(recovery))
+        update(directory, status='failed', error='Activation failed', rollbackError='Rollback failed; local recovery may be required')
         with (directory / 'build.log').open('a') as log:
-            log.write('\nROLLBACK FAILED: ' + str(recovery) + '\n')
+            log.write('\nROLLBACK FAILED: local recovery may be required\n')
 
 
 def apply(directory):
@@ -386,16 +389,16 @@ def job(phase, job_id):
         else:
             raise ValueError('Unsupported transaction action')
     except impact.ReviewRequired as exc:
-        update(directory, status='ready', error=str(exc))
+        update(directory, status='ready', error='Review the updated impact plan before applying')
         rt.audit('impact-review-required', job=job_id)
     except Exception as exc:
         current = rt.read_job_record(directory / 'job.json')
         if current.get('status') != 'rolled-back':
-            update(directory, status='failed', error=current.get('error') or str(exc))
+            update(directory, status='failed', error='Transaction failed; inspect host status before retrying')
         with (directory / 'build.log').open('a') as log:
-            log.write('\nFAILED: ' + str(exc) + '\n')
+            log.write('\nFAILED: transaction did not complete\n')
         rt.audit('transaction-failed', job=job_id, phase=phase)
-        raise
+        raise RuntimeError('Transaction failed; inspect host status before retrying') from None
 
 
 def guard():

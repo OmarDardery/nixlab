@@ -368,7 +368,7 @@ class ReadinessTests(unittest.TestCase):
         self.assertLess(next(i for i, e in enumerate(events) if e[0] == 'tar'), next(i for i, e in enumerate(events) if e[:2] == ('docker', 'run')))
         self.assertEqual(events[-1], ('systemctl', 'start', 'docker-portainer.service'))
         healthy.assert_called_once()
-        self.assertEqual(result['username'], 'admin')
+        self.assertEqual(set(result), {'url', 'backup'})
 
     def test_rollback_restarts_only_loaded_units(self):
         results = [subprocess.CompletedProcess([], 0, 'not-found\n'), subprocess.CompletedProcess([], 0, 'loaded\n')]
@@ -384,8 +384,8 @@ class ReadinessTests(unittest.TestCase):
             with patch('worker.rollback', side_effect=ValueError('recovery failed')):
                 worker.recover_activation(directory, ValueError('proxy certificate missing'))
             job = rt.read_json(directory / 'job.json')
-            self.assertEqual(job['error'], 'proxy certificate missing')
-            self.assertEqual(job['rollbackError'], 'recovery failed')
+            self.assertEqual(job['error'], 'Activation failed')
+            self.assertEqual(job['rollbackError'], 'Rollback failed; local recovery may be required')
 
 
 if __name__ == '__main__': unittest.main()
