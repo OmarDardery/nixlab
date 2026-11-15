@@ -107,7 +107,7 @@ function secret(label, key, hint = "", textarea = false) {
 }
 const pageGuides = {overview:"start.md",guests:"networking.md",network:"networking.md",storage:"hardware.md",hardware:"hardware.md",integrations:"homelab.md",security:"administration.md",accounts:"administration.md",ingress:"networking.md",system:"setup.md",files:"file-modules.md",review:"setup.md",operations:"recovery.md",commands:"helpers.md"};
 const title = (eyebrow, heading, text) =>
-  `<div class="page-title"><div><h1>${heading}</h1><p>${text}</p><a class="page-guide" href="/docs/${pageGuides[state.page] || "setup.md"}" target="_blank" rel="noopener noreferrer">Guide</a></div>${["overview", "operations", "review", "commands"].includes(state.page) ? "" : '<button class="primary" data-go="review">Review changes ↗</button>'}</div>`;
+  `<div class="page-title"><div><h1>${heading}</h1><p>${text}</p><a class="page-guide" href="/docs/${pageGuides[state.page] || "setup.md"}" target="_blank" rel="noopener noreferrer">Guide</a></div>${["overview", "guests", "accounts", "operations", "review", "commands"].includes(state.page) ? "" : '<button class="primary" data-go="review">Review changes ↗</button>'}</div>`;
 const card = (heading, body, caption = "") =>
   `<section class="card"><div class="card-header"><h2>${heading}</h2>${caption ? `<span class="caption">${caption}</span>` : ""}</div>${body}</section>`;
 function ownershipBanner() {
@@ -139,7 +139,7 @@ function draftChanges() {
   walk(state.status.settings, state.draft, "");
   return differences;
 }
-function stagedCount() { return draftChanges().length + Object.keys(state.modules).length + Object.values(state.secrets).filter(Boolean).length; }
+function stagedCount() { return draftChanges().length + Object.keys(state.modules).length + Object.values(state.secrets).filter(Boolean).length + (state.updateInputs ? 1 : 0) + (state.platformRevision ? 1 : 0); }
 function stagedBanner() {
   const n = stagedCount();
   return n ? `<div class="draft-bar" role="status"><div><strong>${n} staged change${n === 1 ? "" : "s"}</strong><span>Not applied to your host</span></div><div class="draft-actions"><button class="small" data-ui-discard>Discard drafts</button><button class="primary" data-go="review">Review changes</button></div></div>` : "";
@@ -367,6 +367,36 @@ function moduleReview() {
     `${pending.length ? `<p>${pending.length} staged file(s). Reauthenticate to build these privileged configuration changes.</p><label class="field"><span>Administrator password</span><input id="module-password" type="password" autocomplete="current-password"></label><label class="toggle"><input type="checkbox" id="module-ack"> I authorize these modules as privileged system configuration.</label>` : ""}${recorded.map((c) => `<h3>${esc(c.path)}</h3><p>Previous file</p><pre class="log">${esc(c.before ?? "(new file)")}</pre><p>Candidate file</p><pre class="log">${esc(c.after)}</pre>`).join("")}`,
   );
 }
+function deploymentTimeline() {
+  const job = state.status?.job;
+  const phase = !job ? 0 : ({
+    queued:1, building:1, ready:2, applying:2, activating:2,
+    "awaiting-confirmation":3, confirmed:4,
+    failed:2, "rolling-back":3, "rolled-back":0, cancelled:0
+  })[job.status] ?? 0;
+  const guestPlan = job?.guestPlan?.targets || [];
+  const deployed = job?.guestDeployment?.status === "complete" || guestPlan.length === 0;
+  const steps = [
+    ["Stage edits", "Settings are saved only as a local draft."],
+    ["Build & review", "Validate Nix configuration and inspect impact."],
+    ["Activate host", "Switch the reviewed system generation."],
+    ["Confirm access", "Reconnect from a fresh session before rollback expires."],
+    ["Deploy guests", "Optional reviewed guest closures, after host confirmation."],
+  ];
+  return `<section class="card lifecycle-card" aria-label="Guarded activation workflow">
+    <div class="card-header"><h2>Deployment workflow</h2><span class="caption">${job ? esc(job.status.replaceAll("-", " ")) : "No candidate yet"}</span></div>
+    <ol class="lifecycle">${steps.map(([label, detail], i) => {
+      const complete = i < phase || (i === 4 && phase === 4 && deployed);
+      const active = i === phase && !complete;
+      return `<li class="${complete ? "complete" : active ? "current" : ""}" ${active ? 'aria-current="step"' : ""}>
+        <span class="step-num" aria-hidden="true">${complete ? "✓" : i + 1}</span>
+        <div><strong>${esc(label)}</strong><p>${esc(detail)}</p></div>
+      </li>`;
+    }).join("")}</ol>
+    <p class="note">No activation happens until you explicitly apply a reviewed candidate. Unconfirmed access changes are automatically rolled back.</p>
+  </section>`;
+}
+
 function review() {
   const job = state.status.job;
   const building =
@@ -377,6 +407,7 @@ function review() {
       "Review. Build. Make it live.",
       "The server validates structured settings, evaluates Nix, builds an immutable candidate and shows its activation output.",
     ) +
+    deploymentTimeline() +
     moduleReview() +
     settingsMigrationReview() +
     candidateOverridesReview() +
@@ -462,7 +493,7 @@ async function poll() {
   try {
     if (state.page === "operations") await refreshOperations(false);
     let healthChanged = false;
-    if (state.page === "overview" && Date.now() - lastOverviewHealthPoll >= 30000) {
+    if (["overview","guests"].includes(state.page) && Date.now() - lastOverviewHealthPoll >= 30000) {
       lastOverviewHealthPoll = Date.now();
       await refreshOverview();
       healthChanged = true;
@@ -471,7 +502,7 @@ async function poll() {
     state.status = await api("status");
     if (state.page === "review" && before !== JSON.stringify(state.status.job))
       shell();
-    else if (state.page === "overview" && healthChanged) shell();
+    else if (["overview","guests"].includes(state.page) && healthChanged) shell();
     countdown();
   } catch (err) {
     if (!document.querySelector("#login-form"))
