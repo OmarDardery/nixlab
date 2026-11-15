@@ -35,25 +35,16 @@ class Manager:
         return rt.migrate_idle_layout(self.root, self.state)
 
     def job_path(self, job_id):
-        if not isinstance(job_id, str) or not re.fullmatch(r'[0-9a-f]{32}', job_id):
-            raise ValueError('Invalid transaction ID')
-        path = self.state / 'jobs' / job_id
-        if not path.is_dir():
-            raise ValueError('Unknown transaction')
-        return path
+        return rt.job_directory(self.state / 'jobs', job_id)
 
     def job(self, job_id):
-        job = rt.read_json(self.job_path(job_id) / 'job.json')
-        log = self.job_path(job_id) / 'build.log'
-        if log.exists():
-            with log.open('rb') as stream:
-                stream.seek(max(0, log.stat().st_size - 65536))
-                job['log'] = stream.read(65536).decode(errors='replace')
-        else: job['log'] = ''
+        directory = self.job_path(job_id)
+        job = rt.read_json(directory / 'job.json')
+        job['log'] = rt.tail_log(directory / 'build.log')
+        # Credentials never enter this metadata or its log.
         if job.get('guestPlan'):
             from deployments import Deployments
             job['guestDeployment'] = Deployments(self.root, self.state).status(job_id)
-        # Credentials never enter this metadata or its log.
         return job
 
     def prune_jobs(self, apply=False, keep=20):

@@ -111,10 +111,7 @@ class Deployments:
         self.root, self.state = Path(root or rt.ROOT), Path(state or rt.STATE)
 
     def directory(self, job_id):
-        if not isinstance(job_id, str) or not re.fullmatch(r'[a-f0-9]{32}', job_id): raise ValueError('Invalid deployment transaction ID')
-        directory = self.state / 'jobs' / job_id
-        if not directory.is_dir(): raise ValueError('Unknown deployment transaction')
-        return directory
+        return rt.job_directory(self.state / 'jobs', job_id, 'deployment transaction')
 
     def host(self, directory):
         job = rt.read_json(directory / 'job.json')

@@ -96,6 +96,26 @@ def read_json(path, fallback=None):
     return json.loads(Path(path).read_text()) if Path(path).exists() else fallback
 
 
+def job_directory(base, job_id, label='transaction'):
+    """Resolve an existing durable job without accepting paths or symlink aliases."""
+    if not isinstance(job_id, str) or not re.fullmatch(r'[0-9a-f]{32}', job_id):
+        raise ValueError('Invalid ' + label + ' ID')
+    directory = Path(base) / job_id
+    if directory.is_symlink() or not directory.is_dir():
+        raise ValueError('Unknown ' + label)
+    return directory
+
+
+def tail_log(path, limit=65536):
+    """Read a bounded UTF-8 view without loading a potentially large build log."""
+    try:
+        with Path(path).open('rb') as stream:
+            stream.seek(max(0, os.fstat(stream.fileno()).st_size - limit))
+            return stream.read(limit).decode(errors='replace')
+    except FileNotFoundError:
+        return ''
+
+
 def prepare_state_access():
     """After declarative users exist, let the portal read its initial auth file."""
     auth = STATE / 'auth.json'
