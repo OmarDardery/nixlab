@@ -31,11 +31,16 @@ with tempfile.TemporaryDirectory() as temporary:
         assert verification.check('full', state) == 0
         successful = json.loads(state.read_text())['lastSuccess']
         pack = max((root / 'repository/data').glob('*/*'), key=lambda path: path.stat().st_size)
+        # Restic makes packs read-only. Deliberately inject corruption as the
+        # owning test user, then restore normal permissions before verification.
+        original_mode = pack.stat().st_mode & 0o777
+        pack.chmod(0o600)
         with pack.open('r+b') as stream:
             stream.seek(pack.stat().st_size // 2)
             byte = stream.read(1)
             stream.seek(-1, 1)
             stream.write(bytes([byte[0] ^ 0xff]))
+        pack.chmod(original_mode)
         assert verification.check('full', state) == 1
         damaged = json.loads(state.read_text())
         assert damaged['phase'] == 'failed' and damaged['lastSuccess'] == successful
