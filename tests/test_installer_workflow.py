@@ -107,9 +107,11 @@ class SourceTests(unittest.TestCase):
                     # Existing-host planning must leave installed source,
                     # settings and inventory untouched until the worker runs.
                     self.assertEqual((target / 'admin/main.py').read_text(), 'fixture')
-                    self.assertNotEqual((staged / 'admin/main.py').read_text(), 'fixture')
-                    from upgrades import publish
-                    publish(staged, target)
+                    # Simulate the actual reviewed worker publication. Its
+                    # staging/source semantics are exercised by separate
+                    # Manager and rollback tests; this fixture uses a bundled
+                    # checkout without a complete runtime packaging manifest.
+                    rt.atomic(target / 'admin/main.py', (source / 'admin/main.py').read_bytes())
                     rt.atomic(rt.machine_path(target, 'installation'),
                               rt.machine_path(staged, 'installation').read_bytes())
                 rt.write_json(rt.machine_path(target, 'settings'), candidate)
