@@ -77,8 +77,21 @@ function hostOverview() {
   const failed = (health?.services || []).filter(unit => unit.ActiveState === "failed" || unit.Result && unit.Result !== "success");
   const known = (health?.services || []).length > 0;
   const services = !fresh ? "Unavailable or stale" : !known ? "Unavailable" : degraded.length || failed.length ? "Needs attention" : "Management services active";
-  return title("", "Overview", "Your host, guests and native management tools.")
-    + `<div class="grid overview-grid">${homepageTools()}${card("Host", `<dl class="host-facts"><div><dt>Management</dt><dd><code>${esc(s.management.interface)} · ${esc(state.status.managementAddress || s.management.address)}</code></dd></div><div><dt>Services</dt><dd class="${fresh && known && (degraded.length || failed.length) ? "error" : ""}">${esc(services)}</dd></div><div><dt>Virtualization</dt><dd>${state.host.kvm ? "KVM device detected" : "KVM not detected"}</dd></div><div><dt>Backup</dt><dd>${esc(!s.backup?.enable ? "Disabled" : fresh ? health?.backup?.health || "unknown" : "unknown")}</dd></div><div><dt>Reboot</dt><dd>${state.status.rebootRequired ? "Required" : "Not pending"}</dd></div>${health?.rootStorage && fresh ? `<div><dt>Free root space</dt><dd>${esc(formatBytes(health.rootStorage.availableBytes))}</dd></div>` : ""}<div><dt>Changes</dt><dd>${esc(state.status.job?.status || "None pending")}</dd></div></dl>${fresh && known && degraded.length ? `<p class="error">${esc(degraded.join(", "))}</p>` : ""}<div class="actions"><button class="small" data-overview-refresh>Refresh status</button><a href="/docs/troubleshooting.md">Troubleshooting</a></div>`, fresh ? "Checked " + new Date(health.checkedAt * 1000).toLocaleTimeString() : "Health unknown")}</div>${guestNetwork()}${publicApplications()}`;
+  const network = operationView.network;
+  const observedGuests = network?.available && freshObservation(network);
+  const guestCount = observedGuests ? network.guests.length : "—";
+  const guestDetail = observedGuests ? network.guests.filter(g => g.status === "Running").length + " running · observed" : "Inventory unavailable or stale";
+  const backup = !s.backup?.enable ? "Disabled" : fresh ? health?.backup?.health || "Unknown" : "Unknown";
+  const backupDetail = !s.backup?.enable ? "Not configured" : fresh ? "Host-reported status only" : "No fresh verification";
+  const hostSignal = !fresh || !known ? "Unknown" : degraded.length || failed.length ? "Attention" : "Healthy";
+  const hostDetail = !fresh ? "Status unavailable or stale" : !known ? "No loaded services observed" : "Observed host services";
+  return title("", "Overview", "Current host state, observed guests and the native tools that manage them.")
+    + `<div class="stats">
+       <div class="stat"><div class="label">Host services</div><div class="value">${esc(hostSignal)}</div><div class="detail">${esc(hostDetail)}</div></div>
+       <div class="stat"><div class="label">Incus guests</div><div class="value">${esc(guestCount)}</div><div class="detail">${esc(guestDetail)}</div></div>
+       <div class="stat"><div class="label">Off-host backup</div><div class="value">${esc(backup)}</div><div class="detail">${esc(backupDetail)}</div></div>
+       <div class="stat"><div class="label">Local draft</div><div class="value">${esc(stagedCount())}</div><div class="detail">Staged; not yet applied</div></div>
+     </div><div class="grid overview-grid">${homepageTools()}${card("Host", `<dl class="host-facts"><div><dt>Management</dt><dd><code>${esc(s.management.interface)} · ${esc(state.status.managementAddress || s.management.address)}</code></dd></div><div><dt>Services</dt><dd class="${fresh && known && (degraded.length || failed.length) ? "error" : ""}">${esc(services)}</dd></div><div><dt>Virtualization</dt><dd>${state.host.kvm ? "KVM device detected" : "KVM not detected"}</dd></div><div><dt>Backup</dt><dd>${esc(!s.backup?.enable ? "Disabled" : fresh ? health?.backup?.health || "unknown" : "unknown")}</dd></div><div><dt>Reboot</dt><dd>${state.status.rebootRequired ? "Required" : "Not pending"}</dd></div>${health?.rootStorage && fresh ? `<div><dt>Free root space</dt><dd>${esc(formatBytes(health.rootStorage.availableBytes))}</dd></div>` : ""}<div><dt>Changes</dt><dd>${esc(state.status.job?.status || "None pending")}</dd></div></dl>${fresh && known && degraded.length ? `<p class="error">${esc(degraded.join(", "))}</p>` : ""}<div class="actions"><button class="small" data-overview-refresh>Refresh status</button><a href="/docs/troubleshooting.md">Troubleshooting</a></div>`, fresh ? "Checked " + new Date(health.checkedAt * 1000).toLocaleTimeString() : "Health unknown")}</div>${guestNetwork()}${publicApplications()}`;
 }
 
 function recordEditor(heading, path, columns, defaults) {
