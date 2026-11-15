@@ -557,6 +557,53 @@ class FreshPortalConfirmationTests(unittest.TestCase):
             check({'authenticatedAt': 200}, {'status': 'awaiting-confirmation'}, '192.0.2.2')
 
 
+
+class FreshCliConfirmationTests(unittest.TestCase):
+    def test_only_new_ssh_session_or_physical_console_can_confirm(self):
+        from main import require_fresh_cli_confirmation as check
+        job = {'status': 'awaiting-confirmation', 'awaitingAt': 100}
+        self.assertTrue(check(job, tty='/dev/tty1'))
+        self.assertTrue(check(job, tty='/dev/ttyS0'))
+        self.assertTrue(check(job, tty='/dev/pts/3', ssh_started_at=101))
+        for tty, timestamp in (('/dev/pts/3', 99), ('/dev/pts/3', 100),
+                               ('/dev/pts/3', 0), ('/run/tty', 200)):
+            with self.subTest(tty=tty, timestamp=timestamp), self.assertRaises(ValueError):
+                check(job, tty=tty, ssh_started_at=timestamp)
+        with self.assertRaises(ValueError):
+            check({'status': 'awaiting-confirmation'}, tty='/dev/tty1')
+        with self.assertRaises(ValueError):
+            check({'status': 'confirmed', 'awaitingAt': 100}, tty='/dev/tty1')
+
+    def test_proc_session_start_is_bounded_to_nearest_remote_ancestor(self):
+        from main import ssh_login_epoch
+        with tempfile.TemporaryDirectory() as folder:
+            proc = Path(folder)
+            (proc / 'stat').write_text('cpu 1 2 3\\nbtime 1000\\n')
+            for pid, comm, parent in ((999, 'python3', 200), (200, 'sshd-session', 1)):
+                directory = proc / str(pid); directory.mkdir()
+                (directory / 'comm').write_text(comm)
+                (directory / 'status').write_text('Name:\\t' + comm + '\\nPPid:\\t' + str(parent) + '\\n')
+                fields = ['S'] + ['0'] * 21
+                fields[19] = '5000'
+                (directory / 'stat').write_text(str(pid) + ' (' + comm + ') ' + ' '.join(fields))
+            with patch('main.os.sysconf', return_value=100):
+                self.assertEqual(ssh_login_epoch(proc, 999), 1050)
+            (proc / '200/comm').write_text('untrusted-daemon')
+            self.assertIsNone(ssh_login_epoch(proc, 999))
+
+    def test_cli_denies_old_session_without_contacting_confirm_broker(self):
+        from main import config_cli
+        job_id = 'a' * 32
+        def broker(method, path, data=None):
+            if method == 'GET':
+                return {'job': {'id': job_id, 'status': 'awaiting-confirmation', 'awaitingAt': 100}}
+            self.fail('No POST permitted before fresh access proof')
+        with patch('main.broker_request', side_effect=broker), \
+             patch('main.require_fresh_cli_confirmation', side_effect=ValueError('old SSH session')):
+            with self.assertRaisesRegex(ValueError, 'old SSH session'):
+                config_cli(['confirm', job_id])
+
+
 class HttpsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
