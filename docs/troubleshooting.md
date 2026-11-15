@@ -141,6 +141,12 @@ enroll your **laptop's public key** through a local host terminal:
 sudo nixlab enroll-key /path/to/laptop.pub
 ```
 
+Key enrollment leaves the rollback guard armed. Open a new SSH session using
+the enrolled key, verify access, then run the printed
+`sudo nixlab-admin config confirm TRANSACTION_ID` command from that session.
+The portal can also confirm the pending transaction. If access fails, leave it
+unconfirmed so the deadline restores the previous generation.
+
 A key generated on the server does not authorize your laptop. Check **Access**
 for the password-login policy. A locked Linux account still needs a usable password;
 enabling password authentication alone does not create one.
