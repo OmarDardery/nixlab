@@ -459,3 +459,10 @@ td code{font-size:12px}
 .lifecycle p{font-size:11px;line-height:1.5;margin:5px 0 0}
 @media(max-width:1170px){.lifecycle{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:600px){.lifecycle{grid-template-columns:1fr}.lifecycle li{display:flex;gap:14px;padding:11px}.lifecycle .step-num{margin:0;flex:none}.lifecycle strong{font-size:13px}.lifecycle p{font-size:12px}}
+
+/* Never imply host health without fresh observed service evidence. */
+.status-dot{background:var(--subtle)}
+.status-dot.active{background:var(--green)}
+.status-dot.warning{background:var(--warning)}
+.status-dot.unknown{background:var(--subtle)}
+.sidebar-server .host-state{color:var(--text);font:650 11px/1.5 var(--body);margin:2px 0}
