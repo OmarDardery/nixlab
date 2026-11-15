@@ -445,3 +445,17 @@ td code{font-size:12px}
  h1{font-size:26px}
 }
 @media(prefers-reduced-motion:reduce){.sidebar{transition:none}}
+
+/* Guarded activation timeline: current stage is textual and visually distinct. */
+.lifecycle-card{margin-bottom:18px}
+.lifecycle{list-style:none;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:0 0 10px;padding:0}
+.lifecycle li{border:1px solid var(--line);border-radius:10px;padding:14px;min-width:0;background:var(--panel2)}
+.lifecycle li.current{border-color:var(--accent);background:var(--panel3)}
+.lifecycle li.complete{border-color:var(--green)}
+.lifecycle .step-num{width:26px;height:26px;border:1px solid var(--line);display:grid;place-items:center;border-radius:50%;font-size:12px;font-weight:700;margin-bottom:11px}
+.lifecycle .complete .step-num{background:var(--good-bg);color:var(--green);border-color:var(--green)}
+.lifecycle .current .step-num{color:var(--accent);border-color:var(--accent)}
+.lifecycle strong{font-size:12px;line-height:1.4;display:block}
+.lifecycle p{font-size:11px;line-height:1.5;margin:5px 0 0}
+@media(max-width:1170px){.lifecycle{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:600px){.lifecycle{grid-template-columns:1fr}.lifecycle li{display:flex;gap:14px;padding:11px}.lifecycle .step-num{margin:0;flex:none}.lifecycle strong{font-size:13px}.lifecycle p{font-size:12px}}
