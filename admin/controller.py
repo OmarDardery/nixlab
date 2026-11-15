@@ -318,6 +318,8 @@ class Manager:
         return {'ok': True}
 
     def browser_certificate(self):
+        import diagnostics
+        diagnostics.require_plausible_clock()
         # A separate revocable client identity. Private material exists only in a
         # root-only temporary directory and the authenticated one-time response.
         name = 'nixlab-browser-' + secrets.token_hex(6)
