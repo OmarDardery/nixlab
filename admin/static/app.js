@@ -106,7 +106,7 @@ function pendingBanner() {
   const p = state.status?.pending,
     j = state.status?.job;
   if (!p) return "";
-  return `<div class="banner warn status-banner"><div><h3>Confirm your connection after activation</h3><p>${j?.status === "awaiting-confirmation" ? "Your previous generation will be restored unless you confirm." : "Activation is in progress; recovery is armed."} <span id="countdown"></span></p></div><button class="primary" data-action="confirm" ${j?.status !== "awaiting-confirmation" ? "disabled" : ""}>Confirm access</button></div>`;
+  return `<div class="banner warn status-banner"><div><h3>Confirm your connection after activation</h3><p>${j?.status === "awaiting-confirmation" ? "Sign out, reconnect and sign in again after activation before confirming; the previous generation will be restored otherwise." : "Activation is in progress; recovery is armed."} <span id="countdown"></span></p></div><button class="primary" data-action="confirm" ${j?.status !== "awaiting-confirmation" ? "disabled" : ""}>Confirm access</button></div>`;
 }
 function quickManagementLinks() {
   const links = managementServices().filter(service => service.url);
