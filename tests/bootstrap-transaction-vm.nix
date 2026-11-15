@@ -18,6 +18,10 @@ in pkgs.testers.runNixOSTest {
   };
   nodes.machine = { lib, ... }: {
     imports = [ ../configuration-bootstrap.nix ];
+    # Test nodes normally boot an image without activation tooling. This fixture
+    # deliberately exercises the production switch/rollback implementation.
+    system.activatable = lib.mkForce true;
+    system.switch.enable = lib.mkForce true;
     boot.kernelModules = lib.mkForce [ ];
     virtualisation.memorySize = 2048;
     virtualisation.vlans = [ 1 ];
