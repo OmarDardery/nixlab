@@ -111,9 +111,9 @@ def activate(candidate, manager=None, effective=None):
 pending_access = rt.pending_access
 
 
-def resume(manager, record):
+def resume(manager, record, *, principal=PRINCIPAL):
     """Reconnect to an existing durable worker without starting a competing job."""
-    if record.get('principal') != PRINCIPAL:
+    if record.get('principal') != principal:
         raise ValueError('Another configuration transaction is active; finish it in its original entrypoint or the portal')
     job_id = record['id']
     if record['status'] == 'rolling-back':

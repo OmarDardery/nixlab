@@ -115,6 +115,7 @@ class SourceTests(unittest.TestCase):
                  patch('controller.Manager.status', return_value={'job': None}),
                  patch('controller.read_settings', side_effect=lambda root: rt.read_json(rt.machine_path(root, 'settings'), {})),
                  patch('direct.activate', side_effect=activate), patch('builtins.print'),
+                 patch('bootstrap.activate', side_effect=lambda: activate(rt.read_json(rt.machine_path(target, 'settings')))[1]),
                  patch.object(sys, 'argv', ['nixlab-install', '--checkout', str(source)] + (['--wizard'] if wizard else []))
             ]
             with contextlib.ExitStack() as stack:
@@ -225,7 +226,7 @@ class ReadinessTests(unittest.TestCase):
                 diagnostics.management_address(cfg)
 
     def test_portainer_missing_admin_fails_health_even_with_live_proxy(self):
-        cfg = initial(); cfg['apps']['enable'] = True; cfg['cockpit']['enable'] = True
+        cfg = initial(); cfg['ready'] = True; cfg['apps']['enable'] = True; cfg['cockpit']['enable'] = True
         def response(address, port, path):
             return (404 if path == '/api/users/admin/check' else 200), b'{}'
         with patch('diagnostics.management_address', return_value='192.0.2.20'), \
@@ -236,7 +237,7 @@ class ReadinessTests(unittest.TestCase):
         self.assertEqual([c['name'] for c in report['checks'] if not c['ok']], ['Portainer administrator'])
 
     def test_portainer_status_prefers_current_api_and_only_falls_back_for_old_images(self):
-        cfg = initial(); cfg['apps']['enable'] = True
+        cfg = initial(); cfg['ready'] = True; cfg['apps']['enable'] = True
         for status in (200, 404, 401, 500):
             calls = []
             def response(address, port, path):
@@ -277,7 +278,7 @@ class ReadinessTests(unittest.TestCase):
                 self.assertIsNone(portainer.credentials(initial()))
 
     def test_recovery_restarts_portainer_after_helper_failure(self):
-        cfg = initial(); cfg['apps']['enable'] = True
+        cfg = initial(); cfg['ready'] = True; cfg['apps']['enable'] = True
         def command(*args, **kwargs):
             if args[:2] == ('docker', 'run'): raise ValueError('helper failed')
             return ''
@@ -287,7 +288,7 @@ class ReadinessTests(unittest.TestCase):
         self.assertIn(('systemctl', 'start', 'docker-portainer.service'), [c.args for c in guest.call_args_list])
 
     def test_recovery_backs_up_then_resets_restarts_and_verifies(self):
-        cfg = initial(); cfg['apps']['enable'] = True
+        cfg = initial(); cfg['ready'] = True; cfg['apps']['enable'] = True
         output = 'Password successfully updated for user: admin\nUse the following password to login: new-random-password\n'
         events = []
         def command(*args, **kwargs):

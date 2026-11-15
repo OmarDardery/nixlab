@@ -62,6 +62,16 @@ def update(directory, **fields):
     return data
 
 
+def host_role(job):
+    """Legacy jobs remain hypervisor jobs; no arbitrary flake target is accepted."""
+    role = job.get('hostRole', 'hypervisor')
+    if role not in ('hypervisor', 'bootstrap'):
+        raise ValueError('Unsupported host role; build a new review')
+    if role == 'bootstrap' and job.get('principal') != 'root-wizard-install':
+        raise ValueError('Bootstrap job has no initial installer authority')
+    return role
+
+
 def validate_effective_transition(effective, disks, active_settings, previous_disks, initialized):
     if active_settings:
         from model import merge
@@ -81,6 +91,7 @@ def validate_effective_transition(effective, disks, active_settings, previous_di
 def build(directory):
     source = directory / 'source'
     job = rt.read_json(directory / 'job.json')
+    role = host_role(job)
     old_inputs = rt.read_json(source / 'flake.lock', {}).get('nodes', {})
     with (directory / 'build.log').open('a', buffering=1) as log:
         if job.get('platformRevision'):
@@ -89,23 +100,33 @@ def build(directory):
             update(directory, platformChanges=changes)
         if job['updateInputs']:
             run(['nix', '--extra-experimental-features', 'nix-command flakes', 'flake', 'update', 'nixpkgs', '--flake', 'path:' + str(source)], log)
-        run(['nix', '--extra-experimental-features', 'nix-command flakes', 'build', 'path:' + str(source) + '#nixosConfigurations.hypervisor.config.system.build.toplevel',
+        run(['nix', '--extra-experimental-features', 'nix-command flakes', 'build', 'path:' + str(source) + '#nixosConfigurations.' + role + '.config.system.build.toplevel',
              '--out-link', str(directory / 'system')], log)
         # Inspect the exact closure already built above. This avoids a second
         # evaluation/rebuild and works before flakes are enabled on the host.
         run([str((directory / 'system').resolve()) + '/bin/switch-to-configuration', 'dry-activate'], log)
+    # Bootstrap adds only portal/recovery to the installed configuration. It owns
+    # no Incus infrastructure, mounts or guest deployment declarations.
+    resources = ('disks = {}; preseed = {}; instances = []; deployments = {};'
+                 if role == 'bootstrap' else
+                 'disks = c.nixlab.storage.disks; preseed = c.virtualisation.incus.preseed; instances = c.nixlab.incus.desiredInstances; deployments = c.nixlab.deployment.manifest;')
     result = subprocess.run(['nix', '--extra-experimental-features', 'nix-command flakes', 'eval', '--json',
-        'path:' + str(source) + '#nixosConfigurations.hypervisor.config', '--apply',
-        'c: { settings = c.nixlab.settings; desiredSettings = c.nixlab.desiredSettings or null; disks = c.nixlab.storage.disks; preseed = c.virtualisation.incus.preseed; instances = c.nixlab.incus.desiredInstances; deployments = c.nixlab.deployment.manifest; }'],
+        'path:' + str(source) + '#nixosConfigurations.' + role + '.config', '--apply',
+        'c: { settings = c.nixlab.settings; desiredSettings = c.nixlab.desiredSettings or null; ' + resources + ' }'],
         check=True, capture_output=True, text=True, timeout=120)
     projection = json.loads(result.stdout)
     effective, disks = projection['settings'], projection['disks']
+    if role == 'bootstrap' and effective['ready']:
+        raise ValueError('Bootstrap source marks the host configured; use the full guarded installer')
     if 'cockpitPassword' in rt.read_json(directory / 'secrets.json', {}) and not (effective['cockpit']['enable'] and effective['cockpit']['managePassword']):
         raise ValueError('Cockpit password enrollment conflicts with file-owned effective settings')
-    from model import inventory, validate_settings
+    from model import inventory, validate_settings, validate_bootstrap
     validation = json.loads(json.dumps(effective))
     validation['mounts'] += list(disks.values())
-    validate_settings(validation, validation, inventory())
+    if role == 'bootstrap':
+        validate_bootstrap(validation, inventory())
+    else:
+        validate_settings(validation, validation, inventory())
     before = rt.read_json(directory / 'impact-base.json')
     if before is None: raise ValueError('Candidate has no baseline inventory; build a new review')
     transition_error = False
@@ -267,11 +288,14 @@ def recover_activation(directory, original):
 
 def apply(directory):
     job = rt.read_json(directory / 'job.json')
+    role = host_role(job)
     if job['baseDigest'] != rt.digest_source(rt.ROOT) or job['candidateDigest'] != rt.digest_source(directory / 'source'):
         raise ValueError('Source changed since review')
     impact.recheck(directory)  # repeat after queueing, before saving/publishing anything
     old_settings = rt.read_json(Path('/etc/nixlab/effective-settings.json'), rt.read_json(rt.machine_path(rt.ROOT, 'settings')))
     effective = job.get('effectiveSettings', job['settings'])
+    if role == 'bootstrap' and (effective['ready'] or old_settings['ready']):
+        raise ValueError('Bootstrap cannot replace a configured host; build a full host review')
     previous = str(Path('/run/current-system').resolve())
     save_recovery(directory)
     subprocess.run(['nix-store', '--add-root', str(directory / 'previous-system'), '--indirect', '--realise', previous], check=True, stdout=subprocess.DEVNULL)
@@ -298,18 +322,19 @@ def apply(directory):
             run(['nix-env', '--profile', '/nix/var/nix/profiles/system', '--set', system], log, timeout=120)
             run([system + '/bin/switch-to-configuration', 'switch'], log, timeout=900)
             rt.prepare_state_access()
-            run(['systemctl', 'is-active', 'incus.service', 'nixlab-instances.service'], log, timeout=30)
-            if effective['cockpit']['enable']:
+            if role == 'hypervisor':
+                run(['systemctl', 'is-active', 'incus.service', 'nixlab-instances.service'], log, timeout=30)
+            if role == 'hypervisor' and effective['cockpit']['enable']:
                 run(['systemctl', 'is-active', 'cockpit.socket'], log, timeout=30)
                 run(['systemctl', 'try-restart', 'cockpit.service'], log, timeout=45)
-            if effective['apps']['enable']:
+            if role == 'hypervisor' and effective['apps']['enable']:
                 run(['systemctl', 'is-active', 'nixlab-apps-onboarding.service', 'nginx.service'], log, timeout=30)
-            if before['address'] != after['address'] or old_settings['hostName'] != effective['hostName']:
+            if role == 'hypervisor' and (before['address'] != after['address'] or old_settings['hostName'] != effective['hostName']):
                 run(['systemctl', 'try-restart', 'incus.service'], log, timeout=120)
             # Load rotated TLS material/new port. This may require signing in again.
             run(['systemctl', 'try-restart', 'nixlab-admin-backend.service', 'nixlab-ui.service'], log, timeout=45)
             run(['systemctl', 'is-active', 'nixlab-admin-backend.service', 'nixlab-ui.service'], log, timeout=30)
-            if effective['apps']['enable']:
+            if role == 'hypervisor' and effective['apps']['enable']:
                 run(['systemctl', 'try-restart', 'nginx.service'], log, timeout=45)
         import diagnostics
         report = diagnostics.wait_ready(effective)

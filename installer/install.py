@@ -207,6 +207,7 @@ def summarize(settings, password=None, record=None):
 def main():
     import tempfile
     import direct
+    import bootstrap as wizard
     import workflow
     import intent
     from model import inventory, merge, validate_settings
@@ -242,10 +243,13 @@ def main():
             parser.error('A transaction or recovery is active; --plan-only will not resume or mutate it')
         current = workflow.finish_interrupted_recovery(manager, current)
         if current.get('status') in ('building', 'ready', 'applying', 'awaiting-confirmation', 'rolling-back'):
-            if not args.switch:
+            bootstrap_job = current.get('hostRole') == 'bootstrap'
+            if bootstrap_job and args.switch:
+                parser.error('An initial wizard transaction is active; rerun with --wizard or finish it in the portal')
+            if not bootstrap_job and not args.switch:
                 parser.error('A full installation transaction is active; rerun without --wizard to resume it')
             print('Resuming transaction ' + current['id'], flush=True)
-            resumed = direct.resume(manager, current)
+            resumed = wizard.resume(manager, current) if bootstrap_job else direct.resume(manager, current)
             if resumed['status'] != 'rolled-back':
                 settings = manager.effective_settings()
                 publish_etc()
@@ -470,24 +474,11 @@ def main():
         return
     if not (rt.STATE / 'tls.key').exists():
         rt.issue_tls(address, default['hostName'])
-    previous = str(Path('/run/current-system').resolve())
-    try:
-        record = None
-        if args.switch:
-            _, record = direct.activate(candidate, effective=effective_candidate)
-            settings = Manager().effective_settings()
-        else:
-            run(['nixos-rebuild', 'build', '--flake', 'path:' + str(TARGET) + '#bootstrap'])
-            run(['nixos-rebuild', 'switch', '--flake', 'path:' + str(TARGET) + '#bootstrap'])
-            settings = default
-    except Exception as original:
-        if not args.switch:
-            try:
-                run(['nix-env', '--profile', '/nix/var/nix/profiles/system', '--set', previous])
-                run([previous + '/bin/switch-to-configuration', 'switch'])
-            except Exception as recovery:
-                print('Rollback also failed: ' + str(recovery), file=sys.stderr)
-        raise original
+    if args.switch:
+        _, record = direct.activate(candidate, effective=effective_candidate)
+    else:
+        record = wizard.activate()
+    settings = Manager().effective_settings()
     rt.prepare_state_access()
     publish_etc()
     summarize(settings, password, record)

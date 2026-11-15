@@ -23,6 +23,13 @@ source’s pure `site.nix`; host-module overrides are captured separately. A fai
 routing and a centralized OCI image manifest are not implemented. The existing broad access defaults remain known security gaps, not compatibility
 guarantees. Direct installation requires explicit access confirmation.
 
+Initial wizard onboarding also uses Manager/worker, with a fixed `bootstrap`
+transaction role. It owns no guest resources and leaves settings unconfigured;
+full host transactions use `hypervisor`. Role selection is reserved to the local
+initial installer, never accepted from portal request bodies, and existing jobs
+without role metadata retain their hypervisor meaning. Both use the same source
+digest, impact gate, exact built closure, pending deadline and recovery manifest.
+
 Keep public `nix run ...#install` and `#update` entrypoints, the `nixlab-admin`
 CLI, existing machine settings/modules, transaction records, and previous system
 generation recovery usable across refactors. A change to a public API, state path,

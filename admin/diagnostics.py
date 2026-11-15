@@ -87,12 +87,12 @@ def http_entry(address, secure_port):
 
 def probe(settings):
     address = management_address(settings)
-    targets = [('Incus API', 8443, '/1.0', {200}), ('Incus UI', 8443, '/ui/', {200})]
+    targets = [('Incus API', 8443, '/1.0', {200}), ('Incus UI', 8443, '/ui/', {200})] if settings['ready'] else []
     if settings['setup']['enable']:
         targets.append(('Nixlab', settings['setup']['port'], '/', {200}))
-    if settings['cockpit']['enable']:
+    if settings['ready'] and settings['cockpit']['enable']:
         targets.append(('Cockpit', settings['cockpit']['port'], '/ping', {200}))
-    if settings['apps']['enable']:
+    if settings['ready'] and settings['apps']['enable']:
         targets += [('Portainer', settings['apps']['portainerPort'], '/api/system/status', {200}),
                     ('Portainer administrator', settings['apps']['portainerPort'], '/api/users/admin/check', {204})]
     checks = []

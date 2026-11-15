@@ -60,6 +60,8 @@ jobs:
           nix-instantiate --eval --strict --json site.nix > /tmp/nixlab-desired.json
           python3 -c 'import json; assert json.load(open("/tmp/nixlab-desired.json"))["schemaVersion"] == 1'
       # Fail native lifecycle/network recovery early, before larger guest images.
+      - name: Activate bootstrap and verify rollback after reboot
+        run: nix build .#checks.x86_64-linux.bootstrap-transaction --no-link -L
       - name: Boot real Incus containers and verify host integration and restore
         run: nix build .#checks.x86_64-linux.foundation --no-link -L
       - name: Verify NixOS guest rollout, health rollback and interrupted transfer recovery
