@@ -164,7 +164,7 @@ function bindUiChrome() {
   shade?.addEventListener("click", closeNav);
   const dialog = document.querySelector("#ui-jump");
   const search = dialog?.querySelector("#ui-search-input");
-  const openSearch = () => { dialog.showModal(); search.value = ""; search.dispatchEvent(new Event("input")); search.focus(); };
+  const openSearch = () => { if (!dialog.open) dialog.showModal(); search.value = ""; search.dispatchEvent(new Event("input")); search.focus(); };
   document.querySelector("#ui-search-open")?.addEventListener("click", openSearch);
   search?.addEventListener("input", () => {
     const query = search.value.trim().toLowerCase();
@@ -193,10 +193,16 @@ function shell() {
   const settings = state.status.effectiveSettings || state.status.settings;
   const current = pages.find(([id]) => id === state.page)?.[1] || "Overview";
   const address = state.status.managementAddress || settings.management.address;
+  const observedHealth = freshObservation(operationView.health);
+  const requiredUnits = ["incus.service", "nixlab-admin-backend.service", "nixlab-ui.service",
+    ...(settings.cockpit?.enable ? ["cockpit.socket"] : []), ...(settings.apps?.enable ? ["nginx.service"] : [])];
+  const units = operationView.health?.services || [];
+  const live = observedHealth && requiredUnits.every(id => units.some(u => u.Id === id && u.ActiveState === "active"));
+  const hostStatus = !observedHealth ? "Unknown" : live ? "Active" : "Needs attention";
   app.innerHTML = `<div class="layout"><div id="ui-shade" class="drawer-shade" aria-hidden="true"></div>
   <aside class="sidebar" id="ui-sidebar" aria-label="Host console navigation">
     ${brandLogo()}<div class="sidebar-navigation">${navigationHtml()}</div>${quickManagementLinks(settings)}
-    <div class="sidebar-bottom"><div class="sidebar-server"><span class="status-dot" aria-hidden="true"></span><div><b>${esc(settings.hostName)}</b><span>NixOS host · ${esc(address)}</span></div></div>
+    <div class="sidebar-bottom"><div class="sidebar-server"><span class="status-dot ${live ? "active" : observedHealth ? "warning" : "unknown"}" aria-hidden="true"></span><div><b>${esc(settings.hostName)}</b><span class="host-state">${esc(hostStatus)}</span><span>NixOS host · ${esc(address)}</span></div></div>
       <div class="sidebar-links"><a href="/docs/troubleshooting.md">Offline help</a><a href="https://nixlab.dardery.work/" target="_blank" rel="noopener noreferrer">Website ↗</a></div><button class="small" data-action="logout">Sign out</button>
     </div>
   </aside>
@@ -425,7 +431,7 @@ function formatBytes(v) {
 function login(message = "") {
   clearInterval(state.timer);
   state.timer = null;
-  app.innerHTML = `<main class="login"><section class="login-card">${brandLogo()}<h1>Sign in to your host.</h1><p>Use your NixLab portal account. First installation? The host must approve one-time administrator enrollment before you create your portal password.</p><form id="login-form"><label class="field"><span>Account</span><input name="username" value="admin" autocomplete="username" required></label><label class="field"><span>Portal password</span><input name="password" type="password" autocomplete="current-password" required autofocus></label><p class="error" id="login-error">${esc(message)}</p><button class="primary">Sign in →</button></form><p class="note">SSH, Cockpit and Portainer use separate identities. Verify the local CA fingerprint before signing in. <a href="/ca.crt">Download the management CA</a>.</p></section></main>`;
+  app.innerHTML = `<main id="main" class="login"><section class="login-card">${brandLogo()}<h1>Sign in to your host.</h1><p>Use your NixLab portal account. First installation? The host must approve one-time administrator enrollment before you create your portal password.</p><form id="login-form"><label class="field"><span>Account</span><input name="username" value="admin" autocomplete="username" required></label><label class="field"><span>Portal password</span><input name="password" type="password" autocomplete="current-password" required autofocus></label><p class="error" id="login-error">${esc(message)}</p><button class="primary">Sign in →</button></form><p class="note">SSH, Cockpit and Portainer use separate identities. Verify the local CA fingerprint before signing in. <a href="/ca.crt">Download the management CA</a>.</p></section></main>`;
   document.querySelector("#login-form").onsubmit = async (e) => {
     e.preventDefault();
     const button = e.target.querySelector("button");
@@ -451,7 +457,7 @@ function login(message = "") {
 function showEnrollment() {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   const code = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
-  app.innerHTML = `<main class="login"><section class="login-card">${brandLogo()}<h1>Create the portal administrator</h1><p>Verify the management CA, then run <code>sudo nixlab-admin approve-enrollment</code> on the host and paste this code into its prompt.</p><label class="field"><span>Browser approval code</span><input value="${code}" readonly autocomplete="off"></label><form id="enrollment-form"><label class="field"><span>New admin password</span><input name="password" type="password" autocomplete="new-password" minlength="16" maxlength="256" required></label><p id="enrollment-error" class="error" aria-live="polite"></p><button class="primary">Create administrator</button></form><p><a href="/ca.crt">Download the management CA</a></p></section></main>`;
+  app.innerHTML = `<main id="main" class="login"><section class="login-card">${brandLogo()}<h1>Create the portal administrator</h1><p>Verify the management CA, then run <code>sudo nixlab-admin approve-enrollment</code> on the host and paste this code into its prompt.</p><label class="field"><span>Browser approval code</span><input value="${code}" readonly autocomplete="off"></label><form id="enrollment-form"><label class="field"><span>New admin password</span><input name="password" type="password" autocomplete="new-password" minlength="16" maxlength="256" required></label><p id="enrollment-error" class="error" aria-live="polite"></p><button class="primary">Create administrator</button></form><p><a href="/ca.crt">Download the management CA</a></p></section></main>`;
   const form = document.querySelector("#enrollment-form");
   form.onsubmit = async (event) => {
     event.preventDefault();
@@ -493,7 +499,7 @@ async function poll() {
   try {
     if (state.page === "operations") await refreshOperations(false);
     let healthChanged = false;
-    if (["overview","guests"].includes(state.page) && Date.now() - lastOverviewHealthPoll >= 30000) {
+    if (["overview","guests","system"].includes(state.page) && Date.now() - lastOverviewHealthPoll >= 30000) {
       lastOverviewHealthPoll = Date.now();
       await refreshOverview();
       healthChanged = true;
@@ -502,7 +508,7 @@ async function poll() {
     state.status = await api("status");
     if (state.page === "review" && before !== JSON.stringify(state.status.job))
       shell();
-    else if (["overview","guests"].includes(state.page) && healthChanged) shell();
+    else if (["overview","guests","system"].includes(state.page) && healthChanged) shell();
     countdown();
   } catch (err) {
     if (!document.querySelector("#login-form"))
