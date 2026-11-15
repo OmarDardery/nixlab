@@ -113,7 +113,7 @@ _REQUIRED = object()
 
 
 @contextlib.contextmanager
-def open_job_file(path):
+def open_job_file(path, *, private=False):
     """Open one regular job file using the directory descriptor for lookup."""
     path = Path(path)
     directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -125,7 +125,7 @@ def open_job_file(path):
         info = os.fstat(stream.fileno())
         # A concurrent atomic replacement may unlink the already-open inode.
         if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
-                or info.st_nlink > 1 or info.st_mode & 0o022):
+                or info.st_nlink > 1 or info.st_mode & (0o077 if private else 0o022)):
             raise ValueError
         yield stream, info.st_size
 
@@ -177,6 +177,36 @@ def worker_active(unit: str) -> bool:
     return result.returncode == 0
 
 
+STAGED_SECRET_LIFETIME = 24 * 60 * 60
+
+
+def read_staged_secrets(directory, expected):
+    """Load only the reviewed keys, from a private regular file."""
+    try:
+        with open_job_file(Path(directory) / 'secrets.json', private=True) as (stream, size):
+            if size > 1024 * 1024:
+                raise ValueError
+            raw = stream.read(1024 * 1024 + 1)
+            record = json.loads(raw) if len(raw) <= 1024 * 1024 else None
+        if (not isinstance(record, dict) or sorted(record) != sorted(expected)
+                or any(key not in SECRET_PATHS or not isinstance(value, str) for key, value in record.items())):
+            raise ValueError
+    except FileNotFoundError:
+        if not expected:
+            return {}
+        raise ValueError('Staged credentials are missing; review the change again') from None
+    except (OSError, ValueError, RecursionError):
+        raise ValueError('Staged credentials are invalid or unreadable; review the change again') from None
+    return record
+
+
+def remove_staged_secrets(directory):
+    try:
+        durable_unlink(Path(directory) / 'secrets.json')
+    except OSError:
+        raise ValueError('Staged credential cleanup failed; inspect NixLab transaction storage and retry') from None
+
+
 def cleanup_terminal_secrets(state):
     """Retry interrupted cleanup; caller holds the existing mutation lock.
 
@@ -188,6 +218,7 @@ def cleanup_terminal_secrets(state):
     jobs = state / 'jobs'
     if not jobs.is_dir():
         return
+    cutoff = time.time() - STAGED_SECRET_LIFETIME
     for directory in jobs.iterdir():
         if directory.is_symlink() or not directory.is_dir() or not re.fullmatch(r'[0-9a-f]{32}', directory.name):
             continue
@@ -197,13 +228,21 @@ def cleanup_terminal_secrets(state):
         if record.is_symlink():
             continue
         try:
-            status = read_job_record(record, {}).get('status')
+            job = read_job_record(record, {})
+            status = job.get('status')
         except (ValueError, OSError, AttributeError):
             continue  # Unknown state is not evidence that credentials are disposable.
+        staged = directory / 'secrets.json'
+        if not (staged.exists() or staged.is_symlink()):
+            continue
         if status in {'confirmed', 'rolled-back', 'cancelled', 'superseded'}:
-            staged = directory / 'secrets.json'
-            if staged.exists() or staged.is_symlink():
-                durable_unlink(staged)
+            remove_staged_secrets(directory)
+        elif status in {'ready', 'failed'}:
+            created = job.get('created')
+            if type(created) in (float, int) and 0 < created <= cutoff:
+                job.update(status='cancelled', error='Staged credentials expired; review the change again')
+                write_json(record, job)
+                remove_staged_secrets(directory)
 
 
 def prepare_state_access():

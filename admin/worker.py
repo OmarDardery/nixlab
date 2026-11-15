@@ -118,7 +118,7 @@ def build(directory):
     effective, disks = projection['settings'], projection['disks']
     if role == 'bootstrap' and effective['ready']:
         raise ValueError('Bootstrap source marks the host configured; use the full guarded installer')
-    if 'cockpitPassword' in rt.read_json(directory / 'secrets.json', {}) and not (effective['cockpit']['enable'] and effective['cockpit']['managePassword']):
+    if 'cockpitPassword' in rt.read_staged_secrets(directory, job.get('secretChanges', [])) and not (effective['cockpit']['enable'] and effective['cockpit']['managePassword']):
         raise ValueError('Cockpit password enrollment conflicts with file-owned effective settings')
     from model import inventory, validate_settings, validate_bootstrap
     validation = json.loads(json.dumps(effective))
@@ -265,7 +265,7 @@ def rollback(directory, reason='requested'):
     pending = rt.read_json(rt.STATE / 'pending.json')
     if pending and pending['id'] == directory.name:
         rt.durable_unlink(rt.STATE / 'pending.json')
-    (directory / 'secrets.json').unlink(missing_ok=True)
+    rt.remove_staged_secrets(directory)
     rt.durable_unlink(directory / 'system')
     rt.durable_unlink(directory / 'previous-system')
     rt.audit('rolled-back', job=directory.name, reason=reason)
@@ -307,7 +307,7 @@ def apply(directory):
     rt.write_json(rt.STATE / 'pending.json', {'id': directory.name, 'previousSystem': previous, 'deadline': deadline})
     try:
         # Live secrets are separate from the immutable, reviewed Nix snapshot.
-        for key, data in rt.read_json(directory / 'secrets.json', {}).items():
+        for key, data in rt.read_staged_secrets(directory, job.get('secretChanges', [])).items():
             rt.atomic(rt.SECRET_PATHS[key], data)
         if job.get('platformRevision') or job.get('sourcePlatformUpdated'):
             import upgrades

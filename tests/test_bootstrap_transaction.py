@@ -61,7 +61,7 @@ class BootstrapTransactionTests(unittest.TestCase):
         self.assertEqual(job['hostRole'], 'bootstrap')
         self.assertFalse(job['settings']['ready'])
         self.assertEqual(job['settings']['guests']['cidr'], '')
-        self.assertEqual(rt.read_json(directory / 'secrets.json'), {})
+        self.assertFalse((directory / 'secrets.json').exists())
         self.assertEqual(rt.read_json(rt.machine_path(self.root, 'settings')), self.settings)
         self.manager.spawn.assert_called_once_with('build', directory.name)
 

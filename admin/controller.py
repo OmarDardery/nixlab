@@ -238,7 +238,6 @@ class Manager:
             for name, content in modules.items():
                 rt.atomic(rt.machine_path(directory / 'source', 'modules') / name, content, mode=0o644)
             rt.write_json(rt.machine_path(directory / 'source', 'settings'), candidate)
-            rt.write_json(directory / 'secrets.json', encoded)
             import impact
             before = self.effective_settings(current) if current['ready'] else runtime_settings
             rt.write_json(directory / 'impact-base.json', impact.baseline(before))
@@ -255,13 +254,15 @@ class Manager:
                 obsolete = self.job_path(active['id'])
                 record = rt.read_job_record(obsolete / 'job.json'); record['status'] = 'superseded'
                 rt.write_json(obsolete / 'job.json', record)
-                rt.durable_unlink(obsolete / 'secrets.json')
+                rt.remove_staged_secrets(obsolete)
                 rt.durable_unlink(obsolete / 'system')
             rt.audit('review', job=job_id, changes=len(job['changes']), secrets=list(encoded))
             try:
+                if encoded:
+                    rt.write_json(directory / 'secrets.json', encoded)
                 self.spawn('build', job_id)
             except Exception:
-                job['status'] = 'failed'; job['error'] = 'Could not start the build service'
+                job['status'] = 'failed'; job['error'] = 'Could not stage credentials or start the build service'
                 rt.write_json(directory / 'job.json', job)
                 raise
             return {'id': job_id}
@@ -315,7 +316,7 @@ class Manager:
             rt.write_json(self.state / 'last-confirmed.json', {'id': job_id})
             rt.durable_unlink(self.state / 'pending.json')
             # Staged plaintext is no longer needed; live root-only runtime files remain.
-            rt.durable_unlink(self.job_path(job_id) / 'secrets.json')
+            rt.remove_staged_secrets(self.job_path(job_id))
             rt.audit('confirmed', job=job_id)
             return {'ok': True}
 
@@ -338,7 +339,7 @@ class Manager:
                 if other:
                     record = rt.read_job_record(self.job_path(other['id']) / 'job.json'); record['status'] = 'superseded'
                     rt.write_json(self.job_path(other['id']) / 'job.json', record)
-                    rt.durable_unlink(self.job_path(other['id']) / 'secrets.json')
+                    rt.remove_staged_secrets(self.job_path(other['id']))
                     rt.durable_unlink(self.job_path(other['id']) / 'system')
                 rt.write_json(self.state / 'active.json', {'id': job_id})
             self.spawn('rollback', job_id)
@@ -355,7 +356,7 @@ class Manager:
                 subprocess.run(['systemctl', 'stop', 'nixlab-build-' + job_id], check=True, timeout=30)
             job['status'] = 'cancelled'
             rt.write_json(directory / 'job.json', job)
-            rt.durable_unlink(directory / 'secrets.json')
+            rt.remove_staged_secrets(directory)
             rt.durable_unlink(directory / 'system')
             rt.audit('candidate-discarded', job=job_id)
             return {'ok': True}
