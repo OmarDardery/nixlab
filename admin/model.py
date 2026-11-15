@@ -95,6 +95,32 @@ def check_shape(value, template, location='settings'):
         raise ValueError(location + ' has an invalid type')
 
 
+def validate_bootstrap(settings, host):
+    """Validate initial portal access without requiring a chosen guest topology."""
+    if settings['ready'] or settings['management']['configure'] or not settings['setup']['enable']:
+        raise ValueError('Initial onboarding must preserve networking and keep the portal enabled on an unconfigured host')
+    if any(settings[section]['enable'] for section in ('apps', 'cockpit', 'backup', 'tunnel')) or settings['mounts']:
+        raise ValueError('Initial onboarding cannot activate optional host services or mounts; use the full guarded installer')
+    if settings['system'] != host['architecture'] + '-linux' or settings['cpuVendor'] != host['cpuVendor']:
+        raise ValueError('Bootstrap inventory does not match this host')
+    if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9-]{0,62}', settings['hostName']):
+        raise ValueError('Use a valid host name')
+    management = settings['management']
+    address = ipaddress.ip_address(management['address'])
+    if address.version != 4 or address.is_loopback or address.is_link_local or address.is_unspecified or address.is_multicast:
+        raise ValueError('Initial onboarding needs a usable IPv4 management address')
+    if not any(link['name'] == management['interface'] and link.get('addresses') for link in host['interfaces']):
+        raise ValueError('Initial onboarding needs an addressed management interface')
+    if not management['trustedCIDRs'] or any(ipaddress.ip_network(value, strict=True).version != 4
+                                           for value in management['trustedCIDRs']):
+        raise ValueError('Configure trusted IPv4 management sources')
+    port, deadline = settings['setup']['port'], settings['setup']['confirmationSeconds']
+    if type(port) is not int or not 1024 <= port <= 65535 or port in (8080, 8443, 9090, 9091, 9100):
+        raise ValueError('Choose an unused portal management port')
+    if type(deadline) is not int or not 300 <= deadline <= 1800:
+        raise ValueError('Activation confirmation must allow 5–30 minutes')
+
+
 def validate_settings(candidate, current, host, require_devices=True):
     check_shape(candidate, current)
     # The browser edits these sections; instance declarations and secret file paths remain code-owned.

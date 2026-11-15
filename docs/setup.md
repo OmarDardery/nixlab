@@ -72,14 +72,19 @@ Keep console access for the first activation.
    secrets in Nix source remain Nix source; this tool does not attempt to rewrite arbitrary Nix.
 5. Creates a local CA, separate host/application TLS leaf keys and a salted password hash under
    the root-owned runtime state directory. They never enter Git or the Nix store.
-6. Runs `nixos-rebuild build` and `nixos-rebuild switch` for the **bootstrap** target, which adds
-   the setup/recovery services and KVM module while retaining the installed configuration.
+6. Reviews and builds the **bootstrap** target through the same Manager/worker
+   transaction as full installation. It adds setup/recovery services and the KVM
+   module while retaining the installed base. Activation switches the exact
+   reviewed closure and arms the independent rollback guard.
 7. Renames the original directory to `/etc/nixos.pre-nixlab` and points `/etc/nixos` at the managed
    clone. The preserved backup remains root-only. Builds use explicit flake targets.
 
 No disks are partitioned or formatted. No VM or guest bridge is initialized by bootstrap.
-If the first switch fails, the installer attempts to restore the preceding profile/generation.
-Rerun with `--wizard` after a failed bootstrap; `--resume` is optional. An existing
+The worker restores the preceding profile/generation if activation fails or its
+access-confirmation deadline expires. Confirm portal/SSH access from a fresh
+connection, or explicitly acknowledge it at the host console, before completing
+setup. Rerun with `--wizard` to resume the same initial transaction after a
+disconnect; `--resume` is optional. An existing
 checkout/configuration is never blindly overwritten. Lost portal passwords can be reset locally
 with `sudo nixlab-admin reset-password`, followed by restarting `nixlab-ui` to revoke sessions.
 The installer does not overwrite a pre-existing Incus database.
@@ -315,11 +320,19 @@ copyable commands and upstream credits; its links never execute installers. See
 
 ## Access confirmation after terminal installation
 
-The direct installer and a resumed installation leave the activation awaiting
+The direct installer, initial wizard bootstrap and resumed installations leave activation awaiting
 confirmation after local health checks pass. Open a new SSH connection or use
 the local console, verify management access and workloads, then confirm in the
 portal or run `sudo nixlab-admin config confirm TRANSACTION_ID` using the ID
 printed by the installer. The printed deadline applies; without confirmation the
 existing independent guard rolls back. A successful local probe or an SSH session
 that remained open through activation does not prove that a new login works.
+
+Bootstrap jobs use the fixed `bootstrap` role and preserve `ready=false`; ordinary
+host jobs use `hypervisor`. Historical jobs without a role remain hypervisor jobs.
+This is transaction metadata, not a settings-schema change or a new deployment
+framework. Bootstrap requires addressed management access, preserves physical
+networking and can run before any guest subnet is chosen. It cannot enable optional
+host services/mounts or downgrade a configured host. Finish confirmation before
+reviewing the complete hypervisor configuration in the portal.
 

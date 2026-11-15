@@ -125,7 +125,11 @@ class Manager:
                 sys.executable, str(rt.SOURCE / 'main.py'), 'job', phase, job_id]
         subprocess.run(args, check=True, capture_output=True, text=True)
 
-    def review(self, changes, secret_values=None, update_inputs=False, modules=None, revision=None, principal='root'):
+    def review(self, changes, secret_values=None, update_inputs=False, modules=None, revision=None, principal='root', host_role='hypervisor'):
+        if host_role not in ('hypervisor', 'bootstrap'):
+            raise ValueError('Unsupported host role')
+        if host_role == 'bootstrap' and (principal != 'root-wizard-install' or update_inputs or modules or revision or secret_values):
+            raise ValueError('Bootstrap review is reserved for initial local installer onboarding')
         with rt.locked(blocking=False):
             from deployments import check_idle
             check_idle(self.state)
@@ -142,11 +146,20 @@ class Manager:
             if not isinstance(changes, dict):
                 raise ValueError('Settings must be an object')
             current = self.settings()
+            if host_role == 'bootstrap' and (current['ready'] or self.effective_settings(current)['ready']):
+                raise ValueError('Bootstrap cannot replace an already configured host')
             stored = rt.read_json(rt.machine_path(self.root, 'settings'), {}) or {}
             requested = merge(current, changes)
             if (secret_values or {}).get('cockpitPassword'):
                 requested['cockpit']['managePassword'] = True
-            candidate = validate_settings(requested, current, inventory())
+            if host_role == 'bootstrap':
+                from model import validate_bootstrap
+                if requested != current:
+                    raise ValueError('Bootstrap review cannot change settings; use the full host review')
+                candidate = requested
+                validate_bootstrap(candidate, inventory())
+            else:
+                candidate = validate_settings(requested, current, inventory())
             for section, key in [('backup', 'passwordFile'), ('backup', 'environmentFile'), ('tunnel', 'credentialsFile')]:
                 if candidate[section][key] != current[section][key]:
                     raise ValueError('Secret file paths are source-managed')
@@ -182,8 +195,8 @@ class Manager:
             # Valid migration proposals can be built and explained, but the
             # evaluated impact gate must refuse them before any activation.
             # Detect overlaps with real host routes, ignoring the bridge we own and the default route.
-            guest_net = __import__('ipaddress').ip_network(candidate['guests']['cidr'])
-            for route in inventory()['routes']:
+            guest_net = __import__('ipaddress').ip_network(candidate['guests']['cidr']) if host_role == 'hypervisor' else None
+            for route in inventory()['routes'] if host_role == 'hypervisor' else []:
                 if route.get('dst', 'default') == 'default' or route.get('dev') == candidate['guests'].get('bridge', 'incusbr0'):
                     continue
                 if guest_net.overlaps(__import__('ipaddress').ip_network(route['dst'], strict=False)):
@@ -198,7 +211,7 @@ class Manager:
             import impact
             before = self.effective_settings(current) if current['ready'] else runtime_settings
             rt.write_json(directory / 'impact-base.json', impact.baseline(before))
-            job = {'id': job_id, 'status': 'building', 'created': time.time(), 'baseDigest': rt.digest_source(self.root),
+            job = {'id': job_id, 'status': 'building', 'created': time.time(), 'baseDigest': rt.digest_source(self.root), 'hostRole': host_role,
                    'settingsMigration': {'from': stored.get('schemaVersion', 0), 'to': candidate.get('schemaVersion', 0)},
                    'settings': candidate, 'changes': differences(current, candidate), 'principal': principal,
                    'moduleChanges': [{'path': name, 'before': (rt.machine_path(self.root, 'modules') / name).read_text() if (rt.machine_path(self.root, 'modules') / name).exists() else None, 'after': content} for name, content in modules.items()],

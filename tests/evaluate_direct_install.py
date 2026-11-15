@@ -94,6 +94,23 @@ with tempfile.TemporaryDirectory(prefix='nixlab-direct-eval-') as folder:
         site_path.write_text(source_bytes)
     assert read_settings(root) == normalized
     path.write_text(json.dumps(settings))
+    bootstrap = evaluate(root, 'nixosConfigurations.bootstrap.config', '''c: {
+      ready = c.nixlab.settings.ready;
+      stateVersion = c.system.stateVersion;
+      rootDevice = c.fileSystems."/".device;
+      networkManager = c.networking.networkmanager.enable;
+      portal = c.nixlab.settings.setup.enable;
+      incus = c.virtualisation.incus.enable;
+      cockpit = c.services.cockpit.enable;
+      docker = c.virtualisation.docker.enable;
+      guard = c.systemd.timers.nixlab-rollback-guard.wantedBy;
+    }''')
+    assert not bootstrap['ready'] and bootstrap['portal'], bootstrap
+    assert bootstrap['stateVersion'] == '25.11' and bootstrap['networkManager'], bootstrap
+    assert bootstrap['rootDevice'] == '/dev/disk/by-label/TEST-ONLY', bootstrap
+    assert not bootstrap['incus'] and not bootstrap['cockpit'] and not bootstrap['docker'], bootstrap
+    assert 'timers.target' in bootstrap['guard'], bootstrap
+    evaluate(root, 'nixosConfigurations.bootstrap.config.system.build.toplevel.drvPath')
     overview = evaluate(root, 'nixlabOverview')
     assert set(overview['adminKeys']) == {key(1), key(3)}, overview['adminKeys']
     host = {'architecture': 'x86_64', 'cpuVendor': 'intel', 'kvm': True,
