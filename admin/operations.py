@@ -80,7 +80,7 @@ def mac_addresses(current):
 
 def check_config_idle(state):
     active = rt.read_json(state / 'active.json', {})
-    job = rt.read_json(state / 'jobs' / active.get('id', '-') / 'job.json', {})
+    job = rt.read_job_record(state / 'jobs' / active.get('id', '-') / 'job.json', {})
     if rt.read_json(state / 'pending.json') or job.get('status') in ('building', 'applying', 'awaiting-confirmation', 'rolling-back'):
         raise ValueError('Finish the configuration transaction before changing guest state')
 
@@ -98,8 +98,8 @@ class Operations:
         records = []
         directories = sorted(self.directory.iterdir(), key=lambda d: d.stat().st_mtime, reverse=True)
         for directory in directories if limit is None else directories[:limit]:
-            if not directory.is_dir() or not re.fullmatch(r'[0-9a-f]{32}', directory.name): continue
-            record = rt.read_json(directory / 'job.json', {})
+            if directory.is_symlink() or not directory.is_dir() or not re.fullmatch(r'[0-9a-f]{32}', directory.name): continue
+            record = rt.read_job_record(directory / 'job.json', {})
             if record.get('status') in ('queued', 'running') and time.time() - record.get('created', 0) > 30:
                 if not rt.worker_active('nixlab-operation-' + directory.name):
                     record.update(status='failed', error='Worker interrupted. Inspect guest state and recovery intent before retrying')
@@ -255,7 +255,7 @@ class Operations:
             if action == 'snapshot-copy':
                 incus('copy', guest + '/' + name(job['snapshot']), target, '--project', project, '--stateless', *overrides, timeout=43200)
             else:
-                archive_job = job.get('archiveRecord') or rt.read_json(self.path(job['archive']) / 'job.json')
+                archive_job = job.get('archiveRecord') or rt.read_job_record(self.path(job['archive']) / 'job.json')
                 archive = self.archive_path(archive_job)
                 if archive.is_symlink() or not archive.is_file() or file_hash(archive) != archive_job.get('sha256'):
                     raise ValueError('Export checksum changed; refusing import')
@@ -331,7 +331,7 @@ class Operations:
 
     def run(self, job_id):
         directory = self.path(job_id)
-        job = rt.read_json(directory / 'job.json')
+        job = rt.read_job_record(directory / 'job.json')
         if job.get('status') != 'queued': raise ValueError('Operation was already executed')
         job.update(status='running', started=time.time()); rt.write_json(directory / 'job.json', job)
         try:

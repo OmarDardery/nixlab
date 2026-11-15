@@ -38,7 +38,7 @@ class Manager:
 
     def job(self, job_id):
         directory = self.job_path(job_id)
-        job = rt.read_json(directory / 'job.json')
+        job = rt.read_job_record(directory / 'job.json')
         job['log'] = rt.tail_log(directory / 'build.log')
         # Credentials never enter this metadata or its log.
         if job.get('guestPlan'):
@@ -56,7 +56,7 @@ class Manager:
             jobs = []
             for directory in (self.state / 'jobs').iterdir():
                 if directory.is_symlink() or not directory.is_dir() or not re.fullmatch(r'[0-9a-f]{32}', directory.name): continue
-                job = rt.read_json(directory / 'job.json', {})
+                job = rt.read_job_record(directory / 'job.json', {})
                 if job.get('status') in ('confirmed', 'rolled-back', 'failed', 'cancelled'):
                     jobs.append((directory.stat().st_mtime, directory))
             jobs.sort(key=lambda item: item[0], reverse=True)
@@ -81,7 +81,7 @@ class Manager:
                 job = self.job(job['id'])
         current = str(Path('/run/current-system').resolve())
         last = rt.read_json(self.state / 'last-confirmed.json')
-        if last and rt.read_json(self.job_path(last['id']) / 'job.json')['status'] != 'confirmed':
+        if last and rt.read_job_record(self.job_path(last['id']) / 'job.json')['status'] != 'confirmed':
             last = None
         desired = self.settings()
         stored = rt.read_json(rt.machine_path(self.root, 'settings'), {}) or {}
@@ -253,7 +253,7 @@ class Manager:
             rt.write_json(self.state / 'active.json', {'id': job_id})
             if active.get('id') and previous['status'] in ('ready', 'failed', 'cancelled'):
                 obsolete = self.job_path(active['id'])
-                record = rt.read_json(obsolete / 'job.json'); record['status'] = 'superseded'
+                record = rt.read_job_record(obsolete / 'job.json'); record['status'] = 'superseded'
                 rt.write_json(obsolete / 'job.json', record)
                 rt.durable_unlink(obsolete / 'secrets.json')
                 rt.durable_unlink(obsolete / 'system')
@@ -271,7 +271,7 @@ class Manager:
             from deployments import check_idle
             check_idle(self.state)
             directory = self.job_path(job_id)
-            job = rt.read_json(directory / 'job.json')
+            job = rt.read_job_record(directory / 'job.json')
             if rt.read_json(self.state / 'active.json', {}).get('id') != job_id:
                 raise ValueError('This candidate was superseded; review the active transaction')
             if job['status'] != 'ready':
@@ -282,7 +282,7 @@ class Manager:
                 raise ValueError('Reviewed snapshot changed; refusing activation')
             import impact
             impact.recheck(directory)
-            job = rt.read_json(directory / 'job.json')
+            job = rt.read_job_record(directory / 'job.json')
             job['status'] = 'applying'; job['appliedAt'] = time.time()
             rt.write_json(directory / 'job.json', job)
             try:
@@ -297,7 +297,7 @@ class Manager:
     def confirm(self, job_id):
         with rt.locked(blocking=False):
             pending = rt.read_json(self.state / 'pending.json')
-            job = rt.read_json(self.job_path(job_id) / 'job.json')
+            job = rt.read_job_record(self.job_path(job_id) / 'job.json')
             if not pending or pending['id'] != job_id or job['status'] != 'awaiting-confirmation':
                 raise ValueError('No completed activation is awaiting confirmation')
             if time.time() >= pending['deadline']:
@@ -336,7 +336,7 @@ class Manager:
                 if other and other['status'] == 'building':
                     subprocess.run(['systemctl', 'stop', 'nixlab-build-' + other['id']], check=True, timeout=30)
                 if other:
-                    record = rt.read_json(self.job_path(other['id']) / 'job.json'); record['status'] = 'superseded'
+                    record = rt.read_job_record(self.job_path(other['id']) / 'job.json'); record['status'] = 'superseded'
                     rt.write_json(self.job_path(other['id']) / 'job.json', record)
                     rt.durable_unlink(self.job_path(other['id']) / 'secrets.json')
                     rt.durable_unlink(self.job_path(other['id']) / 'system')
@@ -348,7 +348,7 @@ class Manager:
     def cancel(self, job_id):
         with rt.locked(blocking=False):
             directory = self.job_path(job_id)
-            job = rt.read_json(directory / 'job.json')
+            job = rt.read_job_record(directory / 'job.json')
             if job['status'] not in ('building', 'ready', 'failed'):
                 raise ValueError('Only an unapplied candidate can be discarded')
             if job['status'] == 'building':

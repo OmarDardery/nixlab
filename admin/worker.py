@@ -56,7 +56,7 @@ def run(args, log, timeout=7200, check=True):
 
 
 def update(directory, **fields):
-    data = rt.read_json(directory / 'job.json')
+    data = rt.read_job_record(directory / 'job.json')
     data.update(fields)
     rt.write_json(directory / 'job.json', data)
     return data
@@ -90,7 +90,7 @@ def validate_effective_transition(effective, disks, active_settings, previous_di
 
 def build(directory):
     source = directory / 'source'
-    job = rt.read_json(directory / 'job.json')
+    job = rt.read_job_record(directory / 'job.json')
     role = host_role(job)
     old_inputs = rt.read_json(source / 'flake.lock', {}).get('nodes', {})
     with (directory / 'build.log').open('a', buffering=1) as log:
@@ -163,7 +163,7 @@ def build(directory):
 def save_recovery(directory):
     recovery = directory / 'recovery'
     recovery.mkdir(mode=0o700, exist_ok=True)
-    record = rt.read_json(directory / 'job.json', {})
+    record = rt.read_job_record(directory / 'job.json', {})
     candidate = record.get('effectiveSettings', record.get('settings', {}))
     if candidate.get('cockpit', {}).get('managePassword'):
         save_operator_password(recovery)
@@ -290,7 +290,7 @@ def recover_activation(directory, original):
 
 
 def apply(directory):
-    job = rt.read_json(directory / 'job.json')
+    job = rt.read_job_record(directory / 'job.json')
     role = host_role(job)
     if job['baseDigest'] != rt.digest_source(rt.ROOT) or job['candidateDigest'] != rt.digest_source(directory / 'source'):
         raise ValueError('Source changed since review')
@@ -389,7 +389,7 @@ def job(phase, job_id):
         update(directory, status='ready', error=str(exc))
         rt.audit('impact-review-required', job=job_id)
     except Exception as exc:
-        current = rt.read_json(directory / 'job.json')
+        current = rt.read_job_record(directory / 'job.json')
         if current.get('status') != 'rolled-back':
             update(directory, status='failed', error=current.get('error') or str(exc))
         with (directory / 'build.log').open('a') as log:
@@ -403,7 +403,7 @@ def guard():
     if pending and time.time() >= pending['deadline']:
         with rt.locked():
             pending = rt.read_json(rt.STATE / 'pending.json')
-            if pending and rt.read_json(rt.STATE / 'jobs' / pending['id'] / 'job.json', {}).get('status') == 'confirmed':
+            if pending and rt.read_job_record(rt.STATE / 'jobs' / pending['id'] / 'job.json', {}).get('status') == 'confirmed':
                 rt.durable_unlink(rt.STATE / 'pending.json')
             elif pending and time.time() >= pending['deadline']:
                 rollback(rt.STATE / 'jobs' / pending['id'], 'confirmation timed out')

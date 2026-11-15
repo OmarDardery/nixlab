@@ -85,7 +85,7 @@ def prepare(directory, manifest):
     observations = {key: dict(zip(('current', 'error'), observation(spec))) for key, spec in targets.items()}
     bundle = {'format': VERSION, 'targets': targets, 'observations': observations}
     rt.write_json(directory / 'deployment-plan.json', bundle)
-    job = rt.read_json(directory / 'job.json')
+    job = rt.read_job_record(directory / 'job.json')
     job.update(deploymentDigest=digest(bundle), guestPlan={'format': VERSION, 'targets': public_targets(targets, observations),
                                                         'order': order(targets), 'boundary': BOUNDARY})
     rt.write_json(directory / 'job.json', job)
@@ -95,7 +95,7 @@ def read_plan(directory):
     path = directory / 'deployment-plan.json'
     if not path.is_file() or path.stat().st_size > 1024 * 1024: raise ValueError('Build a new review with guest deployment targets')
     bundle = rt.read_json(path)
-    if bundle.get('format') != VERSION or digest(bundle) != rt.read_json(directory / 'job.json').get('deploymentDigest'):
+    if bundle.get('format') != VERSION or digest(bundle) != rt.read_job_record(directory / 'job.json').get('deploymentDigest'):
         raise ValueError('Guest deployment evidence changed; rebuild the review')
     validate(bundle['targets'])
     return bundle
@@ -114,7 +114,7 @@ class Deployments:
         return rt.job_directory(self.state / 'jobs', job_id, 'deployment transaction')
 
     def host(self, directory):
-        job = rt.read_json(directory / 'job.json')
+        job = rt.read_job_record(directory / 'job.json')
         if job['status'] != 'confirmed' or rt.read_json(self.state / 'pending.json'):
             raise ValueError('Confirm host access before deploying guests')
         if not (directory / 'system').exists() or active_system() != str((directory / 'system').resolve()):
@@ -125,7 +125,7 @@ class Deployments:
 
     def status(self, job_id, private=False):
         directory = self.directory(job_id)
-        record = rt.read_json(directory / 'deployment.json')
+        record = rt.read_job_record(directory / 'deployment.json', None)
         if record and record['status'] in ACTIVE and time.time() - record['updatedAt'] > 30:
             if not rt.worker_active('nixlab-deploy-' + job_id):
                 record['status'] = 'interrupted'
@@ -316,7 +316,7 @@ class Deployments:
         directory = self.directory(job_id)
         with rt.locked(), open_lock(INCUS_LOCK) as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            record = rt.read_json(directory / 'deployment.json')
+            record = rt.read_job_record(directory / 'deployment.json')
             try:
                 self.host(directory)
                 bundle = read_plan(directory)

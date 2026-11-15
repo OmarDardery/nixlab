@@ -361,7 +361,7 @@ def make_plan(before, after, snapshot, unit_changes=None, opaque=False, transiti
 def save(directory, bundle, plan):
     if len((json.dumps(bundle, indent=2, sort_keys=True) + '\n').encode()) > 8 * MAX_BYTES: raise ValueError('Impact inventory exceeds size limit')
     rt.write_json(directory / 'impact.json', bundle)
-    job = rt.read_json(directory / 'job.json')
+    job = rt.read_job_record(directory / 'job.json')
     job.update(impactPlan=plan, impactDigest=digest(bundle))
     rt.write_json(directory / 'job.json', job)
 
@@ -381,7 +381,7 @@ def prepare(directory, before, after, opaque=False, transition_error=False):
 
 
 def recheck(directory):
-    job = rt.read_json(directory / 'job.json')
+    job = rt.read_job_record(directory / 'job.json')
     path = directory / 'impact.json'
     if not path.is_file(): raise ValueError('Candidate has no impact plan; build a new review')
     if path.stat().st_size > 8 * MAX_BYTES: raise ValueError('Impact plan exceeds size limit')
