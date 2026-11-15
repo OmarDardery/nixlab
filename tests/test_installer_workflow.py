@@ -112,8 +112,12 @@ class SourceTests(unittest.TestCase):
                     # Manager and rollback tests; this fixture uses a bundled
                     # checkout without a complete runtime packaging manifest.
                     rt.atomic(target / 'admin/main.py', (source / 'admin/main.py').read_bytes())
-                    rt.atomic(rt.machine_path(target, 'installation'),
-                              rt.machine_path(staged, 'installation').read_bytes())
+                    # The lightweight bundled-source fixture does not ship
+                    # the full machine-layout manifest; the real Manager
+                    # refuses a missing inventory before any publication.
+                    staged_inventory = rt.machine_path(staged, 'installation')
+                    if staged_inventory.is_file():
+                        rt.atomic(rt.machine_path(target, 'installation'), staged_inventory.read_bytes())
                 rt.write_json(rt.machine_path(target, 'settings'), candidate)
                 return None, {}
             evaluated_retry = None
