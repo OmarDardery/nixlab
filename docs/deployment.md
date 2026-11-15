@@ -7,7 +7,7 @@ manual/advanced source workflow.
 
 The optional initial `--wizard` installer uses the same guarded transaction as
 full installation. It adds only onboarding/recovery and retains the installed
-network and boot configuration. Confirm fresh management access before starting
+network and boot configuration. Confirm fresh management access from a newly authenticated remote session or the physical console before starting
 the full configuration review; rerunning `--wizard` resumes its pending job. It
 refuses already configured hosts. Direct `nixos-rebuild` commands in the advanced
 workflow below bypass NixLab's access-confirmation guard.
