@@ -2,6 +2,7 @@
 import base64
 import contextlib
 import copy
+import http.client
 import importlib.util
 import json
 import os
@@ -525,6 +526,69 @@ main.backend()
         _,_,status=self.request('/api/review',{'settings':{}},origin='https://attacker.invalid');self.assertEqual(status,401)
     def test_dns_rebinding_hostname_refused(self):
         _,_,status=self.request('/api/status',host='attacker.invalid');self.assertEqual(status,401)
+
+    def test_conflicting_framing_and_duplicate_host_refused_over_tls(self):
+        for headers, expected in [
+            ([('Content-Length', '2'), ('Content-Length', '3')], 400),
+            ([('Content-Length', '2'), ('Content-Length', '2')], 400),
+            ([('Content-Length', '2'), ('Transfer-Encoding', 'chunked')], 400),
+            ([('Content-Length', '2'), ('Host', 'attacker.invalid')], 401),
+            ([('X-Oversized', 'x' * 17000), ('Content-Length', '2')], 431),
+        ]:
+            with self.subTest(expected=expected, headerNames=[h[0] for h in headers]):
+                connection = http.client.HTTPSConnection('localhost', self.port, context=self.context, timeout=5)
+                try:
+                    connection.putrequest('POST', '/api/login', skip_host=True)
+                    connection.putheader('Host', f'localhost:{self.port}')
+                    connection.putheader('Origin', self.origin)
+                    for name, value in headers:
+                        connection.putheader(name, value)
+                    connection.endheaders(b'{}')
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, expected)
+                    response.read()
+                    # Rejected framing must not leave a live reusable stream.
+                    if connection.sock is not None:
+                        try:
+                            remainder = connection.sock.recv(1)
+                        except (ConnectionResetError, BrokenPipeError, ssl.SSLEOFError):
+                            remainder = b''
+                        self.assertEqual(remainder, b'')
+                finally:
+                    connection.close()
+
+    def test_unsupported_method_is_not_echoed_in_public_error(self):
+        connection = http.client.HTTPSConnection('localhost', self.port, context=self.context, timeout=5)
+        try:
+            connection.request('SENTINEL_PRIVATE_METHOD', '/')
+            response = connection.getresponse()
+            self.assertEqual(response.status, 501)
+            self.assertNotIn(b'SENTINEL_PRIVATE_METHOD', response.read())
+        finally:
+            connection.close()
+
+    def test_parallel_stalled_tls_clients_are_bounded_and_recover(self):
+        tasks = Path('/proc') / str(self.web.pid) / 'task'
+        if not tasks.is_dir():
+            self.skipTest('Linux procfs is required for process resource observation')
+        baseline = len(list(tasks.iterdir()))
+        clients = []
+        try:
+            for _ in range(100):
+                clients.append(socket.create_connection(('127.0.0.1', self.port), timeout=2))
+            self.assertLessEqual(len(list(tasks.iterdir())), baseline + 32)
+        finally:
+            for client in clients:
+                client.close()
+        for _ in range(50):
+            try:
+                if self.request('/', auth=False)[2] == 200:
+                    break
+            except (OSError, urllib.error.URLError):
+                pass
+            time.sleep(.1)
+        else:
+            self.fail('Portal did not recover after stalled clients closed')
     def test_invalid_settings_do_not_create_transaction(self):
         _,_,status=self.request('/api/review',{'settings':{'hostName':'x; execute'}},origin=self.origin)
         self.assertEqual(status,400);self.assertEqual(list((self.state/'jobs').iterdir()),[])
