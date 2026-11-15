@@ -1,5 +1,6 @@
 """Restricted root broker. Only typed settings, fixed transactions and enrollment."""
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -125,11 +126,17 @@ class Manager:
                 sys.executable, str(rt.SOURCE / 'main.py'), 'job', phase, job_id]
         subprocess.run(args, check=True, capture_output=True, text=True)
 
-    def review(self, changes, secret_values=None, update_inputs=False, modules=None, revision=None, principal='root', host_role='hypervisor'):
+    def review(self, changes, secret_values=None, update_inputs=False, modules=None, revision=None, principal='root', host_role='hypervisor', staged_source=None):
         if host_role not in ('hypervisor', 'bootstrap'):
             raise ValueError('Unsupported host role')
         if host_role == 'bootstrap' and (principal != 'root-wizard-install' or update_inputs or modules or revision or secret_values):
             raise ValueError('Bootstrap review is reserved for initial local installer onboarding')
+        # An installer-supplied source is a ROOT-ONLY local planning snapshot.
+        # The portal cannot select it or inject an arbitrary directory through
+        # the broker. Review/activation still use the existing Manager worker.
+        if staged_source is not None and (principal not in ('root-direct-install', 'root-wizard-install')
+                                          or revision is not None or update_inputs or modules):
+            raise ValueError('Staged source is reserved for the local installer')
         with rt.locked(blocking=False):
             from deployments import check_idle
             check_idle(self.state)
@@ -201,9 +208,30 @@ class Manager:
                     continue
                 if guest_net.overlaps(__import__('ipaddress').ip_network(route['dst'], strict=False)):
                     raise ValueError('Guest address space overlaps an existing host/LAN/VPN route')
+            staged_changes = []
+            if staged_source is not None:
+                from upgrades import platform_path
+                staged_source = Path(staged_source)
+                if not rt.machine_path(staged_source, 'installation').is_file():
+                    raise ValueError('Installer source lacks installation inventory')
+                # Refuse unstated changes to local modules, installed-system or
+                # any other non-platform state; only the reviewed JSON overlay
+                # and installation inventory may differ from the live source.
+                def digest_files(root):
+                    return {name: hashlib.sha256(path.read_bytes()).hexdigest()
+                            for name, path in rt.source_files(root)}
+                base_files, proposed_files = digest_files(self.root), digest_files(staged_source)
+                mutable = {str(rt.machine_path(self.root, 'settings').relative_to(self.root)),
+                           str(rt.machine_path(self.root, 'installation').relative_to(self.root))}
+                if any(base_files.get(name) != proposed_files.get(name)
+                       for name in set(base_files) | set(proposed_files)
+                       if not platform_path(name) and name not in mutable and name != '.nixlab-files.json'):
+                    raise ValueError('Installer source modifies unreviewed local machine files')
+                staged_changes = sorted(name for name in set(base_files) | set(proposed_files)
+                                        if platform_path(name) and base_files.get(name) != proposed_files.get(name))
             job_id = secrets.token_hex(16)
             directory = self.state / 'jobs' / job_id
-            rt.snapshot(directory / 'source', self.root)
+            rt.snapshot(directory / 'source', staged_source if staged_source is not None else self.root)
             for name, content in modules.items():
                 rt.atomic(rt.machine_path(directory / 'source', 'modules') / name, content, mode=0o644)
             rt.write_json(rt.machine_path(directory / 'source', 'settings'), candidate)
@@ -215,7 +243,9 @@ class Manager:
                    'settingsMigration': {'from': stored.get('schemaVersion', 0), 'to': candidate.get('schemaVersion', 0)},
                    'settings': candidate, 'changes': differences(current, candidate), 'principal': principal,
                    'moduleChanges': [{'path': name, 'before': (rt.machine_path(self.root, 'modules') / name).read_text() if (rt.machine_path(self.root, 'modules') / name).exists() else None, 'after': content} for name, content in modules.items()],
-                   'secretChanges': sorted(encoded), 'updateInputs': bool(update_inputs), 'platformRevision': revision}
+                   'secretChanges': sorted(encoded), 'updateInputs': bool(update_inputs), 'platformRevision': revision,
+                   'sourceStaged': staged_source is not None, 'sourcePlatformUpdated': bool(staged_changes),
+                   'platformChanges': [{'path': name, 'kind': 'staged-installer-update'} for name in staged_changes]}
             rt.write_json(directory / 'job.json', job)
             rt.write_json(self.state / 'active.json', {'id': job_id})
             if active.get('id') and previous['status'] in ('ready', 'failed', 'cancelled'):
