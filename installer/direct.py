@@ -7,6 +7,8 @@ import time
 
 import runtime as rt
 
+PRINCIPAL = 'root-direct-install'
+
 
 def guest_network(routes, requested=None):
     occupied = [ipaddress.ip_network(r['dst'], strict=False) for r in routes
@@ -96,20 +98,23 @@ def activate(candidate, manager=None, effective=None):
         # Created once outside the rollback manifest: failed activation must not
         # rotate the credential after Portainer has initialized its database.
         rt.atomic(rt.SECRET_PATHS['portainerPassword'], initial + '\n')
-    job_id = manager.review(candidate, secret_values={}, principal='root-direct-install')['id']
+    job_id = manager.review(candidate, secret_values={}, principal=PRINCIPAL)['id']
     print('Building hypervisor; transaction ' + job_id, flush=True)
     wait_for(manager, job_id, {'ready'})
     print('Switching to the built hypervisor generation.', flush=True)
     manager.apply(job_id)
     record = wait_for(manager, job_id, {'awaiting-confirmation'})
-    # This explicit CLI mode confirms locally after the shared activation health
-    # checks. Browser confirmation remains the default in the ordinary wizard.
-    manager.confirm(job_id)
+    pending_access(job_id, record)
     return initial, record
 
 
-def resume(manager, record):
+pending_access = rt.pending_access
+
+
+def resume(manager, record, *, principal=PRINCIPAL):
     """Reconnect to an existing durable worker without starting a competing job."""
+    if record.get('principal') != principal:
+        raise ValueError('Another configuration transaction is active; finish it in its original entrypoint or the portal')
     job_id = record['id']
     if record['status'] == 'rolling-back':
         return wait_for(manager, job_id, {'rolled-back'})
@@ -123,6 +128,6 @@ def resume(manager, record):
     if record['status'] == 'awaiting-confirmation':
         import diagnostics
         diagnostics.wait_ready(record.get('effectiveSettings', record['settings']))
-        manager.confirm(job_id)
+        pending_access(job_id, record)
     return record
 

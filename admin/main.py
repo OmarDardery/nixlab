@@ -21,20 +21,50 @@ import accounts as access_accounts
 
 SOCKET = Path(os.environ.get('NIXLAB_SOCKET', '/run/nixlab-admin/backend.sock'))
 MAX_BODY = 262144
+MAX_HEADERS = 16384
+
+
+class HeaderReader:
+    """Bound aggregate header bytes during the stdlib parser's line reads."""
+    def __init__(self, stream):
+        self.stream = stream
+        self.remaining = MAX_HEADERS
+
+    def readline(self, size=-1):
+        limit = self.remaining + 1
+        line = self.stream.readline(min(size, limit) if size >= 0 else limit)
+        self.remaining -= len(line)
+        if self.remaining < 0:
+            raise http.client.LineTooLong('request header block')
+        return line
 
 
 def json_body(handler):
-    if handler.headers.get('Transfer-Encoding'):
-        raise ValueError('Chunked requests are not accepted')
     try:
-        length = int(handler.headers.get('Content-Length', '0'))
+        if handler.headers.get_all('Transfer-Encoding'):
+            raise ValueError('Transfer encoding is not accepted')
+        lengths = handler.headers.get_all('Content-Length', [])
+        if len(lengths) != 1 or not re.fullmatch(r'[0-9]+', lengths[0].strip()):
+            raise ValueError('Exactly one valid request length is required')
+        length = int(lengths[0].strip())
+        if not 0 < length <= MAX_BODY:
+            raise ValueError('Request body is missing or too large')
+        raw = handler.rfile.read(length)
+        if len(raw) != length:
+            raise ValueError('Incomplete request body')
+        try:
+            body = json.loads(raw)
+        except (ValueError, UnicodeError):
+            raise ValueError('Invalid JSON request body') from None
+        if not isinstance(body, dict): raise ValueError('Request body must be an object')
+        return body
+    except OSError:
+        handler.close_connection = True
+        raise ValueError('Request body could not be read') from None
     except ValueError:
-        raise ValueError('Invalid request length')
-    if not 0 < length <= MAX_BODY:
-        raise ValueError('Request body is missing or too large')
-    body = json.loads(handler.rfile.read(length))
-    if not isinstance(body, dict): raise ValueError('Request body must be an object')
-    return body
+        # Never parse leftover bytes from a rejected body as the next request.
+        handler.close_connection = True
+        raise
 
 
 def reply(handler, status, data, content_type='application/json', extra=None):
@@ -272,6 +302,16 @@ def web():
     auth = Auth()
     class Frontend(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
+        def parse_request(self):
+            original = self.rfile
+            self.rfile = HeaderReader(original)
+            try:
+                return super().parse_request()
+            finally:
+                self.rfile = original
+        def send_error(self, code, message=None, explain=None):
+            # Stdlib errors may otherwise echo an unsupported method or request.
+            super().send_error(code)
         def setup(self):
             super().setup()
             self.connection.settimeout(20)
@@ -282,7 +322,10 @@ def web():
             address = ipaddress.ip_address(self.client_address[0])
             if not address.is_loopback and not any(address in ipaddress.ip_network(n) for n in settings['networks']):
                 raise PermissionError('Management source network is not trusted')
-            host = self.headers.get('Host', '')
+            hosts = self.headers.get_all('Host', [])
+            if len(hosts) != 1:
+                raise PermissionError('Exactly one management hostname is required')
+            host = hosts[0]
             try:
                 parsed = urlsplit('https://' + host)
                 valid = parsed.hostname in settings['hosts'] and not parsed.username and not parsed.password and parsed.path == ''
@@ -407,10 +450,13 @@ def web():
                 body['_actor'] = session['username']
                 reply(self, 200, broker_request('POST', self.path[4:], body))
             except access_accounts.AuthorizationError as exc:
+                self.close_connection = True
                 reply(self, 403, {'error': str(exc)})
             except PermissionError as exc:
+                self.close_connection = True
                 reply(self, 401, {'error': str(exc)})
             except (ValueError, KeyError, OSError) as exc:
+                self.close_connection = True
                 reply(self, 400, {'error': str(exc)})
     server = BoundedHttpsServer(('0.0.0.0', int(os.environ.get('NIXLAB_PORT', '9440'))), Frontend)
     server.daemon_threads = True
@@ -520,6 +566,36 @@ def guests_cli(argv):
     print(json.dumps(result, indent=2))
 
 
+def enroll_key(manager, public_key_file, settings):
+    """Stage a public key without claiming that local probes prove client access."""
+    import diagnostics
+    keys = [line.strip() for line in Path(public_key_file).read_text().splitlines()
+            if line.strip() and not line.lstrip().startswith('#')]
+    if not keys: raise ValueError('The public key file is empty')
+    candidate = manager.settings()
+    candidate['adminKeys'] = sorted(set(candidate['adminKeys'] + keys))
+    # Use the same reviewed transaction and health checks as setup.
+    job_id = manager.review(candidate, principal='root-key-enrollment')['id']
+    print('Building key enrollment transaction: ' + job_id, flush=True)
+    # Poll locally; workers survive this CLI being disconnected.
+    while True:
+        manager.status()  # Reconcile a stopped worker before reading this exact job.
+        record = manager.job(job_id)
+        if record['status'] != 'building': break
+        time.sleep(1)
+    if record['status'] != 'ready': raise ValueError(record.get('error', record['status']))
+    manager.apply(job_id)
+    while True:
+        record = manager.job(job_id)
+        if record['status'] != 'applying': break
+        time.sleep(1)
+    if record['status'] != 'awaiting-confirmation': raise ValueError(record.get('error', record['status']))
+    diagnostics.wait_ready(record.get('effectiveSettings', candidate))
+    print('Test the new key in a fresh session: ssh operator@' + diagnostics.management_address(settings), flush=True)
+    rt.pending_access(job_id, record)
+    return record
+
+
 if __name__ == '__main__':
     os.umask(0o027)
     action = sys.argv[1] if len(sys.argv) > 1 else ''
@@ -547,29 +623,7 @@ if __name__ == '__main__':
                         time.sleep(2)
             elif action == 'enroll-key':
                 if len(sys.argv) != 3: raise ValueError('Usage: sudo nixlab enroll-key laptop.pub')
-                keys = [line.strip() for line in Path(sys.argv[2]).read_text().splitlines()
-                        if line.strip() and not line.lstrip().startswith('#')]
-                if not keys: raise ValueError('The public key file is empty')
-                candidate = manager.settings()
-                candidate['adminKeys'] = sorted(set(candidate['adminKeys'] + keys))
-                # Use the same reviewed transaction and health checks as setup.
-                job_id = manager.review(candidate, principal='root-key-enrollment')['id']
-                print('Building key enrollment transaction: ' + job_id, flush=True)
-                # Poll locally; workers survive this CLI being disconnected.
-                while True:
-                    record = manager.status()['job']
-                    if record['status'] != 'building': break
-                    time.sleep(1)
-                if record['status'] != 'ready': raise ValueError(record.get('error', record['status']))
-                manager.apply(job_id)
-                while True:
-                    record = manager.job(job_id)
-                    if record['status'] != 'applying': break
-                    time.sleep(1)
-                if record['status'] != 'awaiting-confirmation': raise ValueError(record.get('error', record['status']))
-                diagnostics.wait_ready(record.get('effectiveSettings', candidate))
-                manager.confirm(job_id)
-                print('Client key enrolled for operator. Connect with ssh operator@' + diagnostics.management_address(settings))
+                enroll_key(manager, sys.argv[2], settings)
             else:
                 if sys.argv[2:] != ['reset-password']: raise ValueError('Usage: sudo nixlab portainer reset-password')
                 import portainer

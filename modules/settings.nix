@@ -1,11 +1,18 @@
 { config, lib, inventory ? import ../site.nix, ... }:
 {
+  options.nixlab.desiredSettings = lib.mkOption {
+    type = lib.types.attrs;
+    readOnly = true;
+    internal = true;
+    description = "Normalized source inventory before host module overrides.";
+  };
   options.nixlab.settings = lib.mkOption {
     type = import ../lib/settings.nix { inherit lib; returnType = true; };
     default = import ../site-defaults.nix;
     description = "Typed host and application inventory, editable through NixOS modules.";
   };
   config = {
+    nixlab.desiredSettings = inventory;
     assertions = let
       ports = [ 22 8080 8443 9100 ]
         ++ lib.optional config.nixlab.settings.setup.enable config.nixlab.settings.setup.port

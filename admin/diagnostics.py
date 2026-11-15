@@ -3,6 +3,7 @@ import http.client
 import configparser
 import io
 import json
+import math
 from pathlib import Path
 import ssl
 import subprocess
@@ -12,6 +13,32 @@ import runtime as rt
 
 COCKPIT_TEMPLATE = Path('/etc/nixlab/cockpit-base.conf')
 COCKPIT_CONFIG = Path('/run/nixlab/cockpit.conf')
+
+
+def clock_status(now=None):
+    """Coarse sanity bounds and observed synchronization cannot prove UTC."""
+    now = time.time() if now is None else now
+    plausible = math.isfinite(now) and 1767225600 <= now < 4102444800  # 2026 <= year < 2100
+    synchronized = None
+    if plausible:
+        try:
+            result = subprocess.run(['timedatectl', 'show', '--property=NTPSynchronized', '--value'],
+                                    capture_output=True, text=True, timeout=3)
+            if result.returncode == 0 and result.stdout.strip() in {'yes', 'no'}:
+                synchronized = result.stdout.strip() == 'yes'
+        except (OSError, subprocess.SubprocessError):
+            pass
+    state = 'invalid-clock' if not plausible else 'synchronized' if synchronized else 'plausible-but-unsynchronized'
+    return {'state': state, 'synchronized': synchronized, 'timestampPlausible': plausible,
+            'evidenceWarning': state != 'synchronized',
+            'guidance': '' if state == 'synchronized' else
+                'Check the host date, time synchronization service, DNS and network reachability; then refresh. '
+                'Unsynchronized timestamps are not reliable backup or qualification evidence.'}
+
+
+def require_plausible_clock():
+    if clock_status()['state'] == 'invalid-clock':
+        raise ValueError('Host clock is grossly invalid; correct the date/time before issuing a browser certificate')
 
 
 def management_address(settings):
@@ -60,12 +87,12 @@ def http_entry(address, secure_port):
 
 def probe(settings):
     address = management_address(settings)
-    targets = [('Incus API', 8443, '/1.0', {200}), ('Incus UI', 8443, '/ui/', {200})]
+    targets = [('Incus API', 8443, '/1.0', {200}), ('Incus UI', 8443, '/ui/', {200})] if settings['ready'] else []
     if settings['setup']['enable']:
         targets.append(('Nixlab', settings['setup']['port'], '/', {200}))
-    if settings['cockpit']['enable']:
+    if settings['ready'] and settings['cockpit']['enable']:
         targets.append(('Cockpit', settings['cockpit']['port'], '/ping', {200}))
-    if settings['apps']['enable']:
+    if settings['ready'] and settings['apps']['enable']:
         targets += [('Portainer', settings['apps']['portainerPort'], '/api/system/status', {200}),
                     ('Portainer administrator', settings['apps']['portainerPort'], '/api/users/admin/check', {204})]
     checks = []
@@ -135,6 +162,7 @@ def doctor(settings):
         report = probe(settings)
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         report = {'ok': False, 'error': str(exc)}
+    report['clock'] = clock_status()
     report['services'] = []
     for unit in ('incus', 'incus-preseed', 'nixlab-instances', 'nixlab-management-identity',
                  'nixlab-admin-backend', 'nixlab-ui', 'cockpit.socket', 'cockpit.service', 'nixlab-apps-onboarding', 'nginx'):

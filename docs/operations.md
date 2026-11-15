@@ -7,6 +7,38 @@ covers target-machine acceptance.
 
 ## Daily work
 
+### Host console
+
+Bash includes ble.sh suggestions/highlighting, Tab completion, fzf history search
+with **Ctrl+R** and file search with **Ctrl+T**, and a compact Starship prompt.
+The prompt always identifies the user and host, highlights root, and shows Git/Nix
+context without remote lookups. Existing account shells and personal shell files
+are preserved; native NixOS program options remain overridable.
+
+Interactive login runs `nixlab-fetch`, using upstream's minimal Fastfetch build
+without desktop/audio/image integrations. It shows hardware/resource information plus
+NixLab's observed management address and enabled service URLs, service states,
+backup-service result and test-activation/kernel notices. `nixlab-status` prints
+only the operational summary. These are bounded local observations, not endpoint
+health or successful restore evidence. They do not authenticate, contact registries
+or request sudo. Missing observations stay unknown.
+
+`nixlab-update` runs the normal guarded main update and forwards its options;
+`failed` lists failed services.
+Noninteractive shells print no welcome screen. `.hushlogin` or an inherited
+`NIXLAB_NO_FETCH=1` disables the login summary. Personal Starship configuration is
+respected. The banner uses ordinary characters, so a special terminal font is not
+required. Bash history ignores space-prefixed commands; avoid entering credentials
+on a command line.
+
+### Maintenance
+
+If status reports **Worker state unavailable**, retry after checking systemd on
+the host console. This means the observation failed, not that the transaction
+failed. NixLab preserves the job record and recovery intent rather than allowing a
+competing operation based on that unknown result. The rollback guard remains
+independent. Do not delete job or pending-state files to clear this error.
+
 The Backups page coordinates independent backups, repository checks,
 archive restores, recovery downloads and host health. Use Incus for ordinary guest
 lifecycle, consoles and snapshots. Legacy commands below remain for compatibility.
@@ -100,16 +132,56 @@ For an existing NixLab server, run this in its interactive terminal:
 nix run --refresh github:OmarDardery/nixlab#update
 ```
 
+For a broken existing Ethernet/bridge management connection, run **at the host's
+local console**:
+
+```sh
+nix run --refresh github:OmarDardery/nixlab#update -- --repair-network
+```
+
+It follows the saved port/controller relationship, previews the exact existing
+profiles, asks before enabling autoconnect, activates the ports and bridge, and
+selects their observed address within your existing trusted networks. If discovery
+is ambiguous, add `--interface YOUR_BRIDGE`. It creates no bridge/profile, assigns
+no new address and preserves gateway, DNS, addressing mode and ownership. Managed
+static networking, missing hardware, guest networks and ambiguous profiles require
+review rather than guesses. The launcher needs network access to fetch NixLab.
+
+A temporary systemd identity selection validates the observed address and generates
+the usual TLS identity so the existing Incus daemon can start. It changes no
+firewall rules or authentication and never initializes an empty replacement Incus
+database. Normal update review then observes the real guests and storage. Existing
+source-defined profiles with autoconnect disabled receive a small, reviewable
+machine module; native profiles remain owned by NetworkManager. A stronger custom
+Nix override blocks activation rather than being silently overridden.
+
+The temporary identity selection is removed, the native identity service restarted,
+and autoconnect checked before health/access confirmation. The normal activation
+and rollback guard remain authoritative. Failed/cancelled preflight restores the
+previous autoconnect flags; the existing connection may remain active. Interrupted
+work retains `/var/lib/nixlab-admin/network-repair.json`; rerun the same command.
+Reboot persistence still requires an actual reboot check after confirmation.
+If an interrupted repair rebooted without connectivity, its pinned launcher can
+run the same preflight without downloading first:
+`sudo /var/lib/nixlab-admin/worker-runtime/bin/nixlab-update --repair-network`.
+
+When Incus is already available and only the selected management interface needs
+correction, `#update -- --interface YOUR_INTERFACE` reviews the observed address
+and prefix without modifying native profiles. Existing source-owned management
+overrides must agree with the built selection.
+
 The command requests sudo itself, resolves main once to a full commit SHA and
 builds through the existing transaction engine. It displays the build/impact
-review and asks before activation. After health checks, open another SSH
+review and asks before activation. After health checks it prints the verified service URLs; open another SSH
 connection and check the portal/workloads, then answer the confirmation prompt
 before its deadline. No transaction IDs need copying. Rejection or failed health
 starts rollback; interruption leaves the existing rollback guard active. Run the
 same command to resume its own unfinished update at its original pinned revision.
 Unrelated configuration jobs and unfinished recovery block a new update. An
-already-current source is a no-op. This does not automatically reboot or deploy
-guest OS updates; retain independent backups and schedule any kernel reboot.
+already-current source is a no-op. The command does not reboot the host. Existing
+Incus reconciliation and application onboarding still follow the enabled
+configuration; inspect their effects and review any guest rollout separately.
+Retain independent backups and schedule any kernel reboot.
 
 `--refresh` refreshes Nix's cached launcher. The updater independently resolves
 main, so the candidate stays fixed even if main advances while it builds.
@@ -236,3 +308,16 @@ The portal tracks the actual service through export, off-host transfer and reten
 keeps cancellation available during transfer, and reports an off-host failure even
 when the local generation completed successfully.
 The default calendar is `*-*-* 03:00:00`; change `backup.schedule` through review.
+
+## Host clock readiness
+
+Doctor and the portal health view report synchronized, plausible but unsynchronized,
+or invalid host time. Plausibility is deliberately coarse (2026 through 2099);
+it cannot establish correct UTC. Unavailable synchronization evidence is a warning,
+not proof of synchronization. Check the host date, native time service, DNS and
+network connectivity before relying on backup ages or qualification timestamps.
+
+Only a grossly invalid clock blocks creation of a new Incus browser certificate.
+A transient NTP outage does not block host boot, existing sessions or ordinary
+Incus operations. Correct the clock and refresh the health view; no additional
+background service is installed.

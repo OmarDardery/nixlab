@@ -2,6 +2,7 @@
 import copy
 import contextlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -26,6 +27,35 @@ spec.loader.exec_module(installer)
 
 
 class SourceTests(unittest.TestCase):
+    def test_wizard_cannot_downgrade_a_configured_host_to_bootstrap(self):
+        for status in ({'setupComplete': True}, {'setupComplete': False, 'effectiveSettings': {'ready': True}}):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder) / 'source'
+                state = Path(folder) / 'state'
+                rt.write_json(root / 'machine/format.json', {'version': 1})
+                rt.write_json(root / 'machine/installation.json', {'interface': 'eth0'})
+                rt.atomic(root / 'machine/settings.json', '{"ready":true}')
+                original = (root / 'machine/settings.json').read_bytes()
+                manager = Mock()
+                manager.status.return_value = status
+                with patch.object(installer, 'installed_host', return_value=True), \
+                     patch.object(installer, 'TARGET', root), patch.object(rt, 'STATE', state), \
+                     patch('controller.Manager', return_value=manager), \
+                     patch.object(installer, 'choose_network') as network, \
+                     patch.object(installer, 'run') as command, \
+                     patch.object(installer, 'setup_password') as credentials, \
+                     patch.object(sys, 'argv', ['nixlab-install', '--wizard']), \
+                     contextlib.redirect_stderr(io.StringIO()) as error:
+                    with self.assertRaises(SystemExit) as caught:
+                        installer.main()
+                    self.assertEqual(caught.exception.code, 2)
+                    self.assertIn('already configured', error.getvalue())
+                network.assert_not_called()
+                command.assert_not_called()
+                credentials.assert_not_called()
+                manager.review.assert_not_called()
+                self.assertEqual((root / 'machine/settings.json').read_bytes(), original)
+
     def test_pending_recovery_blocks_competing_review(self):
         from controller import Manager
         with tempfile.TemporaryDirectory() as folder:
@@ -39,6 +69,15 @@ class SourceTests(unittest.TestCase):
             self.assertEqual(list((state / 'jobs').iterdir()), [])
 
     def test_fresh_console_install_and_retry_from_bundled_source(self):
+        self.check_fresh_install_and_retry()
+
+    def test_initial_wizard_and_retry_preserve_the_installed_source(self):
+        self.check_fresh_install_and_retry(wizard=True)
+
+    def test_retry_consumes_nix_normalized_legacy_settings(self):
+        self.check_fresh_install_and_retry(legacy=True)
+
+    def check_fresh_install_and_retry(self, wizard=False, legacy=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             original, target, source, state = [root / name for name in ('original', 'target', 'source', 'state')]
@@ -65,6 +104,12 @@ class SourceTests(unittest.TestCase):
             def activate(candidate, **kwargs):
                 rt.write_json(rt.machine_path(target, 'settings'), candidate)
                 return None, {}
+            evaluated_retry = None
+            def read_evaluated(config):
+                # Fixed evaluated fixture; migration policy is qualified by the
+                # real Nix tests, not reimplemented in this unit boundary.
+                return copy.deepcopy(evaluated_retry) if evaluated_retry is not None else rt.read_json(rt.machine_path(config, 'settings'))
+            reader = Mock(side_effect=read_evaluated)
             patches = [
                 patch.object(installer, 'installed_host', return_value=True),
                 patch.object(installer, 'TARGET', target), patch.object(installer, 'ORIGINAL', original),
@@ -72,22 +117,39 @@ class SourceTests(unittest.TestCase):
                  patch.object(installer, 'choose_network', return_value=('eth0', '192.0.2.10', 24, '192.0.2.1')),
                  patch('model.inventory', return_value=inventory()), patch('workflow.remote_session', return_value=False),
                  patch.object(installer, 'evaluate', side_effect=evaluate), patch.object(installer, 'run', side_effect=run),
+                 patch.object(installer, 'read_settings', reader),
                  patch.object(installer, 'validate_kvm'), patch.object(installer, 'setup_password'),
                  patch.object(installer, 'publish_etc'), patch.object(installer, 'summarize'),
                  patch.object(rt, 'issue_tls'), patch.object(rt, 'prepare_state_access'),
                  patch('local_access.cockpit_accounts', return_value=['existing']),
                  patch('controller.Manager.status', return_value={'job': None}),
+                 patch('controller.read_settings', side_effect=lambda root: rt.read_json(rt.machine_path(root, 'settings'), {})),
                  patch('direct.activate', side_effect=activate), patch('builtins.print'),
-                 patch.object(sys, 'argv', ['nixlab-install', '--checkout', str(source)])
+                 patch('bootstrap.activate', side_effect=lambda: activate(rt.read_json(rt.machine_path(target, 'settings')))[1]),
+                 patch.object(sys, 'argv', ['nixlab-install', '--checkout', str(source)] + (['--wizard'] if wizard else []))
             ]
             with contextlib.ExitStack() as stack:
                 for mocked in patches: stack.enter_context(mocked)
                 installer.main()
-                self.assertTrue(rt.read_json(rt.machine_path(target, 'settings'))['ready'])
+                self.assertEqual(rt.read_json(rt.machine_path(target, 'settings'))['ready'], not wizard)
                 self.assertEqual(rt.read_json(rt.machine_path(target, 'settings'))['adminKeys'], [])
+                reader.assert_not_called()  # A fresh host uses fresh defaults.
+                if legacy:
+                    evaluated_retry = rt.read_json(rt.machine_path(target, 'settings'))
+                    evaluated_retry['schemaVersion'] = 1
+                    evaluated_retry['monitoring']['collection'] = True
+                    stored = copy.deepcopy(evaluated_retry)
+                    stored.pop('schemaVersion')
+                    stored['monitoring'].pop('collection')
+                    rt.write_json(rt.machine_path(target, 'settings'), stored)
                 rt.atomic(target / 'machine/modules/mine.nix', '{ }')
                 (source / 'admin/main.py').write_text('updated')
                 installer.main()
+                reader.assert_called_once()
+                self.assertNotEqual(reader.call_args.args[0], target)
+                if legacy:
+                    self.assertTrue(rt.read_json(rt.machine_path(target, 'settings'))['monitoring']['collection'])
+                    self.assertEqual(rt.read_json(rt.machine_path(target, 'settings'))['schemaVersion'], 1)
             self.assertEqual((target / 'admin/main.py').read_text(), 'updated')
             self.assertTrue((target / 'machine/modules/mine.nix').exists())
             self.assertEqual((target / 'machine/installed-system/configuration.nix').read_text(), '{ }')
@@ -188,7 +250,7 @@ class ReadinessTests(unittest.TestCase):
                 diagnostics.management_address(cfg)
 
     def test_portainer_missing_admin_fails_health_even_with_live_proxy(self):
-        cfg = initial(); cfg['apps']['enable'] = True; cfg['cockpit']['enable'] = True
+        cfg = initial(); cfg['ready'] = True; cfg['apps']['enable'] = True; cfg['cockpit']['enable'] = True
         def response(address, port, path):
             return (404 if path == '/api/users/admin/check' else 200), b'{}'
         with patch('diagnostics.management_address', return_value='192.0.2.20'), \
@@ -199,7 +261,7 @@ class ReadinessTests(unittest.TestCase):
         self.assertEqual([c['name'] for c in report['checks'] if not c['ok']], ['Portainer administrator'])
 
     def test_portainer_status_prefers_current_api_and_only_falls_back_for_old_images(self):
-        cfg = initial(); cfg['apps']['enable'] = True
+        cfg = initial(); cfg['ready'] = True; cfg['apps']['enable'] = True
         for status in (200, 404, 401, 500):
             calls = []
             def response(address, port, path):
@@ -216,16 +278,16 @@ class ReadinessTests(unittest.TestCase):
                 self.assertIn('/api/system/status', calls)
                 self.assertEqual('/api/status' in calls, status == 404)
 
-    def test_resume_waits_for_existing_worker_and_checks_health_before_confirm(self):
+    def test_resume_checks_health_but_cannot_confirm_remote_access(self):
         manager = Mock()
-        ready = {'id': 'a' * 32, 'status': 'ready', 'settings': initial()}
+        ready = {'id': 'a' * 32, 'status': 'ready', 'settings': initial(), 'principal': direct.PRINCIPAL}
         awaiting = dict(ready, status='awaiting-confirmation')
         with patch('direct.wait_for', side_effect=[ready, awaiting]), patch('diagnostics.wait_ready') as healthy:
             direct.resume(manager, dict(ready, status='building'))
         manager.review.assert_not_called()
         manager.apply.assert_called_once_with('a' * 32)
         healthy.assert_called_once()
-        manager.confirm.assert_called_once_with('a' * 32)
+        manager.confirm.assert_not_called()
         with patch('diagnostics.wait_ready', side_effect=ValueError('not ready')):
             manager.reset_mock()
             with self.assertRaises(ValueError): direct.resume(manager, awaiting)
@@ -240,7 +302,7 @@ class ReadinessTests(unittest.TestCase):
                 self.assertIsNone(portainer.credentials(initial()))
 
     def test_recovery_restarts_portainer_after_helper_failure(self):
-        cfg = initial(); cfg['apps']['enable'] = True
+        cfg = initial(); cfg['ready'] = True; cfg['apps']['enable'] = True
         def command(*args, **kwargs):
             if args[:2] == ('docker', 'run'): raise ValueError('helper failed')
             return ''
@@ -250,7 +312,7 @@ class ReadinessTests(unittest.TestCase):
         self.assertIn(('systemctl', 'start', 'docker-portainer.service'), [c.args for c in guest.call_args_list])
 
     def test_recovery_backs_up_then_resets_restarts_and_verifies(self):
-        cfg = initial(); cfg['apps']['enable'] = True
+        cfg = initial(); cfg['ready'] = True; cfg['apps']['enable'] = True
         output = 'Password successfully updated for user: admin\nUse the following password to login: new-random-password\n'
         events = []
         def command(*args, **kwargs):

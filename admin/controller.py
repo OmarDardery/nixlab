@@ -12,6 +12,7 @@ import tempfile
 import time
 from model import command, differences, inventory, merge, validate_settings
 import runtime as rt
+from settings_reader import read_settings
 
 
 class Manager:
@@ -22,38 +23,26 @@ class Manager:
         (self.state / 'jobs').mkdir(mode=0o700, exist_ok=True)
 
     def settings(self):
-        defaults = rt.read_json(rt.SOURCE / 'default-settings.json', {})
-        saved = rt.read_json(rt.machine_path(self.root, 'settings')) or {}
-        if saved.get('ready') and 'collection' not in saved.get('monitoring', {}):
-            saved.setdefault('monitoring', {})['collection'] = True
-        return merge(defaults, saved)
+        return read_settings(self.root)
 
-    def effective_settings(self):
-        return merge(self.settings(), rt.read_json(Path('/etc/nixlab/effective-settings.json'), {}))
+    def effective_settings(self, desired=None):
+        return merge(self.settings() if desired is None else desired,
+                     rt.read_json(Path('/etc/nixlab/effective-settings.json'), {}))
 
     def migrate_layout(self):
         return rt.migrate_idle_layout(self.root, self.state)
 
     def job_path(self, job_id):
-        if not isinstance(job_id, str) or not re.fullmatch(r'[0-9a-f]{32}', job_id):
-            raise ValueError('Invalid transaction ID')
-        path = self.state / 'jobs' / job_id
-        if not path.is_dir():
-            raise ValueError('Unknown transaction')
-        return path
+        return rt.job_directory(self.state / 'jobs', job_id)
 
     def job(self, job_id):
-        job = rt.read_json(self.job_path(job_id) / 'job.json')
-        log = self.job_path(job_id) / 'build.log'
-        if log.exists():
-            with log.open('rb') as stream:
-                stream.seek(max(0, log.stat().st_size - 65536))
-                job['log'] = stream.read(65536).decode(errors='replace')
-        else: job['log'] = ''
+        directory = self.job_path(job_id)
+        job = rt.read_json(directory / 'job.json')
+        job['log'] = rt.tail_log(directory / 'build.log')
+        # Credentials never enter this metadata or its log.
         if job.get('guestPlan'):
             from deployments import Deployments
             job['guestDeployment'] = Deployments(self.root, self.state).status(job_id)
-        # Credentials never enter this metadata or its log.
         return job
 
     def prune_jobs(self, apply=False, keep=20):
@@ -82,8 +71,7 @@ class Manager:
         job = self.job(active['id']) if active.get('id') else None
         if job and job['status'] in ('building', 'applying') and time.time() - job.get('appliedAt', job['created']) > 30:
             phase = 'build' if job['status'] == 'building' else 'apply'
-            active_unit = subprocess.run(['systemctl', 'is-active', '--quiet', 'nixlab-' + phase + '-' + job['id']], capture_output=True)
-            if active_unit.returncode:
+            if not rt.worker_active('nixlab-' + phase + '-' + job['id']):
                 latest = self.job(job['id'])
                 if latest['status'] == job['status']:
                     latest.pop('log', None)
@@ -94,7 +82,9 @@ class Manager:
         last = rt.read_json(self.state / 'last-confirmed.json')
         if last and rt.read_json(self.job_path(last['id']) / 'job.json')['status'] != 'confirmed':
             last = None
-        effective = self.effective_settings()
+        desired = self.settings()
+        stored = rt.read_json(rt.machine_path(self.root, 'settings'), {}) or {}
+        effective = self.effective_settings(desired)
         try:
             import diagnostics
             observed_address = diagnostics.management_address(effective)
@@ -102,8 +92,9 @@ class Manager:
             observed_address = None
         booted, active = Path('/run/booted-system/kernel'), Path('/run/current-system/kernel')
         reboot = booted.exists() and active.exists() and booted.resolve() != active.resolve()
-        return {'release': upgrades.metadata(self.root), 'managementAddress': observed_address, 'rebootRequired': reboot, 'effectiveSettings': effective, 'codeOverrides': differences(self.settings(), effective), 'settings': self.settings(), 'job': job, 'lastConfirmed': last, 'pending': rt.read_json(self.state / 'pending.json'),
-                'moduleDirectory': str(rt.machine_path(self.root, 'modules')), 'layoutVersion': 1 if rt.modern_layout(self.root) else 0, 'currentSystem': current, 'setupComplete': self.settings()['ready']}
+        return {'release': upgrades.metadata(self.root), 'managementAddress': observed_address, 'rebootRequired': reboot, 'effectiveSettings': effective, 'codeOverrides': differences(desired, effective), 'settings': desired, 'job': job, 'lastConfirmed': last, 'pending': rt.read_json(self.state / 'pending.json'),
+                'moduleDirectory': str(rt.machine_path(self.root, 'modules')), 'layoutVersion': 1 if rt.modern_layout(self.root) else 0, 'currentSystem': current, 'setupComplete': desired['ready'],
+                'settingsSchema': {'stored': stored.get('schemaVersion', 0), 'desired': desired.get('schemaVersion', 0)}}
 
     def host_inventory(self):
         data = inventory()
@@ -134,14 +125,17 @@ class Manager:
                 sys.executable, str(rt.SOURCE / 'main.py'), 'job', phase, job_id]
         subprocess.run(args, check=True, capture_output=True, text=True)
 
-    def review(self, changes, secret_values=None, update_inputs=False, modules=None, revision=None, principal='root'):
+    def review(self, changes, secret_values=None, update_inputs=False, modules=None, revision=None, principal='root', host_role='hypervisor'):
+        if host_role not in ('hypervisor', 'bootstrap'):
+            raise ValueError('Unsupported host role')
+        if host_role == 'bootstrap' and (principal != 'root-wizard-install' or update_inputs or modules or revision or secret_values):
+            raise ValueError('Bootstrap review is reserved for initial local installer onboarding')
         with rt.locked(blocking=False):
             from deployments import check_idle
             check_idle(self.state)
             if revision is not None and (not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{40}', revision)):
                 raise ValueError('Specify the full reviewed platform commit SHA')
             modules = rt.validate_modules({} if modules is None else modules)
-            current = self.settings()
             if rt.read_json(self.state / 'pending.json'):
                 raise ValueError('Finish the pending activation or its recovery before starting another review')
             active = rt.read_json(self.state / 'active.json', {})
@@ -151,10 +145,21 @@ class Manager:
                     raise ValueError('Finish the active transaction first')
             if not isinstance(changes, dict):
                 raise ValueError('Settings must be an object')
+            current = self.settings()
+            if host_role == 'bootstrap' and (current['ready'] or self.effective_settings(current)['ready']):
+                raise ValueError('Bootstrap cannot replace an already configured host')
+            stored = rt.read_json(rt.machine_path(self.root, 'settings'), {}) or {}
             requested = merge(current, changes)
             if (secret_values or {}).get('cockpitPassword'):
                 requested['cockpit']['managePassword'] = True
-            candidate = validate_settings(requested, current, inventory())
+            if host_role == 'bootstrap':
+                from model import validate_bootstrap
+                if requested != current:
+                    raise ValueError('Bootstrap review cannot change settings; use the full host review')
+                candidate = requested
+                validate_bootstrap(candidate, inventory())
+            else:
+                candidate = validate_settings(requested, current, inventory())
             for section, key in [('backup', 'passwordFile'), ('backup', 'environmentFile'), ('tunnel', 'credentialsFile')]:
                 if candidate[section][key] != current[section][key]:
                     raise ValueError('Secret file paths are source-managed')
@@ -190,8 +195,8 @@ class Manager:
             # Valid migration proposals can be built and explained, but the
             # evaluated impact gate must refuse them before any activation.
             # Detect overlaps with real host routes, ignoring the bridge we own and the default route.
-            guest_net = __import__('ipaddress').ip_network(candidate['guests']['cidr'])
-            for route in inventory()['routes']:
+            guest_net = __import__('ipaddress').ip_network(candidate['guests']['cidr']) if host_role == 'hypervisor' else None
+            for route in inventory()['routes'] if host_role == 'hypervisor' else []:
                 if route.get('dst', 'default') == 'default' or route.get('dev') == candidate['guests'].get('bridge', 'incusbr0'):
                     continue
                 if guest_net.overlaps(__import__('ipaddress').ip_network(route['dst'], strict=False)):
@@ -204,9 +209,10 @@ class Manager:
             rt.write_json(rt.machine_path(directory / 'source', 'settings'), candidate)
             rt.write_json(directory / 'secrets.json', encoded)
             import impact
-            before = self.effective_settings() if current['ready'] else runtime_settings
+            before = self.effective_settings(current) if current['ready'] else runtime_settings
             rt.write_json(directory / 'impact-base.json', impact.baseline(before))
-            job = {'id': job_id, 'status': 'building', 'created': time.time(), 'baseDigest': rt.digest_source(self.root),
+            job = {'id': job_id, 'status': 'building', 'created': time.time(), 'baseDigest': rt.digest_source(self.root), 'hostRole': host_role,
+                   'settingsMigration': {'from': stored.get('schemaVersion', 0), 'to': candidate.get('schemaVersion', 0)},
                    'settings': candidate, 'changes': differences(current, candidate), 'principal': principal,
                    'moduleChanges': [{'path': name, 'before': (rt.machine_path(self.root, 'modules') / name).read_text() if (rt.machine_path(self.root, 'modules') / name).exists() else None, 'after': content} for name, content in modules.items()],
                    'secretChanges': sorted(encoded), 'updateInputs': bool(update_inputs), 'platformRevision': revision}
@@ -276,7 +282,7 @@ class Manager:
             rt.write_json(self.state / 'last-confirmed.json', {'id': job_id})
             rt.durable_unlink(self.state / 'pending.json')
             # Staged plaintext is no longer needed; live root-only runtime files remain.
-            (self.job_path(job_id) / 'secrets.json').unlink(missing_ok=True)
+            rt.durable_unlink(self.job_path(job_id) / 'secrets.json')
             rt.audit('confirmed', job=job_id)
             return {'ok': True}
 
@@ -327,6 +333,8 @@ class Manager:
         return {'ok': True}
 
     def browser_certificate(self):
+        import diagnostics
+        diagnostics.require_plausible_clock()
         # A separate revocable client identity. Private material exists only in a
         # root-only temporary directory and the authenticated one-time response.
         name = 'nixlab-browser-' + secrets.token_hex(6)

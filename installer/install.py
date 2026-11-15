@@ -14,6 +14,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'admin'))
 sys.path.append(str(Path(__file__).resolve().parents[1] / 'scripts'))
 import runtime as rt
+from settings_reader import read_settings
 
 REPOSITORY = 'https://github.com/OmarDardery/nixlab.git'
 TARGET = Path('/var/lib/nixlab/config')
@@ -207,6 +208,7 @@ def summarize(settings, password=None, record=None):
 def main():
     import tempfile
     import direct
+    import bootstrap as wizard
     import workflow
     import intent
     from model import inventory, merge, validate_settings
@@ -234,22 +236,29 @@ def main():
         parser.error('Existing checkout has no intact installation inventory; inspect it before proceeding (no configuration changed)')
     if TARGET.exists():
         manager = Manager()
-        current = manager.status().get('job') or {}
+        status = manager.status()
+        current = status.get('job') or {}
         if args.plan_only and (current.get('status') in
                                ('building', 'ready', 'applying', 'awaiting-confirmation', 'rolling-back')
                                or rt.read_json(rt.STATE / 'pending.json', {})):
             parser.error('A transaction or recovery is active; --plan-only will not resume or mutate it')
         current = workflow.finish_interrupted_recovery(manager, current)
         if current.get('status') in ('building', 'ready', 'applying', 'awaiting-confirmation', 'rolling-back'):
-            if not args.switch:
+            bootstrap_job = current.get('hostRole') == 'bootstrap'
+            if bootstrap_job and args.switch:
+                parser.error('An initial wizard transaction is active; rerun with --wizard or finish it in the portal')
+            if not bootstrap_job and not args.switch:
                 parser.error('A full installation transaction is active; rerun without --wizard to resume it')
             print('Resuming transaction ' + current['id'], flush=True)
-            resumed = direct.resume(manager, current)
+            resumed = wizard.resume(manager, current) if bootstrap_job else direct.resume(manager, current)
             if resumed['status'] != 'rolled-back':
                 settings = manager.effective_settings()
                 publish_etc()
                 summarize(settings, setup_password(), resumed)
                 return
+        if not args.switch and (status.get('setupComplete') or (status.get('effectiveSettings') or {}).get('ready')):
+            parser.error('--wizard is for initial onboarding only; this host is already configured. '
+                         'Use the existing portal or #update. For account recovery use sudo nixlab-admin reset-password.')
     interface, address, prefix, gateway = choose_network(args.interface, args.address)
     trusted = args.trusted_cidr or [str(ipaddress.ip_interface(f'{address}/{prefix}').network)]
     if os.environ.get('SSH_CONNECTION'):
@@ -288,7 +297,7 @@ def main():
                                                     rt.STATE / 'platform-baseline.json')
             if edits:
                 print('Preserving local platform edits; source update skipped: ' + ', '.join(edits))
-            default = merge(evaluate(stage, 'nixlabDefaults'), rt.read_json(rt.machine_path(stage, 'settings')))
+            default = read_settings(stage)
         else:
             if not ORIGINAL.is_dir() or not (ORIGINAL / 'configuration.nix').is_file() or not (ORIGINAL / 'hardware-configuration.nix').is_file():
                 parser.error('A conventional /etc/nixos installation with both configuration files is required')
@@ -466,24 +475,11 @@ def main():
         return
     if not (rt.STATE / 'tls.key').exists():
         rt.issue_tls(address, default['hostName'])
-    previous = str(Path('/run/current-system').resolve())
-    try:
-        record = None
-        if args.switch:
-            _, record = direct.activate(candidate, effective=effective_candidate)
-            settings = Manager().effective_settings()
-        else:
-            run(['nixos-rebuild', 'build', '--flake', 'path:' + str(TARGET) + '#bootstrap'])
-            run(['nixos-rebuild', 'switch', '--flake', 'path:' + str(TARGET) + '#bootstrap'])
-            settings = default
-    except Exception as original:
-        if not args.switch:
-            try:
-                run(['nix-env', '--profile', '/nix/var/nix/profiles/system', '--set', previous])
-                run([previous + '/bin/switch-to-configuration', 'switch'])
-            except Exception as recovery:
-                print('Rollback also failed: ' + str(recovery), file=sys.stderr)
-        raise original
+    if args.switch:
+        _, record = direct.activate(candidate, effective=effective_candidate)
+    else:
+        record = wizard.activate()
+    settings = Manager().effective_settings()
     rt.prepare_state_access()
     publish_etc()
     summarize(settings, password, record)

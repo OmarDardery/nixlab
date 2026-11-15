@@ -5,6 +5,13 @@ For an installed NixOS server, the recommended path is the
 and supports subsequent settings/rebuilds through the CLI or optional portal. The steps below remain the
 manual/advanced source workflow.
 
+The optional initial `--wizard` installer uses the same guarded transaction as
+full installation. It adds only onboarding/recovery and retains the installed
+network and boot configuration. Confirm fresh management access before starting
+the full configuration review; rerunning `--wizard` resumes its pending job. It
+refuses already configured hosts. Direct `nixos-rebuild` commands in the advanced
+workflow below bypass NixLab's access-confirmation guard.
+
 ## Collect real inventory first
 
 Do not copy the evaluation fixture into production. From the physical machine or its
