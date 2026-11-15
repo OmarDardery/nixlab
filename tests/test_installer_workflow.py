@@ -218,7 +218,7 @@ class ReadinessTests(unittest.TestCase):
 
     def test_resume_checks_health_but_cannot_confirm_remote_access(self):
         manager = Mock()
-        ready = {'id': 'a' * 32, 'status': 'ready', 'settings': initial()}
+        ready = {'id': 'a' * 32, 'status': 'ready', 'settings': initial(), 'principal': direct.PRINCIPAL}
         awaiting = dict(ready, status='awaiting-confirmation')
         with patch('direct.wait_for', side_effect=[ready, awaiting]), patch('diagnostics.wait_ready') as healthy:
             direct.resume(manager, dict(ready, status='building'))

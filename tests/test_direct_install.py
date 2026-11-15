@@ -132,6 +132,13 @@ class DirectActivationTests(unittest.TestCase):
         self.manager.apply.assert_not_called()
         self.manager.confirm.assert_not_called()
 
+    def test_resume_cannot_apply_or_confirm_another_entrypoints_job(self):
+        for principal in (None, 'root-update-command', 'portal-admin'):
+            with self.subTest(principal=principal), self.assertRaisesRegex(ValueError, 'Another configuration transaction'):
+                direct.resume(self.manager, {'id': 'a' * 32, 'status': 'ready', 'principal': principal})
+        self.manager.apply.assert_not_called()
+        self.manager.confirm.assert_not_called()
+
     def test_activation_failure_never_confirms(self):
         with patch('direct.wait_for', side_effect=[{'status': 'ready'}, ValueError('rolled-back')]), patch('builtins.print'):
             with self.assertRaises(ValueError):

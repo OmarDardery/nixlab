@@ -7,6 +7,8 @@ import time
 
 import runtime as rt
 
+PRINCIPAL = 'root-direct-install'
+
 
 def guest_network(routes, requested=None):
     occupied = [ipaddress.ip_network(r['dst'], strict=False) for r in routes
@@ -96,7 +98,7 @@ def activate(candidate, manager=None, effective=None):
         # Created once outside the rollback manifest: failed activation must not
         # rotate the credential after Portainer has initialized its database.
         rt.atomic(rt.SECRET_PATHS['portainerPassword'], initial + '\n')
-    job_id = manager.review(candidate, secret_values={}, principal='root-direct-install')['id']
+    job_id = manager.review(candidate, secret_values={}, principal=PRINCIPAL)['id']
     print('Building hypervisor; transaction ' + job_id, flush=True)
     wait_for(manager, job_id, {'ready'})
     print('Switching to the built hypervisor generation.', flush=True)
@@ -119,6 +121,8 @@ def pending_access(job_id, record):
 
 def resume(manager, record):
     """Reconnect to an existing durable worker without starting a competing job."""
+    if record.get('principal') != PRINCIPAL:
+        raise ValueError('Another configuration transaction is active; finish it in its original entrypoint or the portal')
     job_id = record['id']
     if record['status'] == 'rolling-back':
         return wait_for(manager, job_id, {'rolled-back'})
