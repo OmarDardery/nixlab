@@ -790,8 +790,8 @@ if __name__ == '__main__':
     elif action == 'reset-password' and os.geteuid() == 0:
         import getpass
         value = getpass.getpass('New Nixlab administrator password: ')
-        rt.write_json(rt.STATE / 'auth.json', rt.password_record(value), mode=0o640, group='nixlab-ui')
-        rt.durable_unlink(rt.STATE / 'setup-password')
+        import accounts
+        accounts.change_password('admin', value, clear_setup_password=True)
         print('Password changed. Restart nixlab-ui to revoke existing sessions.')
     else:
         sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|portainer reset-password|backend|web|guard|renew|reset-password|config|deploy|guests|recovery|commissioning|install-plan|prune-jobs|disk prepare}')
