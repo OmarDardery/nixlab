@@ -190,6 +190,14 @@ function bindUiChrome() {
   };
 }
 function shell() {
+  // Polling may rerender the review page while the operator is entering an
+  // approval. Restore only this page's current controls synchronously; never
+  // keep passwords in application state or browser storage.
+  const approval = state.page === "review" ? ["module", "platform"].map(name => ({
+    name,
+    password: document.getElementById(name + "-password")?.value,
+    checked: document.getElementById(name + "-ack")?.checked,
+  })) : [];
   const settings = state.status.effectiveSettings || state.status.settings;
   const current = pages.find(([id]) => id === state.page)?.[1] || "Overview";
   const address = state.status.managementAddress || settings.management.address;
@@ -216,6 +224,12 @@ function shell() {
      <footer class="footer-note">NixOS owns the host · Incus owns guests · <a href="/docs/projects.md">Upstream credits</a></footer>
   </main></div></div>
   <dialog id="ui-jump" class="ui-dialog" aria-label="Navigate to a console page"><div class="ui-dialog-heading"><strong>Go to a page</strong><form method="dialog"><button aria-label="Close page search" type="submit">✕</button></form></div><label for="ui-search-input">Search navigation</label><input id="ui-search-input" type="search" placeholder="Guests, backups, access…" autocomplete="off"><nav aria-label="Search results">${pages.map(([id,label]) => `<button type="button" data-go="${id}">${esc(label)}</button>`).join("")}</nav></dialog>`;
+  for (const item of approval) {
+    const password = document.getElementById(item.name + "-password");
+    const acknowledgment = document.getElementById(item.name + "-ack");
+    if (password && item.password !== undefined) password.value = item.password;
+    if (acknowledgment && item.checked !== undefined) acknowledgment.checked = item.checked;
+  }
   bind();
   bindOperations();
   bindFoundation();
