@@ -149,6 +149,8 @@ in pkgs.testers.runNixOSTest {
         assert "nixlab_session=" not in headers, headers
         assert "set-cookie: portainer_auth=native-auth; path=/; secure; httponly; samesite=strict" in headers, headers
         lan.wait_until_succeeds(f"curl --fail --silent --show-error --max-time 5 --insecure https://{address}:9090/ping", timeout=90)
+        redirect = lan.succeed(f"curl --silent --show-error --max-time 5 -I http://{address}/")
+        assert " 308 " in redirect and f"https://{address}:9440/" in redirect, redirect
         machine.succeed(f"python3 /etc/nixlab-test-cockpit.py https://{address}:9090")
         lan.succeed(f"sshpass -p vm-cockpit-password ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=password operator@{address} 'test $(id -un) = operator'")
         machine.wait_until_succeeds("nixlab-admin doctor", timeout=90)

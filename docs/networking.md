@@ -182,3 +182,18 @@ reserved apps IP stay under Host → Networking and the existing reviewed activa
 flow. Per-guest reservations and networks stay in Incus. No router or DNS-provider
 changes are made automatically. NixLab portal roles are host-console roles and
 can read this all-project inventory; they are not Incus project permissions.
+
+### Inspect management exposure
+
+On the hypervisor, `/etc/nixlab/management-exposure.json` lists the evaluated
+NixLab listener addresses and ports, the management interface and the trusted
+IPv4 client CIDRs. The same list generates the host's management input rule.
+An IPv4 wildcard listener still binds all IPv4 addresses so DHCP renewals can
+keep using it. Incoming management connections must arrive on the selected
+interface from a trusted source. Local metrics stay off the management rule.
+The JSON describes the NixLab policy. Check custom firewall rules and actual
+socket state with `sudo nft list ruleset` and `sudo ss -ltn`.
+
+Bootstrap retains the installed firewall and interface-scoped portal ports.
+The applications VM continues to restrict its native Portainer listener to
+the hypervisor proxy at the Docker forwarding boundary.

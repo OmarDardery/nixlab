@@ -9,6 +9,8 @@ let
   nmWired = installedNetworking.networkManager && m.interface != site.radios.wifi.interface;
   useNM = nmWired || (site.radios.wifi.enable && m.interface == site.radios.wifi.interface);
 in {
+  imports = [ ./management.nix ];
+  nixlab.managementPolicy.enforceFirewall = true;
   networking.nftables = { enable = true; flushRuleset = false; };
   networking.firewall = {
     enable = true;
@@ -22,7 +24,6 @@ in {
     # Interface trust is deliberately not granted to the guest bridge.
     extraInputRules = ''
       iifname ${iface} ip saddr { ${trusted} } icmp type echo-request accept
-      iifname ${iface} ip saddr { ${trusted} } tcp dport { 22, 8443 } accept
       iifname { ${guestIfaces} } udp dport { 53, 67 } accept
       iifname { ${guestIfaces} } tcp dport 53 accept
       ${lib.concatMapStringsSep "\n" (bridge: ''

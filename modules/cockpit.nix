@@ -1,7 +1,6 @@
 { config, lib, pkgs, site, ... }:
 let
   c = site.cockpit;
-  trusted = lib.concatStringsSep ", " site.management.trustedCIDRs;
 in {
   config = lib.mkIf c.enable {
     services.cockpit = {
@@ -19,9 +18,6 @@ in {
       startLimitIntervalSec = 0;
       serviceConfig = { Restart = "on-failure"; RestartSec = "3s"; };
     };
-    networking.firewall.extraInputRules = ''
-      iifname ${builtins.toJSON site.management.interface} ip saddr { ${trusted} } tcp dport ${toString c.port} accept
-    '';
     environment.etc = {
       "cockpit/disallowed-users".text = "root\n";
     } // lib.optionalAttrs site.setup.enable {
