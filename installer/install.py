@@ -14,6 +14,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'admin'))
 sys.path.append(str(Path(__file__).resolve().parents[1] / 'scripts'))
 import runtime as rt
+from settings_reader import read_settings
 
 REPOSITORY = 'https://github.com/OmarDardery/nixlab.git'
 TARGET = Path('/var/lib/nixlab/config')
@@ -296,7 +297,7 @@ def main():
                                                     rt.STATE / 'platform-baseline.json')
             if edits:
                 print('Preserving local platform edits; source update skipped: ' + ', '.join(edits))
-            default = merge(evaluate(stage, 'nixlabDefaults'), rt.read_json(rt.machine_path(stage, 'settings')))
+            default = read_settings(stage)
         else:
             if not ORIGINAL.is_dir() or not (ORIGINAL / 'configuration.nix').is_file() or not (ORIGINAL / 'hardware-configuration.nix').is_file():
                 parser.error('A conventional /etc/nixos installation with both configuration files is required')
