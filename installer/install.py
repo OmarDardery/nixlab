@@ -234,7 +234,8 @@ def main():
         parser.error('Existing checkout has no intact installation inventory; inspect it before proceeding (no configuration changed)')
     if TARGET.exists():
         manager = Manager()
-        current = manager.status().get('job') or {}
+        status = manager.status()
+        current = status.get('job') or {}
         if args.plan_only and (current.get('status') in
                                ('building', 'ready', 'applying', 'awaiting-confirmation', 'rolling-back')
                                or rt.read_json(rt.STATE / 'pending.json', {})):
@@ -250,6 +251,9 @@ def main():
                 publish_etc()
                 summarize(settings, setup_password(), resumed)
                 return
+        if not args.switch and (status.get('setupComplete') or (status.get('effectiveSettings') or {}).get('ready')):
+            parser.error('--wizard is for initial onboarding only; this host is already configured. '
+                         'Use the existing portal or #update. For account recovery use sudo nixlab-admin reset-password.')
     interface, address, prefix, gateway = choose_network(args.interface, args.address)
     trusted = args.trusted_cidr or [str(ipaddress.ip_interface(f'{address}/{prefix}').network)]
     if os.environ.get('SSH_CONNECTION'):

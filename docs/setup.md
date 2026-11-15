@@ -15,6 +15,12 @@ for supported scope, source updates, Incus adoption, login policy, credential
 recovery and diagnostics. The rest of this guide documents the optional web-wizard
 workflow, selected explicitly with `--wizard`.
 
+`--wizard` is only for initial onboarding. It refuses an already configured host
+before staging source or building the bootstrap system, whose role does not
+include hypervisor services. Use the installed portal or `#update` for an existing
+host; use `sudo nixlab-admin reset-password` from an authorized local/sudo session
+for portal account recovery. Pending transaction recovery remains authoritative.
+
 ## Portal-first installation
 
 Nixlab now includes a bootstrap installer and a self-hosted first-run/settings portal.
