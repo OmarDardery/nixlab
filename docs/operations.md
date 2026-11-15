@@ -172,11 +172,16 @@ overrides must agree with the built selection.
 
 The command requests sudo itself, resolves main once to a full commit SHA and
 builds through the existing transaction engine. It displays the build/impact
-review and asks before activation. After health checks it prints the verified service URLs; open another SSH
-connection and check the portal/workloads, then answer the confirmation prompt
-before its deadline. No transaction IDs need copying. Rejection or failed health
-starts rollback; interruption leaves the existing rollback guard active. Run the
-same command to resume its own unfinished update at its original pinned revision.
+review and asks before activation. After local health checks it prints the
+service URLs and **transaction ID**, then exits **without confirming**.
+Open a **new** SSH/Cockpit terminal after activation, verify real access and
+workloads, and run `sudo nixlab-admin config confirm TRANSACTION_ID` there.
+Alternatively, reconnect to the HTTPS portal from a non-loopback client, sign
+in **again after activation**, and confirm in Changes. A pre-activation session
+or a local health probe cannot confirm. Use `config rollback TRANSACTION_ID`
+for explicit rejection; failed health triggers immediate rollback, and
+disconnection/timeout keeps the independent guard active. Re-run the same
+`#update` command to resume the original pinned transaction without rebuilding.
 Unrelated configuration jobs and unfinished recovery block a new update. An
 already-current source is a no-op. The command does not reboot the host. Existing
 Incus reconciliation and application onboarding still follow the enabled
