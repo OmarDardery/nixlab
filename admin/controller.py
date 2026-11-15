@@ -267,7 +267,7 @@ class Manager:
             rt.write_json(self.state / 'last-confirmed.json', {'id': job_id})
             rt.durable_unlink(self.state / 'pending.json')
             # Staged plaintext is no longer needed; live root-only runtime files remain.
-            (self.job_path(job_id) / 'secrets.json').unlink(missing_ok=True)
+            rt.durable_unlink(self.job_path(job_id) / 'secrets.json')
             rt.audit('confirmed', job=job_id)
             return {'ok': True}
 

@@ -116,6 +116,35 @@ def tail_log(path, limit=65536):
         return ''
 
 
+def cleanup_terminal_secrets(state):
+    """Retry interrupted cleanup; caller holds the existing mutation lock.
+
+    Failed or resumable work may still need staged credentials. Recovery manifests
+    and live credentials have a separate lifetime and are never touched here.
+    """
+    state = Path(state)
+    pending = read_json(state / 'pending.json', {}) or {}
+    jobs = state / 'jobs'
+    if not jobs.is_dir():
+        return
+    for directory in jobs.iterdir():
+        if directory.is_symlink() or not directory.is_dir() or not re.fullmatch(r'[0-9a-f]{32}', directory.name):
+            continue
+        if pending.get('id') == directory.name:
+            continue
+        record = directory / 'job.json'
+        if record.is_symlink():
+            continue
+        try:
+            status = read_json(record, {}).get('status')
+        except (ValueError, OSError, AttributeError):
+            continue  # Unknown state is not evidence that credentials are disposable.
+        if status in {'confirmed', 'rolled-back', 'cancelled', 'superseded'}:
+            staged = directory / 'secrets.json'
+            if staged.exists() or staged.is_symlink():
+                durable_unlink(staged)
+
+
 def prepare_state_access():
     """After declarative users exist, let the portal read its initial auth file."""
     auth = STATE / 'auth.json'

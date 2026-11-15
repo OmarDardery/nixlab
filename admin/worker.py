@@ -355,6 +355,11 @@ def guard():
                 rt.durable_unlink(rt.STATE / 'pending.json')
             elif pending and time.time() >= pending['deadline']:
                 rollback(rt.STATE / 'jobs' / pending['id'], 'confirmation timed out')
+    try:
+        with rt.locked(blocking=False):
+            rt.cleanup_terminal_secrets(rt.STATE)
+    except rt.BusyError:
+        pass  # A live mutation owns staged credentials; the next guard retries.
     from operations import Operations
     Operations().recover_interrupted()
 
