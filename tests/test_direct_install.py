@@ -114,7 +114,7 @@ class DirectActivationTests(unittest.TestCase):
         self.secret_patch.start()
         self.addCleanup(self.secret_patch.stop)
 
-    def test_separate_secret_and_confirm_only_after_successful_activation(self):
+    def test_separate_secret_and_leave_access_confirmation_pending(self):
         with patch('direct.wait_for', side_effect=[{'status': 'ready'}, {'status': 'awaiting-confirmation'}]), patch('builtins.print'):
             password, _ = direct.activate(self.candidate, self.manager)
         self.assertGreaterEqual(len(password), 24)
@@ -122,12 +122,20 @@ class DirectActivationTests(unittest.TestCase):
         self.assertNotIn(password, json.dumps(args[0]))
         self.assertEqual(kwargs['secret_values'], {})
         self.assertEqual(rt.SECRET_PATHS['portainerPassword'].read_text().strip(), password)
-        self.assertEqual([call[0] for call in self.manager.method_calls], ['review', 'apply', 'confirm'])
+        self.assertEqual([call[0] for call in self.manager.method_calls], ['review', 'apply'])
+        self.manager.confirm.assert_not_called()
 
     def test_build_failure_never_applies_or_confirms(self):
         with patch('direct.wait_for', side_effect=ValueError('failed')), patch('builtins.print'):
             with self.assertRaises(ValueError):
                 direct.activate(self.candidate, self.manager)
+        self.manager.apply.assert_not_called()
+        self.manager.confirm.assert_not_called()
+
+    def test_resume_cannot_apply_or_confirm_another_entrypoints_job(self):
+        for principal in (None, 'root-update-command', 'portal-admin'):
+            with self.subTest(principal=principal), self.assertRaisesRegex(ValueError, 'Another configuration transaction'):
+                direct.resume(self.manager, {'id': 'a' * 32, 'status': 'ready', 'principal': principal})
         self.manager.apply.assert_not_called()
         self.manager.confirm.assert_not_called()
 

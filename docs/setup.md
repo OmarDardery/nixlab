@@ -307,3 +307,13 @@ configures optional tools and a packaged upstream helper wizard. Help supplies
 copyable commands and upstream credits; its links never execute installers. See
 [ownership](ownership.md), [helpers](helpers.md) and [hardware](hardware.md).
 
+## Access confirmation after terminal installation
+
+The direct installer and a resumed installation leave the activation awaiting
+confirmation after local health checks pass. Open a new SSH connection or use
+the local console, verify management access and workloads, then confirm in the
+portal or run `sudo nixlab-admin config confirm TRANSACTION_ID` using the ID
+printed by the installer. The printed deadline applies; without confirmation the
+existing independent guard rolls back. A successful local probe or an SSH session
+that remained open through activation does not prove that a new login works.
+
