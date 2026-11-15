@@ -1,5 +1,34 @@
 # Architecture decisions and research
 
+## Maintainer contracts
+
+The table records the current owners and the regression coverage to preserve while
+changing them. Planned changes are not claims that a feature already exists.
+
+| Boundary | Current owner | Regression coverage |
+|---|---|---|
+| Settings defaults, types and Nix module overrides | `site-defaults.nix`, `site.nix`, `lib/settings.nix`, `modules/settings.nix`; Python validates interactive input | `tests/settings-checks.nix`, `tests/test_setup.py` |
+| Host review, activation and rollback | `admin/controller.py` Manager and `admin/worker.py`; installer and update commands call them | `tests/test_update_command.py`, `tests/test_installer_workflow.py`, `tests/test_impact.py` |
+| Host network and management exposure | `modules/networking.nix` and individual service modules; firewall, binding and application checks are currently separate | `tests/management-vm.nix`, `tests/test_management.py` |
+| Management identity and TLS | `admin/runtime.py` and the management identity service in `modules/admin-ui.nix` | `tests/management-vm.nix`, `tests/test_installer_workflow.py` |
+| Reserved Incus infrastructure and explicitly managed instances | `scripts/infrastructure.py`, `scripts/reconcile.py`; native objects remain Incus-owned | `tests/test_platform.py`, `tests/test_impact.py` |
+| Docker applications | Portainer or the operator's declared Compose source in the apps VM | `tests/apps-integration.nix`, `tests/guest-deployments-kvm.nix` |
+| Independent backup and restore evidence | `scripts/backup.py`, `admin/operations.py`, `admin/recovery.py` | `tests/test_backup_plan.py`, `tests/test_platform.py` |
+| Dependencies and qualification | `flake.lock` pins Nix inputs; `scripts/release.py` validates release evidence | `tests/test_release.py`, `.github/workflows/release.yml` |
+
+Settings JSON does not yet have a general schema version: `machine/format.json`
+versions the directory layout instead. A failure webhook exists, but Alertmanager
+routing and a centralized OCI image manifest are not implemented. Direct installer
+confirmation after local checks and the existing broad access defaults are known
+security gaps, not compatibility guarantees.
+
+Keep public `nix run ...#install` and `#update` entrypoints, the `nixlab-admin`
+CLI, existing machine settings/modules, transaction records, and previous system
+generation recovery usable across refactors. A change to a public API, state path,
+or data interpretation needs a documented migration, rollback path and regression
+test; unknown inventory must never be treated as an empty or healthy lab. Tests
+must distinguish host rollback from guest and application data recovery.
+
 Research date: 2026-10-27.
 
 The host foundation update (2026-10-29) narrows the portal to host installation,
