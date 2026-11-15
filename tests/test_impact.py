@@ -55,6 +55,27 @@ def snapshot():
 
 
 class PlanningTests(unittest.TestCase):
+    def test_bridge_change_blocks_native_macvlan_devices_across_projects(self):
+        before, after, runtime = projection(), projection(), snapshot()
+        after['settings']['connectivity'] = {'bridges': [{'name': 'br0', 'interfaces': ['enp8s0']}]}
+        native, inherited = runtime['guests']
+        inherited['project'] = 'different-project'
+        nic = {'type': 'nic', 'nictype': 'macvlan', 'parent': 'enp8s0'}
+        native['devices']['lan'] = nic
+        native['expanded_devices'].update(lan=nic, eth0={'type': 'nic', 'network': 'incusbr0'})
+        inherited['expanded_devices']['lan'] = dict(nic)
+        original = copy.deepcopy(runtime)
+        plan = impact.make_plan(before, after, runtime)
+        blockers = {row['identity']: row['message'] for row in plan['changes'] if row['blocked']}
+        self.assertEqual(set(blockers), {'lab/one', 'different-project/two'})
+        self.assertIn('Instance device lan', blockers['lab/one'])
+        self.assertIn('Profile device lan', blockers['different-project/two'])
+        self.assertEqual(runtime, original)
+        self.assertFalse(impact.make_plan(after, after, runtime)['blocked'])
+        native['expanded_devices']['lan'] = dict(nic, nictype='bridged', parent='br0')
+        inherited['expanded_devices']['lan']['attached'] = 'false'
+        self.assertFalse(impact.make_plan(before, after, runtime)['blocked'])
+
     def test_shared_profile_lists_every_native_consumer_without_adoption(self):
         before, after, runtime = projection(), projection(), snapshot()
         after['preseed']['profiles'][0]['config']['limits.cpu'] = '4'

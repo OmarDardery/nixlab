@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -22,6 +23,46 @@ def guest(name='web', project='lab', bridge='private', ip='10.77.0.5'):
 
 
 class GuestNetworkTests(unittest.TestCase):
+    def test_bridge_ports_excludes_bonds_and_unattached_interfaces(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ('enp8s0', 'enp9s0', 'enp10s0', 'br0', 'bond0'):
+                (root / name).mkdir()
+            (root / 'br0' / 'bridge').mkdir()
+            (root / 'enp8s0' / 'master').symlink_to(root / 'br0', target_is_directory=True)
+            (root / 'enp9s0' / 'master').symlink_to(root / 'bond0', target_is_directory=True)
+            self.assertEqual(network.host_bridge_ports(root), {'enp8s0': 'br0'})
+
+    def test_lan_nic_reports_attachment_conflict_and_address_evidence_independently(self):
+        value = guest()
+        value['devices'] = {}
+        lan = {'type': 'nic', 'nictype': 'macvlan', 'parent': 'enp8s0', 'name': 'eth1'}
+        value['expanded_devices']['lan'] = lan
+        link = {'state': 'up', 'addresses': [{'address': 'fe80::1', 'scope': 'link'}]}
+        value['state']['network']['eth1'] = link
+
+        def lan_row():
+            return network.summarize([value], [], bridge_ports={'enp8s0': 'br0'})['guests'][0]['nics'][1]
+
+        row = lan_row()
+        self.assertEqual(row['deviceSource'], 'profile')
+        self.assertEqual(row['bridgeConflict'], {'port': 'enp8s0', 'bridge': 'br0'})
+        self.assertEqual(row['linkState'], 'up')
+        self.assertTrue(row['lanIPv4Missing'])
+        value['devices']['lan'] = lan
+        lan.update(nictype='bridged', parent='br0')
+        link['addresses'].append({'address': '192.0.2.30', 'scope': 'global'})
+        row = lan_row()
+        self.assertEqual(row['deviceSource'], 'instance')
+        self.assertNotIn('bridgeConflict', row)
+        self.assertFalse(row['lanIPv4Missing'])
+        value['state'] = None
+        self.assertEqual(lan_row()['linkState'], 'unknown')
+        self.assertNotIn('lanIPv4Missing', lan_row())
+        lan.update(nictype='macvlan', parent='enp8s0', attached='false')
+        self.assertEqual(lan_row()['linkState'], 'disabled')
+        self.assertNotIn('bridgeConflict', lan_row())
+
     def test_reported_and_reserved_ips_are_separate_and_secrets_are_omitted(self):
         value = guest(); value['expanded_devices']['eth0']['ipv4.address'] = '10.77.0.9'
         result = network.summarize([value], [{'name': 'lab'}], now=123)

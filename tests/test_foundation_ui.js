@@ -50,3 +50,8 @@ assert.ok(overridesHtml.includes('hostName') && overridesHtml.includes('&lt;unsa
 assert.ok(!overridesHtml.includes('<unsafe>'));
 vm.runInContext('state.status.job.candidateOverrides=null',context);
 assert.equal(vm.runInContext('candidateOverridesReview()',context),'');
+const nicHtml=vm.runInContext(`guestNicDetails({deviceSource:'profile',linkState:'up',
+  bridgeConflict:{port:'<untrusted>',bridge:'br0'},lanIPv4Missing:true})`,context);
+assert.ok(nicHtml.includes('Profile device') && nicHtml.includes('Link reported up'));
+assert.ok(nicHtml.includes('No LAN IPv4 reported') && nicHtml.includes('belongs to bridge br0'));
+assert.ok(nicHtml.includes('&lt;untrusted&gt;') && !nicHtml.includes('<untrusted>'));

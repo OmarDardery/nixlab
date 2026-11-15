@@ -10,6 +10,7 @@ from pathlib import Path
 import time
 from urllib.parse import quote
 
+from guest_network import macvlan_bridge
 import infrastructure
 import reconcile
 import runtime as rt
@@ -207,6 +208,11 @@ def consumers(identity, snapshot):
     return sorted(result)
 
 
+def configured_bridge_ports(settings):
+    return {port: bridge['name'] for bridge in settings.get('connectivity', {}).get('bridges', [])
+            for port in bridge['interfaces']}
+
+
 def make_plan(before, after, snapshot, unit_changes=None, opaque=False, transition_error=False, original_host=None):
     changes, ownership = [], []
     def add(scope, identity, kind, message, affected=None, fields=None, blocked=False, resolution=None):
@@ -256,6 +262,21 @@ def make_plan(before, after, snapshot, unit_changes=None, opaque=False, transiti
     for identity in sorted(snapshot['resources'].keys() - new.keys()):
         ownership.append({'identity': identity, 'owner': 'Incus', 'fields': [], 'consumers': consumers(identity, snapshot)})
     guests = {g.get('project', 'default') + '/' + g['name']: g for g in snapshot['guests']}
+    previous_ports = configured_bridge_ports(before['settings'])
+    changed_ports = {port: bridge for port, bridge in configured_bridge_ports(after['settings']).items()
+                     if previous_ports.get(port) != bridge}
+    if changed_ports:
+        for identity, guest in sorted(guests.items()):
+            local = guest.get('devices', {})
+            for name, device in sorted(guest.get('expanded_devices', local).items()):
+                bridge = macvlan_bridge(device, changed_ports)
+                if not bridge:
+                    continue
+                origin = 'Instance device' if name in local else 'Profile device'
+                add('guest', identity, 'migration-required',
+                    f"{origin} {name} uses macvlan on {device['parent']}, a port of the proposed {bridge} bridge.",
+                    [identity], [f'devices.{name}.parent'],
+                    resolution='Review a bridged attachment in Incus before applying. Preserve other NICs and inspect every consumer of a shared profile.')
     desired = {g['project'] + '/' + g['name']: g for g in after['instances']}
     prior = {g['project'] + '/' + g['name']: g for g in before.get('instances', [])}
     handled = set()

@@ -149,10 +149,33 @@ IPAM, ACLs and guest network changes; use its linked native UI and
 
 Potential duplicate addresses are flagged only inside a known managed-network
 namespace (including projects sharing default networks). Identical IPs on separate
-isolated networks are legitimate. Host-parent/macvlan/external routing conflicts
-need native inspection; absence of a warning is not proof of reachability or
-network correctness. The inventory is not an atomic network transaction. Failed
-or older-than-90-second observations are visibly unavailable/stale.
+isolated networks are legitimate. The inventory flags attached macvlan NICs whose
+parent is already a Linux bridge port. For unmanaged LAN attachments, it also
+flags a reported up link with no LAN IPv4 and identifies disabled attachments and
+profile-provided devices. Running status, link state, address assignment, and
+client/application reachability each require their own evidence. Failed or
+older-than-90-second observations are visibly unavailable/stale.
+
+### Moving a guest NIC onto a host bridge
+
+The host change review blocks adding an interface to a declared bridge if a guest
+has an attached macvlan NIC on that interface. Before changing the host, identify
+the guest project and compare `incus config show NAME --project PROJECT` with its
+`--expanded` output. Check other consumers before changing a profile. Plan the
+single LAN device change from `nictype: macvlan, parent: PHYSICAL` to
+`nictype: bridged, parent: BRIDGE`. Record its MAC and guest-side name, preserve
+the private NAT NIC, and keep the original device definition for recovery. Use
+the local console or independent management access. If the bridge does not exist
+yet, plan a maintenance window to detach the affected LAN device in Incus before
+reviewing the host change, then attach it to the bridge once the host change is
+confirmed. NixLab does not edit guest NICs or shared profiles during review.
+
+After attachment, check the guest link and configured address source. For a
+DHCP client, inspect `networkctl status INTERFACE` when the guest uses
+systemd-networkd. An authorized DHCP capture can distinguish no client Discover,
+a Discover without an upstream Offer, and an Offer without a completed lease.
+Verify routing and the expected service from a separate LAN client, then repeat
+after restarting the guest and rebooting the host.
 
 Host bridges, VLANs, management addressing, baseline guest subnet/DHCP range and
 reserved apps IP stay under Host → Networking and the existing reviewed activation

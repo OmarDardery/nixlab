@@ -40,6 +40,16 @@ function freshObservation(value) {
   return Number.isFinite(value?.checkedAt) && Date.now() / 1000 - value.checkedAt >= -5 && Date.now() / 1000 - value.checkedAt < 90;
 }
 
+function guestNicDetails(nic) {
+  const link = {disabled: "Attachment disabled", stopped: "Guest stopped", up: "Link reported up",
+    down: "Link reported down", unknown: "Link not reported"}[nic.linkState];
+  const origin = {instance: "Instance device", profile: "Profile device"}[nic.deviceSource];
+  const conflict = nic.bridgeConflict;
+  return [link, origin].filter(Boolean).map(value => `<br><small>${esc(value)}</small>`).join("")
+    + (conflict ? `<br><small class="error">Macvlan parent ${esc(conflict.port)} belongs to bridge ${esc(conflict.bridge)}. Review attachment in Incus.</small>` : "")
+    + (nic.lanIPv4Missing ? '<br><small class="error">No LAN IPv4 reported. Check guest addressing and upstream DHCP if used.</small>' : "");
+}
+
 function guestNetwork() {
   const snapshot = operationView.network;
   const failed = operationView.networkError;
@@ -48,11 +58,13 @@ function guestNetwork() {
   const incus = tools.find(tool => tool.name === "Incus");
   if (!snapshot?.available) return card("Guests & addresses", `<p>${esc(failed || "Guest inventory is not available yet.")}</p><p class="note">No empty or healthy inventory is assumed. Incus retains guest and network management.</p><a href="/docs/networking.md">Networking guide</a>`);
   const conflicts = (snapshot.conflicts || []).map(item => `<li><code>${esc(item.address)}</code> on ${esc(item.project)}/${esc(item.network)}: ${esc(item.owners.join(", "))}</li>`).join("");
+  const topologyNote = snapshot.bridgeTopologyAvailable === false
+    ? '<p class="note">Host bridge membership is unavailable.</p>' : "";
   const rows = snapshot.guests.flatMap(guest => {
     const nics = guest.nics.length ? guest.nics : [{name: "—", network: "Not reported", observed: guest.observed, reserved: []}];
-    return nics.map((nic, index) => `<tr>${index === 0 ? `<td rowspan="${nics.length}"><b>${esc(guest.name)}</b><br><small>${esc(guest.project)} · ${esc(guest.type === "virtual-machine" ? "VM" : guest.type)}</small></td><td rowspan="${nics.length}">${esc(guest.status)}</td>` : ""}<td>${esc(nic.network)}<br><small>${esc(nic.name)}</small></td><td>${nic.observed.map(ip => `<code>${esc(ip)}</code>`).join("<br>") || '<span class="muted">Not reported</span>'}</td><td>${nic.reserved.map(ip => `<code>${esc(ip)}</code>`).join("<br>") || '<span class="muted">Dynamic / not set</span>'}${nic.unobservedReservation ? '<br><small class="error">Reservation not observed</small>' : ""}</td></tr>`);
+    return nics.map((nic, index) => `<tr>${index === 0 ? `<td rowspan="${nics.length}"><b>${esc(guest.name)}</b><br><small>${esc(guest.project)} · ${esc(guest.type === "virtual-machine" ? "VM" : guest.type)}</small></td><td rowspan="${nics.length}">${esc(guest.status)}</td>` : ""}<td>${esc(nic.network)}<br><small>${esc(nic.name)}</small>${guestNicDetails(nic)}</td><td>${nic.observed.map(ip => `<code>${esc(ip)}</code>`).join("<br>") || '<span class="muted">Not reported</span>'}</td><td>${nic.reserved.map(ip => `<code>${esc(ip)}</code>`).join("<br>") || '<span class="muted">Dynamic / not set</span>'}${nic.unobservedReservation ? '<br><small class="error">Reservation not observed</small>' : ""}</td></tr>`);
   }).join("");
-  return card("Guests & addresses", `${failed || stale ? `<p class="error">${esc(failed || "Inventory is stale. Refresh before relying on these addresses.")}</p>` : ""}${conflicts ? `<div class="network-warning"><b>Potential address conflict</b><ul>${conflicts}</ul></div>` : ""}<div class="table-wrap guest-addresses" tabindex="0" role="region" aria-label="Guest network addresses"><table><thead><tr><th>Guest / project</th><th>State</th><th>Network / NIC</th><th>Reported IP</th><th>Reservation</th></tr></thead><tbody>${rows || '<tr><td colspan="5">No guests reported by Incus.</td></tr>'}</tbody></table></div><p class="note">Reported addresses come from Incus, not an application health check. Reservations are configuration, not proof of connectivity. Last checked: ${esc(new Date(snapshot.checkedAt * 1000).toLocaleTimeString())}.</p><div class="service-shortcuts">${incus?.url ? `<a href="${esc(incus.url)}" target="_blank" rel="noopener noreferrer">Manage guests & IPs in Incus</a>` : ""}<a href="/docs/networking.md">Addressing & routing guide</a><a href="https://linuxcontainers.org/incus/docs/main/howto/network_manage/" target="_blank" rel="noopener noreferrer">Incus network docs</a></div>`, "Read-only · all projects");
+  return card("Guests & addresses", `${failed || stale ? `<p class="error">${esc(failed || "Inventory is stale. Refresh before relying on these addresses.")}</p>` : ""}${conflicts ? `<div class="network-warning"><b>Potential address conflict</b><ul>${conflicts}</ul></div>` : ""}${topologyNote}<div class="table-wrap guest-addresses" tabindex="0" role="region" aria-label="Guest network addresses"><table><thead><tr><th>Guest / project</th><th>State</th><th>Network / NIC</th><th>Reported IP</th><th>Reservation</th></tr></thead><tbody>${rows || '<tr><td colspan="5">No guests reported by Incus.</td></tr>'}</tbody></table></div><p class="note">Reported addresses come from Incus, not an application health check. Reservations are configuration, not proof of connectivity. Last checked: ${esc(new Date(snapshot.checkedAt * 1000).toLocaleTimeString())}.</p><div class="service-shortcuts">${incus?.url ? `<a href="${esc(incus.url)}" target="_blank" rel="noopener noreferrer">Manage guests & IPs in Incus</a>` : ""}<a href="/docs/networking.md">Addressing & routing guide</a><a href="https://linuxcontainers.org/incus/docs/main/howto/network_manage/" target="_blank" rel="noopener noreferrer">Incus network docs</a></div>`, "Read-only · all projects");
 }
 
 function hostOverview() {
