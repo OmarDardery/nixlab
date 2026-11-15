@@ -194,12 +194,13 @@ async function action(name, el) {
         modules: state.modules,
         revision: state.platformRevision || null,
         adminPassword:
-          document.querySelector("#module-password")?.value ||
           document.querySelector("#platform-password")?.value,
         acknowledgePrivilegedModules:
-          document.querySelector("#module-ack")?.checked ||
           document.querySelector("#platform-ack")?.checked,
       });
+      // The user may have navigated while the review request was in flight.
+      document.querySelectorAll("#platform-password").forEach(input => { input.value = ""; });
+      document.querySelectorAll("#platform-ack").forEach(input => { input.checked = false; });
       state.modules = {};
       state.platformRevision = "";
       state.status = await api("status");

@@ -52,3 +52,13 @@ assert.ok(!ops.includes('Portal accounts'), 'Accounts are not part of backup rec
 assert.ok(!vm.runInContext("state.page='operations';title('','Backups','')",context).includes('href="/docs/setup.md"'));
 assert.ok(source.includes('browser enrollment enabled') && source.includes('sudo nixlab-admin reset-password') && !source.includes('setup password printed by the installer'));
 console.log('Redesigned console checks passed: routing, drafts, safe delegation, permissions and deployment stages.');
+
+vm.runInContext("state.status.release={revision:'a'.repeat(40)};state.draft=copy(fixture);state.platformRevision='a'.repeat(40)", context);
+assert.equal(vm.runInContext('stagedCount()',context),0);
+assert.ok(vm.runInContext('platformSelectionText()',context).includes('rebuild only'));
+vm.runInContext("state.platformRevision='b'.repeat(40);state.status.job={status:'confirmed',platformRevision:'a'.repeat(40),platformChanges:[{path:'old.nix',before:null,after:'{}'}]}",context);
+assert.equal(vm.runInContext('stagedCount()',context),1);
+const platform = vm.runInContext('platformReview()',context);
+assert.ok(platform.includes('Proposed: ') && platform.includes('Historical confirmed review'));
+assert.ok(platform.includes('Historical platform files (1)'));
+assert.ok(!platform.includes('Candidate:'));

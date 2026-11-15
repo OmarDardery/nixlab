@@ -21,7 +21,7 @@ def main():
     settings.update(ready=True, cpuVendor='intel', adminKeys=['ssh-ed25519 EXAMPLE'])
     settings['management'].update(interface='eth0', address='192.0.2.10', trustedCIDRs=['192.0.2.0/24'])
     status = {'settings': settings, 'effectiveSettings': copy.deepcopy(settings), 'setupComplete': True,
-              'codeOverrides': [], 'job': None, 'pending': None, 'layoutVersion': 1, 'lastConfirmed': None, 'release': {'version': (BASE / 'VERSION').read_text().strip()}}
+              'codeOverrides': [], 'job': None, 'pending': None, 'layoutVersion': 1, 'lastConfirmed': None, 'release': {'version': (BASE / 'VERSION').read_text().strip(), 'revision': 'a' * 40}}
     host = {'architecture': 'x86_64', 'cpuVendor': 'intel', 'uefi': True, 'kvm': True, 'disks': [], 'secretPresent': {},
             'interfaces': [{'name': 'eth0', 'kind': 'ethernet', 'addresses': ['192.0.2.10/24']}],
             'serialDevices': [{'path': '/dev/ttyUSB0', 'vendorId': '1234', 'productId': '5678', 'serial': 'EXAMPLE',
@@ -166,12 +166,45 @@ def main():
             page.get_by_role('heading', name='Scheduled off-host backup').wait_for()
             assert page.locator('[data-guest-action]').count() == 0
             page.locator('.sidebar nav [data-go="review"]').click()
+            # An old confirmed job must not become a preview of a new selection.
+            status['job'] = {'id': 'c' * 32, 'status': 'confirmed', 'platformRevision': 'c' * 40,
+                             'platformChanges': [{'path': 'historical-only.nix', 'before': None, 'after': '{}'}],
+                             'settings': copy.deepcopy(settings), 'changes': [], 'moduleChanges': [], 'secretChanges': [], 'log': ''}
+            page.evaluate('poll()')
+            assert page.get_by_text('Historical platform files (1)', exact=True).count() == 1
+            baseline_count = page.evaluate('stagedCount()')
+            page.get_by_text('Advanced: published release or commit', exact=True).click()
+            page.locator('#platform-revision').fill('a' * 40)
+            page.locator('#platform-revision').blur()
+            assert page.evaluate('stagedCount()') == baseline_count
+            assert 'rebuild only' in page.locator('#platform-selected').inner_text()
             page.locator('[data-load-main]').click()
             page.wait_for_function("state.platformRevision === 'b'.repeat(40)")
             page.locator('#platform-password').fill('disposable-ui-fixture-password')
             page.locator('#platform-ack').check()
-            page.get_by_role('button', name='Build & review configuration', exact=True).click()
+            # A status change forces poll() to rerender the review page.
+            status['job']['log'] = 'fixture progress changed'
+            page.evaluate('poll()')
+            assert page.locator('#platform-password').input_value() == 'disposable-ui-fixture-password', 'Polling must preserve entered reauthentication'
+            assert page.locator('#platform-ack').is_checked(), 'Polling must preserve explicit approval'
+            page.evaluate('shell()')
+            assert page.locator('#platform-ack').is_checked()
+            assert 'disposable-ui-fixture-password' not in page.content(), 'Password must not be serialized into markup'
+            assert page.evaluate('JSON.stringify(state)').find('disposable-ui-fixture-password') == -1
+            # Approval of one revision must not carry to different privileged code.
+            page.get_by_text('Advanced: published release or commit', exact=True).click()
+            page.locator('#platform-revision').fill('d' * 40)
+            page.locator('#platform-revision').blur()
+            assert page.locator('#platform-password').input_value() == ''
+            assert not page.locator('#platform-ack').is_checked()
+            page.locator('[data-load-main]').click()
+            page.wait_for_function("state.platformRevision === 'b'.repeat(40)")
+            page.locator('#platform-password').fill('disposable-ui-fixture-password')
+            page.locator('#platform-ack').check()
+            page.get_by_role('button', name='Build a new review', exact=True).click()
             page.wait_for_function("state.status.job?.status === 'building'")
+            assert page.locator('#platform-password').input_value() == ''
+            assert not page.locator('#platform-ack').is_checked()
             request = next(body for action, body in submitted if action == 'review')
             assert request['revision'] == 'b' * 40
             assert request['adminPassword'] == 'disposable-ui-fixture-password'
