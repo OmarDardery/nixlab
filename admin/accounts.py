@@ -1,5 +1,9 @@
 """Portal identities. Configuration authority stays with administrators."""
+import hashlib
+from pathlib import Path
 import re
+import secrets
+import time
 import runtime as rt
 
 ROLES = {'admin', 'operator', 'viewer'}
@@ -64,6 +68,58 @@ def change_password(username, password, *, clear_setup_password=False):
         if not current: raise ValueError('Unknown account')
         update(username, current['role'], password)
     return {'ok': True}
+
+
+def enrollment_open():
+    return ((rt.STATE / 'web-enrollment').is_file()
+            and not any((rt.STATE / name).exists() or (rt.STATE / name).is_symlink()
+                        for name in ('auth.json', 'users.json', 'setup-password')))
+
+
+def enable_enrollment():
+    with rt.locked():
+        marker = rt.STATE / 'web-enrollment'
+        if any((rt.STATE / name).exists() or (rt.STATE / name).is_symlink()
+               for name in ('auth.json', 'users.json', 'setup-password')):
+            raise ValueError('This host already has portal account state')
+        rt.atomic(marker, '1\n')
+
+
+def proof_digest(code):
+    if not isinstance(code, str) or not re.fullmatch(r'[0-9a-f]{32}', code):
+        raise ValueError('Use the approval code displayed in your browser')
+    return hashlib.sha256(code.encode('ascii')).hexdigest()
+
+
+def boot_id():
+    return Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+
+
+def approve_enrollment(code):
+    digest = proof_digest(code)
+    with rt.locked(blocking=False):
+        if not enrollment_open():
+            raise ValueError('First administrator enrollment is unavailable')
+        rt.write_json(rt.STATE / 'web-enrollment-approval.json', {
+            'digest': digest, 'boot': boot_id(), 'expires': time.monotonic() + 600,
+        })
+
+
+def claim_enrollment(code, password):
+    digest = proof_digest(code)
+    with rt.locked(blocking=False):
+        if not enrollment_open():
+            raise ValueError('First administrator enrollment is unavailable')
+        path = rt.STATE / 'web-enrollment-approval.json'
+        approval = rt.read_json(path, {})
+        if (approval.get('boot') != boot_id() or time.monotonic() >= approval.get('expires', 0)
+                or not secrets.compare_digest(approval.get('digest', ''), digest)):
+            raise ValueError('Approve this browser from the host console before enrolling')
+        rt.write_json(rt.STATE / 'auth.json', rt.password_record(password), mode=0o640, group='nixlab-ui')
+        rt.durable_unlink(path)
+        rt.durable_unlink(rt.STATE / 'web-enrollment')
+        rt.audit('first-admin-enrolled')
+        return {'ok': True}
 
 
 def authorize(session, path, body):

@@ -669,6 +669,16 @@ main.backend()
         raw=response.read();ctype=response.headers.get('Content-Type','')
         result=json.loads(raw) if 'application/json' in ctype else raw
         return result,response.headers,response.status
+    def test_enrollment_rejects_cross_origin_and_an_existing_administrator(self):
+        state, _, status = self.request('/api/enrollment', auth=False)
+        self.assertEqual((status, state), (200, {'available': False}))
+        payload = {'code': 'a' * 32, 'password': 'new-enrollment-test-password'}
+        _, _, status = self.request('/api/enrollment', payload, origin='https://attacker.invalid', auth=False)
+        self.assertEqual(status, 401)
+        state, _, status = self.request('/api/enrollment', payload, origin=self.origin, auth=False)
+        self.assertEqual(status, 400)
+        self.assertIn('unavailable', state['error'])
+
     def test_private_status_requires_authentication(self):
         _,_,status=self.request('/api/status',auth=False)
         self.assertEqual(status,401)
