@@ -773,8 +773,8 @@ main.web()""")
                 data, _, status = self.request('/api/review', {'settings': {}} | code | extra, origin=self.origin)
                 self.assertEqual(status, 400)
                 self.assertIn(expected, data['error'])
-                self.assertNotIn('https-test-password', json.dumps(data))
-                self.assertNotIn('wrong', json.dumps(data))
+                self.assertTrue('https-test-password' not in json.dumps(data), 'HTTP errors must not disclose credentials')
+                self.assertTrue('wrong' not in json.dumps(data), 'HTTP errors must not echo supplied credentials')
         self.assertEqual(list((self.state/'jobs').iterdir()), [])
 
     def test_authorized_review_strips_password_before_broker_and_job_storage(self):
