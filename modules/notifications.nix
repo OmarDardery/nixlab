@@ -26,5 +26,6 @@ in {
     systemd.services.nixlab-kvm-check.onFailure = [ "nixlab-notify@%n.service" ];
     systemd.services.nixlab-rollback-guard = lib.mkIf site.setup.enable { onFailure = [ "nixlab-notify@%n.service" ]; };
     systemd.services.restic-backups-nixlab = lib.mkIf site.backup.enable { onFailure = [ "nixlab-notify@%n.service" ]; };
+    systemd.services.nixlab-backup-check = lib.mkIf site.backup.enable { onFailure = [ "nixlab-notify@%n.service" ]; };
   };
 }

@@ -11,6 +11,7 @@ let
     ../scripts/locking.py
     ../scripts/foundation.py
     ../scripts/backup_health.py
+    ../scripts/backup_verification.py
     ../scripts/incus_client.py
   ];
 in pkgs.runCommand "nixlab-admin-runtime" { } ''

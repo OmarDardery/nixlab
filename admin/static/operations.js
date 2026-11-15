@@ -10,11 +10,19 @@ let operationView = {
   generations: [],
   backupStatus: {},
   backupService: {},
+  backupVerification: {},
   releases: [],
   loading: false,
   error: "",
 };
 const administrator = () => (state.principal?.role || "admin") === "admin";
+
+function repositoryVerification() {
+  const verification = operationView.backupVerification || {};
+  const mode = verification.lastMode || verification.mode;
+  const scope = mode === "full" ? "full repository data read" : mode === "metadata" ? "metadata only; data blocks were not read" : "scope unknown";
+  return `<p>Repository verification: <b>${esc(verification.state || "unknown")}</b> · ${esc(scope)}</p>${verification.reason === "repository-unverified" ? "<p>The repository target has no matching verification evidence. Run a new check.</p>" : ""}${verification.finishedAt ? `<p>Last check: ${esc(new Date(verification.finishedAt * 1000).toLocaleString())}</p>` : ""}${verification.scheduled ? `<p>Schedule: ${esc(verification.schedule)} · next checks use ${verification.mode === "full" ? "full data reads" : "metadata checks"}</p>` : ""}${verification.timeWarning ? '<p class="error">Verification timestamps are unreliable; check host time synchronization.</p>' : ""}<p class="note">Repository integrity checks do not prove that a guest or application can be restored.</p>`;
+}
 
 function healthSummary() {
   const h = operationView.health;
@@ -73,7 +81,7 @@ function operationsPage() {
     ) +
     card(
       "Backup status",
-      `<p>Current phase: <b>${esc(phase)}</b> ${status.group ? `· group ${esc(status.group)} of ${esc(status.groups)}` : ""}</p><p>${esc((status.members || []).join(", "))}</p>${status.excluded?.length ? `<p class="error">Excluded from coverage: ${esc(status.excluded.join(", "))}</p>` : ""}<p>Last full-host success: ${operationView.health?.lastBackupSuccess ? esc(new Date(operationView.health.lastBackupSuccess * 1000).toLocaleString()) : "Not recorded"}</p><p>Guests awaiting restart recovery: ${esc(operationView.health?.guestsAwaitingRestart ?? "Unknown")}</p>${operationView.error ? `<p class="error">${esc(operationView.error)}</p>` : ""}<button data-ops-refresh>Refresh</button> <button data-run-backup ${!administrator() || busy || !state.status.settings.backup.enable ? "disabled" : ""}>Run scheduled backup</button> <button data-check-backup ${!administrator() || busy || !state.status.settings.backup.enable ? "disabled" : ""}>Check restic repository</button> <button data-cancel-backup ${!administrator() || !backupRunning ? "disabled" : ""}>Cancel scheduled backup</button>`,
+      `<p>Current phase: <b>${esc(phase)}</b> ${status.group ? `· group ${esc(status.group)} of ${esc(status.groups)}` : ""}</p><p>${esc((status.members || []).join(", "))}</p>${status.excluded?.length ? `<p class="error">Excluded from coverage: ${esc(status.excluded.join(", "))}</p>` : ""}<p>Last full-host success: ${operationView.health?.lastBackupSuccess ? esc(new Date(operationView.health.lastBackupSuccess * 1000).toLocaleString()) : "Not recorded"}</p><p>Guests awaiting restart recovery: ${esc(operationView.health?.guestsAwaitingRestart ?? "Unknown")}</p>${operationView.error ? `<p class="error">${esc(operationView.error)}</p>` : ""}${repositoryVerification()}<button data-ops-refresh>Refresh</button> <button data-run-backup ${!administrator() || busy || !state.status.settings.backup.enable ? "disabled" : ""}>Run scheduled backup</button> <button data-check-backup ${!administrator() || busy || !state.status.settings.backup.enable ? "disabled" : ""}>Check restic repository</button> <button data-cancel-backup ${!administrator() || !backupRunning ? "disabled" : ""}>Cancel scheduled backup</button>`,
     ) +
     backupCoverage(status) +
     backupSettings() +
@@ -142,12 +150,14 @@ async function refreshOperations(full = true) {
         operations.generations,
         operations.backupStatus,
         operations.backupService,
+        operations.backupVerification,
       ]) !==
       JSON.stringify([
         operationView.jobs,
         operationView.generations,
         operationView.backupStatus,
         operationView.backupService,
+        operationView.backupVerification,
       ]);
     Object.assign(operationView, operations);
     if (full || changed) {
