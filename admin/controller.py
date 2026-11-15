@@ -372,31 +372,14 @@ class Manager:
         rt.audit('password-changed')
         return {'ok': True}
 
-    def browser_certificate(self, device=None, password=None):
-        import diagnostics
-        diagnostics.require_plausible_clock()
-        if not isinstance(device, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,31}', device):
-            raise ValueError('Use a device name of up to 32 letters, digits, hyphens or underscores')
-        if not isinstance(password, str) or not 16 <= len(password) <= 256 or any(c in password for c in '\r\n\0'):
-            raise ValueError('Use a bundle passphrase of 16–256 characters with no line breaks')
-        name = 'nixlab-browser-' + device + '-' + secrets.token_hex(6)
-        valid_days = 90
-        with tempfile.TemporaryDirectory(dir=self.state) as folder:
-            p = Path(folder)
-            subprocess.run(['openssl', 'req', '-x509', '-newkey', 'ec', '-pkeyopt',
-                            'ec_paramgen_curve:secp384r1', '-nodes', '-days', str(valid_days),
-                            '-subj', '/CN=' + name, '-keyout', str(p / 'key'), '-out', str(p / 'cert')],
-                           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            certificate = subprocess.run(['openssl', 'x509', '-in', str(p / 'cert'), '-outform', 'DER'],
-                                         check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout
-            fingerprint = hashlib.sha256(certificate).hexdigest()
-            subprocess.run(['openssl', 'pkcs12', '-export', '-in', str(p / 'cert'), '-inkey', str(p / 'key'),
-                            '-out', str(p / 'client.p12'), '-passout', 'stdin'], input=password + '\n', text=True,
-                           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            data = base64.b64encode((p / 'client.p12').read_bytes()).decode()
-            # Register only after an encrypted bundle exists. Existing identities stay trusted.
-            command(['incus', '--force-local', 'config', 'trust', 'add-certificate', str(p / 'cert'),
-                     '--name', name, '--projects', 'lab', '--restricted'])
-        rt.audit('browser-certificate-issued', name=name, fingerprint=fingerprint)
-        return {'name': name, 'fingerprint': fingerprint, 'project': 'lab',
-                'validDays': valid_days, 'pkcs12': data}
+    def browser_certificate(self, device=None, password=None, owner='root', full_admin=False, renew=None):
+        import browser_certificates
+        return browser_certificates.issue(self.state, device, password, owner, full_admin, renew)
+
+    def browser_certificates(self):
+        import browser_certificates
+        return browser_certificates.inventory(self.state)
+
+    def revoke_browser_certificate(self, fingerprint, owner='root'):
+        import browser_certificates
+        return browser_certificates.revoke(self.state, fingerprint, owner)

@@ -97,6 +97,9 @@ def coverage():
         for name in ('ca.key', 'ca.crt', 'tls.key', 'tls.crt'):
             required['management-' + name] = rt.STATE / name
         required['management-account'] = rt.STATE / ('users.json' if (rt.STATE / 'users.json').exists() else 'auth.json')
+        browser_registry = rt.STATE / 'browser-certificates.json'
+        if browser_registry.exists() or browser_registry.is_symlink():
+            required['browser-identity-ownership'] = browser_registry
         if configured.get('apps', {}).get('enable'):
             # Account metadata is created only by an explicit password reset.
             # A fresh bootstrap uses admin and legitimately has no such file.
@@ -115,7 +118,7 @@ def coverage():
 
 def secret_files():
     files = {}
-    for name in ('auth.json', 'users.json', 'setup-password', 'operator-password', 'portainer-account.json',
+    for name in ('auth.json', 'users.json', 'setup-password', 'operator-password', 'portainer-account.json', 'browser-certificates.json',
                  'ca.key', 'ca.crt', 'tls.key', 'tls.crt', 'apps-tls.key', 'apps-tls.crt'):
         files['admin/' + name] = rt.STATE / name
     for name, path in rt.SECRET_PATHS.items(): files['runtime/' + name] = path

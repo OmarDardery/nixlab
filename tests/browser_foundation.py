@@ -29,6 +29,7 @@ def main():
             'helpers': {'sources': json.loads((BASE / 'helpers/sources.json').read_text()),
                         'applications': list(json.loads((BASE / 'helpers/compatibility.json').read_text()).values())}}
     submitted = []; errors = []; authenticated = [False]; requests = []
+    certificate_records = []; certificate_pending = [False]
     class Quiet(SimpleHTTPRequestHandler):
         def log_message(self, *_): pass
     server = ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Quiet, directory=str(BASE / 'admin/static')))
@@ -46,6 +47,20 @@ def main():
                     route.fulfill(status=401, json={'error': 'Sign in to continue'}); return
                 if route.request.method == 'POST':
                     body = route.request.post_data_json; submitted.append((endpoint, body))
+                    if endpoint == 'browser-certificate':
+                        record = {'name': 'nixlab-browser-ui-000000000000', 'device': body['device'],
+                                  'fingerprint': 'a' * 64, 'restricted': not body.get('fullAdmin', False),
+                                  'projects': ['lab'], 'expiresAt': 'fixture-expiry', 'status': 'trusted'}
+                        certificate_records.append(record); certificate_pending[0] = True
+                        route.fulfill(json=record); return
+                    if endpoint == 'browser-certificate/download':
+                        if not certificate_pending[0]:
+                            route.fulfill(status=400, json={'error': 'Already claimed'}); return
+                        certificate_pending[0] = False
+                        route.fulfill(content_type='application/x-pkcs12', body=b'encrypted-browser-ui-fixture'); return
+                    if endpoint == 'revoke-browser-certificate':
+                        certificate_records[0]['status'] = 'revoked'
+                        route.fulfill(json={'ok': True}); return
                     if endpoint == 'login': authenticated[0] = True
                     if endpoint == 'review':
                         status['job'] = {'id': 'a'*32, 'status': 'building', 'settings': copy.deepcopy(body['settings']),
@@ -65,6 +80,7 @@ def main():
                                     {'name': 'web', 'project': 'lab', 'type': 'container', 'status': 'Running', 'observed': ['10.77.0.20'],
                                      'nics': [{'name': 'eth0', 'network': 'incusbr0', 'observed': ['10.77.0.20'], 'reserved': ['10.77.0.20']}]}]},
                                 'main-revision': {'revision': 'b' * 40},
+                                'browser-certificates': {'certificates': certificate_records},
                                 'operations': {'jobs': [], 'archives': [], 'generations': [], 'backupStatus': {}},
                                 'health': {'checkedAt': int(time.time()), 'services': [], 'certificates': {}, 'guestsAwaitingRestart': 0}, 'users': {'users': []}}.get(endpoint, {})
                 route.fulfill(json=response)
@@ -91,6 +107,26 @@ def main():
             page.screenshot(path=str(args.output / 'overview-mobile.png'), full_page=True)
             page.set_viewport_size({'width': 1440, 'height': 1000})
             assert page.locator('[data-guest-action]').count() == 0
+            page.evaluate("state.page='security';shell()")
+            assert not page.locator('#certificate-full-admin').is_checked()
+            page.locator('#certificate-device').fill('browser-qa')
+            page.locator('#certificate-passphrase').fill('synthetic-browser-bundle-passphrase')
+            page.locator('#certificate-current').fill('disposable-ui-fixture-password')
+            with page.expect_download() as transfer:
+                page.get_by_role('button', name='Create an Incus browser identity', exact=True).click()
+            assert transfer.value.suggested_filename.endswith('.p12')
+            assert page.locator('#certificate-passphrase').input_value() == ''
+            assert page.locator('#certificate-current').input_value() == ''
+            issued = next(body for endpoint, body in submitted if endpoint == 'browser-certificate')
+            assert issued['fullAdmin'] is False and issued['acknowledgeFullAdmin'] is False
+            page.get_by_role('button', name='Refresh browser identities', exact=True).click()
+            page.get_by_role('button', name='Renew', exact=True).click()
+            assert page.locator('#certificate-renew').input_value() == 'a' * 64
+            assert page.locator('#certificate-device').input_value() == 'browser-qa'
+            page.locator('#certificate-current').fill('disposable-ui-fixture-password')
+            page.get_by_role('button', name='Revoke', exact=True).click()
+            page.wait_for_function("document.querySelector('#certificate-list').textContent.includes('revoked')")
+            assert page.get_by_role('button', name='Revoke', exact=True).is_disabled()
             page.locator('nav [data-go="commands"]').click()
             page.get_by_role('heading', name='Help', exact=True).wait_for()
             commands = page.locator('[data-copy-command]').evaluate_all("nodes => nodes.map(n => n.dataset.copyCommand)")
@@ -181,7 +217,7 @@ def main():
             page.set_viewport_size({'width': 1440, 'height': 1000})
             page.screenshot(path=str(args.output / 'integrations.png'), full_page=True)
             assert not errors, errors
-            assert not [url for url in requests if not url.startswith('http://127.0.0.1:')], 'Private console assets must stay local'
+            assert not [url for url in requests if not url.startswith(('http://127.0.0.1:', 'blob:http://127.0.0.1:'))], 'Private console assets must stay local'
             assert all(action != 'operation' for action, _ in submitted)
             browser.close()
     finally: server.shutdown(); server.server_close()

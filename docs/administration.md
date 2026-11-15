@@ -107,13 +107,68 @@ TLS key/certificate under `/var/lib/incus`; preserve it securely or re-verify fi
 reinstallation. Certificate rotation must be planned. Optionally configure the native
 `virtualisation.incus.useACMEHost` with a real DNS/ACME certificate; no public management port is needed.
 
-Enroll the browser's client certificate using the UI enrollment flow or the installed client's
-`incus webui` helper. For a browser without that helper, create a dedicated certificate/key pair,
-register its certificate through authenticated host SSH (`incus config trust add-certificate`),
-export a password-protected PKCS#12 bundle and import it in the browser. Keep the private key
-and bundle out of Git. Refer to the exact installed Incus version's trust subcommand help.
-The server certificate and the client certificate have different purposes; trusting a server
-certificate does not authorize a browser as an administrator.
+In the NixLab portal, open **Host → Access**. Enter a device name, a dedicated
+bundle import passphrase (16–256 characters), and your current NixLab password.
+The default identity manages only the `lab` project and lasts 90 days. The advanced
+unrestricted checkbox explicitly grants Incus host administration; it requires the
+same fresh password check and a separate acknowledgement in the API. Use it only
+for a trusted host administrator. Incus authentication remains independent of your
+NixLab portal session; no blanket CA trust is installed.
+
+The portal generates an ECDSA P-384 client identity with client-authentication EKU,
+digital-signature key usage and `CA:FALSE`. It registers only the public certificate
+and offers the encrypted PKCS#12 bundle once, in the issuing browser session, for
+two minutes. JSON contains fingerprint, scope and expiry metadata, never the key,
+bundle or import passphrase. The passphrase goes through protected request/stdin
+channels and is never returned separately. A **Claim pending download** button lets
+the same session recover a lost receipt. A consumed or expired download cannot be
+replayed, including after a broken connection. Logout/revocation drops pending
+material; encrypted bytes live only in frontend memory, with expiry enforced on
+claim and stale-buffer removal on subsequent requests or process shutdown.
+
+Import the `.p12` using your dedicated bundle passphrase:
+
+- Firefox: Settings → Privacy & Security → Certificates → View Certificates →
+  Your Certificates → Import.
+- Chromium: Settings → Privacy and security → Security → Manage certificates, or
+  the operating system certificate manager used by that Chromium build.
+
+Open the Incus HTTPS endpoint, select this browser identity and switch to the
+**lab** project. Independently verify the server TLS fingerprint. Server trust does
+not authorize the browser as an administrator. Supported browser/OS import stores
+and selection dialogs must be qualified on the actual client versions in use.
+
+Use **Refresh browser identities** to view NixLab-owned fingerprints, their actual
+Incus project restrictions, expiration and trust status. **Renew** creates a new
+identity and encrypted bundle; the previous identity stays trusted until explicitly
+revoked or its disclosed expiration. **Revoke** requires your current NixLab
+password and removes only the selected owned fingerprint through Incus trust APIs.
+It also invalidates any pending portal download. The existing guard removes expired
+NixLab-owned trust; unrelated and older external trust entries are never adopted
+or removed automatically. Manage legacy/external certificates through Incus itself.
+The separate encrypted recovery kit preserves the root ownership registry;
+configuration-only exports and support metadata do not carry browser keys or bundles.
+
+If download/import is cancelled, a timeout occurs, or the broker restarts, inspect
+the identity list before retrying. Ownership intent is durable before Incus mutation,
+so even uncertain registration remains individually visible/revocable. Private keys
+are confined to root-only `/run/nixlab-browser` directories and cleaned on normal
+success/failure. The existing locked guard removes crash remnants older than five
+minutes; reboot clears `/run`. Guard failures are health findings, not silent cleanup.
+
+For local recovery, inspect `sudo incus config trust list` and revoke a verified
+full fingerprint with `sudo incus config trust remove FINGERPRINT`. Do not remove
+other operators' trust. Browser bundle renewal/revocation does not change Linux,
+NixLab portal, or application passwords.
+
+The Python/HTTPS tests cover cryptography, failure cleanup, ownership, reauthentication,
+CSRF/session binding and single-claim races. The real Incus fixture checks TLS 1.3,
+lab mutations, rejection of other-project/global mutations, explicit unrestricted
+scope, revocation and owned expiration while preserving pre-existing trust. Passing
+those fixtures does not prove a browser's native import dialog or certificate
+selection UI. Record Firefox/Chromium versions, OS store, import, lab selection,
+expiry and revoke smoke results before claiming that client combination qualified.
+
 
 Use Incus for containers, VMs, image templates, limits, devices, volumes, networks and snapshots.
 For a UI-created guest, runtime state belongs to Incus until deliberately adopted. Adoption

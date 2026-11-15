@@ -9,6 +9,8 @@ from unittest.mock import Mock, patch
 BASE = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(BASE / 'admin'), str(BASE / 'scripts')]
 import diagnostics
+import browser_certificates
+import runtime as rt
 from controller import Manager
 
 NOW = 1800000000
@@ -52,18 +54,20 @@ class ClockTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as folder:
             manager = Manager(root=folder, state=folder)
-            with patch('diagnostics.require_plausible_clock'), patch('controller.command') as trust, patch('runtime.audit') as audit:
+            with patch('diagnostics.require_plausible_clock'), patch('browser_certificates.command') as trust, patch('runtime.audit') as audit, \
+                    patch.object(rt, 'STATE', Path(folder)), patch.object(browser_certificates, 'RUNTIME', Path(folder) / 'runtime'):
                 with self.assertRaisesRegex(ValueError, 'bundle passphrase'):
                     manager.browser_certificate('test-device', 'short')
                 trust.assert_not_called()
                 bundle = manager.browser_certificate('test-device', SECRETS['p12'])
                 trust_args = trust.call_args.args[0]
                 self.assertEqual(trust_args[-3:], ['--projects', 'lab', '--restricted'])
-                self.assertEqual(bundle['project'], 'lab')
+                self.assertEqual(bundle['projects'], ['lab'])
                 self.assertEqual(len(bundle['fingerprint']), 64)
                 self.assertEqual(bundle['validDays'], 90)
                 assert_public_clean(self, [trust_args, bundle, audit.call_args.args, audit.call_args.kwargs])
-                self.assertEqual([p.name for p in Path(folder).iterdir()], ['jobs'])
+                self.assertEqual(list((Path(folder) / 'runtime').iterdir()), [])
+                self.assertTrue((Path(folder) / 'browser-certificates.json').exists())
 
             secret_bundle = Path(folder) / 'test.p12'
             secret_bundle.write_bytes(base64.b64decode(bundle['pkcs12']))

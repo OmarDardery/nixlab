@@ -405,23 +405,34 @@ def job(phase, job_id):
 
 
 def guard():
-    pending = rt.read_json(rt.STATE / 'pending.json')
-    if pending and time.time() >= pending['deadline']:
-        with rt.locked():
-            pending = rt.read_json(rt.STATE / 'pending.json')
-            if pending and rt.read_job_record(rt.STATE / 'jobs' / pending['id'] / 'job.json', {}).get('status') == 'confirmed':
-                rt.durable_unlink(rt.STATE / 'pending.json')
-            elif pending and time.time() >= pending['deadline']:
-                rollback(rt.STATE / 'jobs' / pending['id'], 'confirmation timed out')
+    failed = False
     try:
         try:
+            pending = rt.read_json(rt.STATE / 'pending.json')
+            if pending and time.time() >= pending['deadline']:
+                with rt.locked():
+                    pending = rt.read_json(rt.STATE / 'pending.json')
+                    if pending and rt.read_job_record(rt.STATE / 'jobs' / pending['id'] / 'job.json', {}).get('status') == 'confirmed':
+                        rt.durable_unlink(rt.STATE / 'pending.json')
+                    elif pending and time.time() >= pending['deadline']:
+                        rollback(rt.STATE / 'jobs' / pending['id'], 'confirmation timed out')
+        except Exception:
+            failed = True
+        try:
             with rt.locked(blocking=False):
-                rt.cleanup_terminal_secrets(rt.STATE)
+                import browser_certificates
+                for cleanup in (lambda: rt.cleanup_terminal_secrets(rt.STATE), browser_certificates.cleanup_private,
+                                lambda: browser_certificates.expire_owned(rt.STATE)):
+                    try:
+                        cleanup()
+                    except (OSError, ValueError):
+                        failed = True
         except rt.BusyError:
-            pass  # A live mutation owns staged credentials; the next guard retries.
+            pass  # A live mutation owns private credentials; the next guard retries.
+        if failed:
+            raise ValueError('Protected credential cleanup failed; inspect pending recovery, transaction storage, browser identities and host clock')
     finally:
-        # A staging-health finding must not prevent an interrupted guest's
-        # existing restart/recovery path from running.
+        # A failed recovery or cleanup domain must not suppress guest restart
+        # recovery. Independent cleanup domains also continue before reporting.
         from operations import Operations
         Operations().recover_interrupted()
-
