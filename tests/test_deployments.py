@@ -81,7 +81,7 @@ class JournalTests(unittest.TestCase):
         d.prepare(self.directory, self.targets)
 
     def queue(self, resume=False):
-        with patch.object(d.subprocess, 'run', side_effect=lambda args, **kwargs: subprocess.CompletedProcess(args, 1 if args[0] == 'systemctl' else 0)):
+        with patch.object(d.subprocess, 'run', side_effect=lambda args, **kwargs: subprocess.CompletedProcess(args, 3 if args[0] == 'systemctl' else 0)):
             return self.manager.submit(ID, resume=resume)
 
     def report(self): return rt.read_json(self.directory / 'deployment.json')
@@ -114,7 +114,7 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(self.report()['targets']['apps']['phase'], 'transferring')
         record = self.report(); record['updatedAt'] = time.time() - 60
         rt.write_json(self.directory / 'deployment.json', record)
-        with patch.object(d.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1)):
+        with patch.object(d.subprocess, 'run', return_value=subprocess.CompletedProcess([], 3)):
             self.assertEqual(self.manager.status(ID)['status'], 'interrupted')
         self.manager = d.Deployments(self.root, self.state)
         self.queue(resume=True)
@@ -217,7 +217,7 @@ class JournalTests(unittest.TestCase):
         record = self.report(); record.update(updatedAt=time.time() - 60)
         rt.write_json(self.directory / 'deployment.json', record)
         with self.assertRaisesRegex(ValueError, 'active guest'): d.check_idle(self.state)
-        with patch.object(d.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1)):
+        with patch.object(d.subprocess, 'run', return_value=subprocess.CompletedProcess([], 3)):
             self.manager.abandon(ID)
         d.check_idle(self.state)
         self.assertEqual(self.report()['status'], 'abandoned')

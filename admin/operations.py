@@ -101,8 +101,7 @@ class Operations:
             if not directory.is_dir() or not re.fullmatch(r'[0-9a-f]{32}', directory.name): continue
             record = rt.read_json(directory / 'job.json', {})
             if record.get('status') in ('queued', 'running') and time.time() - record.get('created', 0) > 30:
-                unit = subprocess.run(['systemctl', 'is-active', '--quiet', 'nixlab-operation-' + directory.name], capture_output=True)
-                if unit.returncode:
+                if not rt.worker_active('nixlab-operation-' + directory.name):
                     record.update(status='failed', error='Worker interrupted. Inspect guest state and recovery intent before retrying')
                     rt.write_json(directory / 'job.json', record)
             records.append(record)
