@@ -34,13 +34,13 @@ def clock_observation():
     return {'state': observed['state'], 'evidenceWarning': observed['evidenceWarning']}
 
 
-def last_success(record):
+def last_success(record, latest):
     item = record.get('lastSuccess')
-    if (isinstance(item, dict) and timestamp(item.get('at')) and item.get('mode') in MODES
-            and isinstance(item.get('clock'), dict)):
+    if (isinstance(item, dict) and (at := timestamp(item.get('at'))) is not None
+            and at <= latest and item.get('mode') in MODES and isinstance(item.get('clock'), dict)):
         clock = item['clock']
         if clock.get('state') in ('synchronized', 'plausible-but-unsynchronized', 'invalid-clock') and type(clock.get('evidenceWarning')) is bool:
-            return {'at': item['at'], 'mode': item['mode'],
+            return {'at': at, 'mode': item['mode'],
                     'clock': {'state': clock['state'],
                               'evidenceWarning': clock['evidenceWarning'] or clock['state'] != 'synchronized'}}
     return None
@@ -73,8 +73,9 @@ def check(mode, state=None):
     previous = read_record(state) or {}
     if previous.get('repositoryFingerprint') != repository:
         previous = {}
-    record = {'version': 1, 'phase': 'running', 'mode': mode, 'startedAt': time.time(),
-              'finishedAt': None, 'lastSuccess': last_success(previous), 'repositoryFingerprint': repository}
+    started = time.time()
+    record = {'version': 1, 'phase': 'running', 'mode': mode, 'startedAt': started,
+              'finishedAt': None, 'lastSuccess': last_success(previous, started), 'repositoryFingerprint': repository}
     rt.write_json(state, record)
     args = ['restic', '--no-cache', 'check'] + (['--read-data'] if mode == 'full' else [])
     try:
@@ -113,6 +114,7 @@ def status(backup_enabled, policy=None, state=None, *, repository=None):
             or unit.get('ActiveState') not in ('active', 'activating', 'deactivating', 'inactive', 'failed')):
         return result
     record = read_record(state or STATE)
+    now = time.time()
     if record is not None and (repository_fingerprint(repository) is None
                               or record.get('repositoryFingerprint') != repository_fingerprint(repository)):
         return dict(result, reason='repository-unverified')
@@ -127,11 +129,15 @@ def status(backup_enabled, policy=None, state=None, *, repository=None):
             pass
     elif record.get('phase') == 'running':
         result['state'] = 'interrupted'
-    elif record.get('phase') in ('successful', 'failed') and record.get('mode') in MODES and timestamp(record.get('finishedAt')):
-        success = last_success(record)
-        if record['phase'] == 'successful' and (not success or success['at'] != record['finishedAt'] or success['mode'] != record['mode']):
+    elif record.get('phase') in ('successful', 'failed') and record.get('mode') in MODES:
+        started = timestamp(record.get('startedAt'))
+        finished = timestamp(record.get('finishedAt'))
+        if started is None or finished is None or not started <= finished <= now:
             return result
-        result.update(state=record['phase'], lastMode=record['mode'], finishedAt=record['finishedAt'], lastSuccess=success)
+        success = last_success(record, finished if record['phase'] == 'successful' else started)
+        if record['phase'] == 'successful' and (not success or success['at'] != finished or success['mode'] != record['mode']):
+            return result
+        result.update(state=record['phase'], lastMode=record['mode'], finishedAt=finished, lastSuccess=success)
         if result['lastSuccess']:
             result['timeWarning'] = result['lastSuccess']['clock']['evidenceWarning']
     if unit.get('Result') not in ('', 'success') and result['state'] not in ('running', 'interrupted'):
@@ -147,10 +153,10 @@ def status(backup_enabled, policy=None, state=None, *, repository=None):
             except (ValueError, AttributeError):
                 result['state'] = 'unknown'
             else:
-                if not math.isfinite(trigger) or trigger < 0:
+                if not math.isfinite(trigger) or not 0 <= trigger <= now:
                     result['state'] = 'unknown'
                 elif trigger > (timestamp((record or {}).get('finishedAt')) or 0):
-                    result['state'] = 'overdue' if time.time() >= trigger + 7200 else 'queued'
+                    result['state'] = 'overdue' if now >= trigger + 7200 else 'queued'
     return result
 
 

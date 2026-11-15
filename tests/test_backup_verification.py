@@ -99,6 +99,17 @@ class VerificationTests(unittest.TestCase):
         self.policy.write_text('{"version":2}')
         self.assertEqual(self.status()['state'], 'unknown')
 
+    def test_consistent_future_record_and_backward_clock_are_unknown(self):
+        self.check()
+        with patch.object(verification.time, 'time', return_value=NOW - 60):
+            self.assertEqual(self.status()['state'], 'unknown')
+            self.assertNotIn('lastSuccess', self.status())
+
+        record = json.loads(self.state.read_text())
+        record['startedAt'] = NOW + 1
+        self.state.write_text(json.dumps(record))
+        self.assertEqual(self.status()['state'], 'unknown')
+
     def test_schedule_disable_does_not_hide_a_manual_check(self):
         self.settings['enable'] = False
         self.policy.write_text(json.dumps(self.settings))
@@ -113,7 +124,9 @@ class VerificationTests(unittest.TestCase):
         self.timer['ActiveState'] = 'inactive'
         self.assertEqual(self.status()['state'], 'unknown')
         self.timer.update(ActiveState='active', LastTriggerUSec='@' + str(NOW + 1))
-        self.assertEqual(self.status()['state'], 'queued')
+        self.assertEqual(self.status()['state'], 'unknown')
+        with patch.object(verification.time, 'time', return_value=NOW + 2):
+            self.assertEqual(self.status()['state'], 'queued')
         with patch.object(verification.time, 'time', return_value=NOW + 8000):
             self.assertEqual(self.status()['state'], 'overdue')
 
