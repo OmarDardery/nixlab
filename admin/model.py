@@ -98,8 +98,8 @@ def check_shape(value, template, location='settings'):
 def validate_settings(candidate, current, host, require_devices=True):
     check_shape(candidate, current)
     # The browser edits these sections; instance declarations and secret file paths remain code-owned.
-    for field in ('instances', 'secrets', 'system'):
-        if candidate[field] != current[field]:
+    for field in ('instances', 'secrets', 'system', 'schemaVersion'):
+        if candidate.get(field) != current.get(field):
             raise ValueError(field + ' is managed in the source repository')
     if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9-]{0,62}', candidate['hostName']):
         raise ValueError('Use a valid host name')

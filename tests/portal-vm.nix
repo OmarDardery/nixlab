@@ -29,6 +29,13 @@ in pkgs.testers.runNixOSTest {
       before = [ "nixlab-admin-backend.service" "nixlab-ui.service" ];
       requiredBy = [ "nixlab-admin-backend.service" "nixlab-ui.service" ];
       path = [ pkgs.openssl ];
+      environment.NIXLAB_TEST_SITE_SOURCE = toString (pkgs.runCommand "nixlab-test-site-source" { } ''
+        mkdir -p $out/lib
+        cp ${../site.nix} $out/site.nix
+        cp ${../site-defaults.nix} $out/site-defaults.nix
+        cp ${../lib/machine.nix} $out/lib/machine.nix
+        cp ${../lib/settings-migrations.nix} $out/lib/settings-migrations.nix
+      '');
       serviceConfig = { Type = "oneshot"; RemainAfterExit = true; UMask = "0077"; };
       script = ''PYTHONPATH=${../admin}:${../scripts} ${pkgs.python3}/bin/python3 ${./portal-fixture.py}'';
     };

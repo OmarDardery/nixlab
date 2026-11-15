@@ -23,9 +23,9 @@ worker review, build, activation and rollback path. Local console recovery must
 not depend on the apps VM or its application services.
 
 Adoption preserves the installed host and does not format disks. Disk preparation
-is a separate explicitly destructive operation. The current JSON settings have
-no general schema version; a future migration must preserve existing access and
-retain the source and generation needed for rollback.
+is a separate explicitly destructive operation. JSON settings use schema version 1, independently of directory-layout versions.
+Nix migrates legacy settings on read; a reviewed activation publishes the new
+candidate while retaining previous settings, source and generation for rollback.
 
 The initial `lab` project, `guests` pool, `incusbr0`, `base` profile, optional apps
 VM and explicitly declared instances remain source-owned. A preseed guard records

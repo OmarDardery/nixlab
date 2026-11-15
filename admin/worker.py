@@ -96,7 +96,7 @@ def build(directory):
         run([str((directory / 'system').resolve()) + '/bin/switch-to-configuration', 'dry-activate'], log)
     result = subprocess.run(['nix', '--extra-experimental-features', 'nix-command flakes', 'eval', '--json',
         'path:' + str(source) + '#nixosConfigurations.hypervisor.config', '--apply',
-        'c: { settings = c.nixlab.settings; disks = c.nixlab.storage.disks; preseed = c.virtualisation.incus.preseed; instances = c.nixlab.incus.desiredInstances; deployments = c.nixlab.deployment.manifest; }'],
+        'c: { settings = c.nixlab.settings; desiredSettings = c.nixlab.desiredSettings or null; disks = c.nixlab.storage.disks; preseed = c.virtualisation.incus.preseed; instances = c.nixlab.incus.desiredInstances; deployments = c.nixlab.deployment.manifest; }'],
         check=True, capture_output=True, text=True, timeout=120)
     projection = json.loads(result.stdout)
     effective, disks = projection['settings'], projection['disks']
@@ -125,7 +125,16 @@ def build(directory):
                    transition_error=transition_error)
     import deployments
     deployments.prepare(directory, projection.get('deployments', {}))
-    update(directory, status='ready', builtAt=time.time(), effectiveSettings=effective, candidateDigest=rt.digest_source(source),
+    migration = job.get('settingsMigration')
+    candidate_overrides = None
+    if migration and projection.get('desiredSettings') is not None:
+        migration = dict(migration, to=projection['desiredSettings'].get('schemaVersion', 0))
+    if projection.get('desiredSettings') is not None:
+        from model import differences
+        candidate_overrides = differences(projection['desiredSettings'], effective)
+    update(directory, status='ready', builtAt=time.time(), effectiveSettings=effective,
+           desiredSettings=projection.get('desiredSettings'), candidateOverrides=candidate_overrides,
+           settingsMigration=migration, candidateDigest=rt.digest_source(source),
            inputChanges=changed_inputs, rebootRequired=bool(reboot))
     rt.audit('build-ready', job=directory.name)
 

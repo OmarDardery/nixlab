@@ -12,6 +12,7 @@ import tempfile
 import time
 from model import command, differences, inventory, merge, validate_settings
 import runtime as rt
+from settings_reader import read_settings
 
 
 class Manager:
@@ -22,14 +23,11 @@ class Manager:
         (self.state / 'jobs').mkdir(mode=0o700, exist_ok=True)
 
     def settings(self):
-        defaults = rt.read_json(rt.SOURCE / 'default-settings.json', {})
-        saved = rt.read_json(rt.machine_path(self.root, 'settings')) or {}
-        if saved.get('ready') and 'collection' not in saved.get('monitoring', {}):
-            saved.setdefault('monitoring', {})['collection'] = True
-        return merge(defaults, saved)
+        return read_settings(self.root)
 
-    def effective_settings(self):
-        return merge(self.settings(), rt.read_json(Path('/etc/nixlab/effective-settings.json'), {}))
+    def effective_settings(self, desired=None):
+        return merge(self.settings() if desired is None else desired,
+                     rt.read_json(Path('/etc/nixlab/effective-settings.json'), {}))
 
     def migrate_layout(self):
         return rt.migrate_idle_layout(self.root, self.state)
@@ -85,7 +83,9 @@ class Manager:
         last = rt.read_json(self.state / 'last-confirmed.json')
         if last and rt.read_json(self.job_path(last['id']) / 'job.json')['status'] != 'confirmed':
             last = None
-        effective = self.effective_settings()
+        desired = self.settings()
+        stored = rt.read_json(rt.machine_path(self.root, 'settings'), {}) or {}
+        effective = self.effective_settings(desired)
         try:
             import diagnostics
             observed_address = diagnostics.management_address(effective)
@@ -93,8 +93,9 @@ class Manager:
             observed_address = None
         booted, active = Path('/run/booted-system/kernel'), Path('/run/current-system/kernel')
         reboot = booted.exists() and active.exists() and booted.resolve() != active.resolve()
-        return {'release': upgrades.metadata(self.root), 'managementAddress': observed_address, 'rebootRequired': reboot, 'effectiveSettings': effective, 'codeOverrides': differences(self.settings(), effective), 'settings': self.settings(), 'job': job, 'lastConfirmed': last, 'pending': rt.read_json(self.state / 'pending.json'),
-                'moduleDirectory': str(rt.machine_path(self.root, 'modules')), 'layoutVersion': 1 if rt.modern_layout(self.root) else 0, 'currentSystem': current, 'setupComplete': self.settings()['ready']}
+        return {'release': upgrades.metadata(self.root), 'managementAddress': observed_address, 'rebootRequired': reboot, 'effectiveSettings': effective, 'codeOverrides': differences(desired, effective), 'settings': desired, 'job': job, 'lastConfirmed': last, 'pending': rt.read_json(self.state / 'pending.json'),
+                'moduleDirectory': str(rt.machine_path(self.root, 'modules')), 'layoutVersion': 1 if rt.modern_layout(self.root) else 0, 'currentSystem': current, 'setupComplete': desired['ready'],
+                'settingsSchema': {'stored': stored.get('schemaVersion', 0), 'desired': desired.get('schemaVersion', 0)}}
 
     def host_inventory(self):
         data = inventory()
@@ -132,7 +133,6 @@ class Manager:
             if revision is not None and (not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{40}', revision)):
                 raise ValueError('Specify the full reviewed platform commit SHA')
             modules = rt.validate_modules({} if modules is None else modules)
-            current = self.settings()
             if rt.read_json(self.state / 'pending.json'):
                 raise ValueError('Finish the pending activation or its recovery before starting another review')
             active = rt.read_json(self.state / 'active.json', {})
@@ -142,6 +142,8 @@ class Manager:
                     raise ValueError('Finish the active transaction first')
             if not isinstance(changes, dict):
                 raise ValueError('Settings must be an object')
+            current = self.settings()
+            stored = rt.read_json(rt.machine_path(self.root, 'settings'), {}) or {}
             requested = merge(current, changes)
             if (secret_values or {}).get('cockpitPassword'):
                 requested['cockpit']['managePassword'] = True
@@ -195,9 +197,10 @@ class Manager:
             rt.write_json(rt.machine_path(directory / 'source', 'settings'), candidate)
             rt.write_json(directory / 'secrets.json', encoded)
             import impact
-            before = self.effective_settings() if current['ready'] else runtime_settings
+            before = self.effective_settings(current) if current['ready'] else runtime_settings
             rt.write_json(directory / 'impact-base.json', impact.baseline(before))
             job = {'id': job_id, 'status': 'building', 'created': time.time(), 'baseDigest': rt.digest_source(self.root),
+                   'settingsMigration': {'from': stored.get('schemaVersion', 0), 'to': candidate.get('schemaVersion', 0)},
                    'settings': candidate, 'changes': differences(current, candidate), 'principal': principal,
                    'moduleChanges': [{'path': name, 'before': (rt.machine_path(self.root, 'modules') / name).read_text() if (rt.machine_path(self.root, 'modules') / name).exists() else None, 'after': content} for name, content in modules.items()],
                    'secretChanges': sorted(encoded), 'updateInputs': bool(update_inputs), 'platformRevision': revision}

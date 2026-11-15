@@ -1,6 +1,7 @@
 # Deployment inventory. Empty values deliberately prevent activation.
 # Fill from the physical host; documentation examples are not discovered facts.
 {
+  schemaVersion = 1;
   ready = false;
   system = "x86_64-linux";
   hostName = "nixlab";

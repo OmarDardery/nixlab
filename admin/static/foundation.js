@@ -1,5 +1,17 @@
 "use strict";
 
+function settingsMigrationReview() {
+  const migration = state.status.job?.settingsMigration;
+  if (!migration || migration.from === migration.to) return "";
+  return card("Settings schema migration", `<p>Version ${esc(migration.from)} → ${esc(migration.to)}. Reading settings does not rewrite the installed file. This reviewed activation publishes the candidate; rollback retains the previous settings and source.</p>`);
+}
+
+function candidateOverridesReview() {
+  const overrides = state.status.job?.candidateOverrides;
+  if (!overrides?.length) return "";
+  return card("Host module overrides in this candidate", `<p>These evaluated values take precedence over the JSON intent. Change their owning host modules to change them.</p>${overrides.map(item => `<div class="diff"><code>${esc(item.setting)}</code><span class="before">${esc(JSON.stringify(item.before))}</span><span class="after">${esc(JSON.stringify(item.after))}</span></div>`).join("")}`);
+}
+
 function guestDeploymentReview() {
   const job = state.status.job, plan = job?.guestPlan;
   if (!plan?.targets?.length) return "";
