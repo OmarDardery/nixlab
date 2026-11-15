@@ -15,6 +15,18 @@ The portal links to Incus rather than duplicating guest controls. Its restore
 workflow handles independent archives; ordinary snapshots stay in Incus. Legacy
 guest CLI/API actions remain for compatibility.
 
+The portal's unprivileged web process communicates with a root broker. This
+separates processes and narrows interfaces, but the web process is trusted: a
+compromised frontend that can invoke broker operations is not a hostile-code
+security boundary. Configuration changes go through the existing Manager and
+worker review, build, activation and rollback path. Local console recovery must
+not depend on the apps VM or its application services.
+
+Adoption preserves the installed host and does not format disks. Disk preparation
+is a separate explicitly destructive operation. The current JSON settings have
+no general schema version; a future migration must preserve existing access and
+retain the source and generation needed for rollback.
+
 The initial `lab` project, `guests` pool, `incusbr0`, `base` profile, optional apps
 VM and explicitly declared instances remain source-owned. A preseed guard records
 these infrastructure objects and refuses native drift before resetting anything.
