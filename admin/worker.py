@@ -142,7 +142,7 @@ def build(directory):
     kernel = directory / 'system/kernel'
     reboot = booted.exists() and kernel.exists() and booted.resolve() != kernel.resolve()
     impact.prepare(directory, before, projection,
-                   opaque=bool(rt.module_files(source) or job.get('moduleChanges') or job.get('platformRevision') or job['updateInputs']),
+                   opaque=bool(rt.module_files(source) or job.get('moduleChanges') or job.get('platformRevision') or job.get('sourcePlatformUpdated') or job['updateInputs']),
                    transition_error=transition_error)
     import deployments
     deployments.prepare(directory, projection.get('deployments', {}))
@@ -167,14 +167,17 @@ def save_recovery(directory):
     candidate = record.get('effectiveSettings', record.get('settings', {}))
     if candidate.get('cockpit', {}).get('managePassword'):
         save_operator_password(recovery)
-    platform = bool(rt.read_json(directory / 'job.json', {}).get('platformRevision'))
+    platform = bool(record.get('platformRevision') or record.get('sourcePlatformUpdated'))
     if platform:
         rt.snapshot(recovery / 'platform', rt.ROOT)
     modules = rt.module_files(rt.ROOT)
     module_names = [str(path.relative_to(rt.ROOT)) for path in modules]
     for path, name in zip(modules, module_names):
         rt.atomic(recovery / 'modules' / name, path.read_bytes(), mode=path.stat().st_mode & 0o777)
-    files = [(rt.machine_path(rt.ROOT, 'settings'), 'settings.json'), (rt.ROOT / 'flake.lock', 'flake.lock')]
+    files = [(rt.machine_path(rt.ROOT, 'settings'), 'settings.json'),
+             (rt.machine_path(rt.ROOT, 'installation'), 'installation.json'),
+             (rt.STATE / 'platform-baseline.json', 'platform-baseline.json'),
+             (rt.ROOT / 'flake.lock', 'flake.lock')]
     files += [(path, 'secret-' + key) for key, path in rt.SECRET_PATHS.items()]
     files += [(rt.STATE / name, name) for name in ('tls.crt', 'tls.key')]
     manifest = []
@@ -306,9 +309,23 @@ def apply(directory):
         # Live secrets are separate from the immutable, reviewed Nix snapshot.
         for key, data in rt.read_json(directory / 'secrets.json', {}).items():
             rt.atomic(rt.SECRET_PATHS[key], data)
-        if job.get('platformRevision'):
+        if job.get('platformRevision') or job.get('sourcePlatformUpdated'):
             import upgrades
             upgrades.publish(directory / 'source', rt.ROOT)
+        if job.get('sourceStaged'):
+            # The installer inventory is part of the same guarded publication,
+            # never written during a speculative plan. Recovery saves its old
+            # content and removes a newly added inventory on rollback.
+            installed = rt.machine_path(directory / 'source', 'installation')
+            if not installed.is_file():
+                raise ValueError('Reviewed installer inventory is missing')
+            rt.atomic(rt.machine_path(rt.ROOT, 'installation'), installed.read_bytes(), mode=0o600)
+            if job.get('sourcePlatformUpdated'):
+                from upgrades import platform_path
+                import hashlib
+                rt.write_json(rt.STATE / 'platform-baseline.json', {
+                    name: hashlib.sha256(path.read_bytes()).hexdigest()
+                    for name, path in rt.source_files(rt.ROOT) if platform_path(name)})
         rt.install_modules(directory / 'source', rt.ROOT)
         rt.write_json(rt.machine_path(rt.ROOT, 'settings'), job['settings'])
         if job['updateInputs']:
