@@ -46,7 +46,16 @@ HOST = {'architecture':'x86_64','cpuVendor':'intel','kvm':True,
         'routes':[{'dst':'192.0.2.0/24','dev':'eth0'}],
         'disks':[{'uuid':'aaaa-bbbb','fstype':'ext4','mountpoints':[],'path':'/dev/test','type':'part','size':1000000}]}
 
-class ModuleUploadTests(unittest.TestCase):
+class SettingsFixture(unittest.TestCase):
+    """Domain unit tests consume evaluated fixtures; Nix has separate golden checks."""
+    def setUp(self):
+        reader = patch('controller.read_settings', side_effect=lambda root:
+                       rt.read_json(rt.machine_path(root, 'settings'), {}))
+        reader.start()
+        self.addCleanup(reader.stop)
+
+
+class ModuleUploadTests(SettingsFixture):
     def test_effective_transition_protects_initialized_mounts(self):
         import worker
         old=settings();new=copy.deepcopy(old)
@@ -134,7 +143,7 @@ class ModuleUploadTests(unittest.TestCase):
             self.assertIn([str(closure)+'/bin/switch-to-configuration','switch'],commands)
             self.assertFalse(any(c[0]=='nixos-rebuild' for c in commands))
 
-class MachineLayoutTests(unittest.TestCase):
+class MachineLayoutTests(SettingsFixture):
     def test_layout_migration_is_blocked_by_pending_transaction(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)/'repo';root.mkdir();state=Path(folder)/'state';state.mkdir()
@@ -309,7 +318,7 @@ class SnapshotTests(unittest.TestCase):
             self.assertFalse((target/'private-key').exists())
             self.assertTrue((target/'hardware-configuration.nix').exists())
 
-class TransactionTests(unittest.TestCase):
+class TransactionTests(SettingsFixture):
     def test_review_keeps_live_settings_and_secrets_unchanged(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)/'repo';root.mkdir();state=Path(folder)/'state';state.mkdir()
@@ -441,6 +450,9 @@ class HttpsTests(unittest.TestCase):
         with socket.socket() as sock:sock.bind(('127.0.0.1',0));broker_port=sock.getsockname()[1]
         env['PYTHONPATH']=str(BASE/'admin')+os.pathsep+str(BASE/'scripts')
         backend_code="""import main
+import controller, runtime
+# HTTP transport/auth tests use an evaluated fixture, not a Nix evaluator.
+controller.read_settings=lambda root:runtime.read_json(runtime.machine_path(root,'settings'),{})
 from http.server import ThreadingHTTPServer
 class TestTransport(ThreadingHTTPServer):
  def __init__(self,address,handler):

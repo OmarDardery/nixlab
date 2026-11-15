@@ -53,6 +53,12 @@ jobs:
           "$RUNNER_TEMP/nixlab-browser/bin/python" tests/browser_foundation.py
       - name: Parse all Nix files
         run: find . -name '*.nix' -print0 | xargs -0 -r -n1 nix-instantiate --parse >/dev/null
+      - name: Verify pure settings migration contract
+        run: |
+          nix eval --json .#nixlabMigrationChecks > /tmp/nixlab-migration.json
+          python3 -c 'import json; checks=json.load(open("/tmp/nixlab-migration.json")); assert checks and all(checks.values()), checks'
+          nix-instantiate --eval --strict --json site.nix > /tmp/nixlab-desired.json
+          python3 -c 'import json; assert json.load(open("/tmp/nixlab-desired.json"))["schemaVersion"] == 1'
       # Fail native lifecycle/network recovery early, before larger guest images.
       - name: Boot real Incus containers and verify host integration and restore
         run: nix build .#checks.x86_64-linux.foundation --no-link -L
@@ -101,8 +107,6 @@ jobs:
           test "$(nix eval --json .#nixosConfigurations.validation-services.config.services.prometheus.exporters.node.enable)" = "true"
       - name: Verify typed inventory migration
         run: |
-          nix eval --json .#nixlabMigrationChecks > /tmp/nixlab-migration.json
-          python3 -c 'import json; checks=json.load(open("/tmp/nixlab-migration.json")); assert checks and all(checks.values()), checks'
           nix eval --json .#nixlabFoundationChecks > /tmp/nixlab-foundation.json
           python3 -c 'import json; checks=json.load(open("/tmp/nixlab-foundation.json")); assert checks and all(checks.values()), checks'
           nix eval --json .#nixlabManagementChecks > /tmp/nixlab-management.json

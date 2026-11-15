@@ -77,6 +77,7 @@ class SourceTests(unittest.TestCase):
                  patch.object(rt, 'issue_tls'), patch.object(rt, 'prepare_state_access'),
                  patch('local_access.cockpit_accounts', return_value=['existing']),
                  patch('controller.Manager.status', return_value={'job': None}),
+                 patch('controller.read_settings', side_effect=lambda root: rt.read_json(rt.machine_path(root, 'settings'), {})),
                  patch('direct.activate', side_effect=activate), patch('builtins.print'),
                  patch.object(sys, 'argv', ['nixlab-install', '--checkout', str(source)])
             ]

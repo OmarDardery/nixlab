@@ -268,6 +268,8 @@ function review() {
       "The server validates structured settings, evaluates Nix, builds an immutable candidate and shows its activation output.",
     ) +
     moduleReview() +
+    settingsMigrationReview() +
+    candidateOverridesReview() +
     platformReview() +
     impactReview() +
     guestDeploymentReview() +

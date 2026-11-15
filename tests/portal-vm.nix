@@ -26,9 +26,10 @@ in pkgs.testers.runNixOSTest {
     users.users.outsider.isNormalUser = true;
     systemd.services.nixlab-test-fixture = {
       wantedBy = [ "multi-user.target" ]; after = [ "systemd-tmpfiles-setup.service" ];
-      before = [ "nixlab-admin-backend.service" "nixlab-ui.service" ];
-      requiredBy = [ "nixlab-admin-backend.service" "nixlab-ui.service" ];
+      before = [ "nixlab-management-identity.service" "nixlab-admin-backend.service" "nixlab-ui.service" ];
+      requiredBy = [ "nixlab-management-identity.service" "nixlab-admin-backend.service" "nixlab-ui.service" ];
       path = [ pkgs.openssl ];
+      environment.NIXLAB_TEST_SITE_SOURCE = toString (import ./site-source.nix { inherit pkgs; });
       serviceConfig = { Type = "oneshot"; RemainAfterExit = true; UMask = "0077"; };
       script = ''PYTHONPATH=${../admin}:${../scripts} ${pkgs.python3}/bin/python3 ${./portal-fixture.py}'';
     };

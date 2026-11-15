@@ -310,20 +310,16 @@ class HostContractTests(unittest.TestCase):
                                     {'name': 'eth1', 'kind': 'ethernet', 'addresses': []},
                                     {'name': 'wlan0', 'kind': 'ethernet', 'wireless': True, 'addresses': []}]}
 
-    def test_metrics_setting_preserves_existing_hosts_and_is_off_for_new_ones(self):
+    def test_controller_consumes_nix_projection_without_another_migration(self):
         with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder) / 'root'; source = Path(folder) / 'source'; source.mkdir()
-            rt.write_json(source / 'default-settings.json', self.site)
-            settings = copy.deepcopy(self.site)
-            settings['ready'] = True
-            settings['monitoring'].pop('collection')
-            rt.write_json(root / 'local/settings.json', settings)
-            with patch.object(rt, 'SOURCE', source):
-                manager = controller.Manager(root, Path(folder) / 'state')
-                self.assertTrue(manager.settings()['monitoring']['collection'])
-                settings['ready'] = False
-                rt.write_json(root / 'local/settings.json', settings)
-                self.assertFalse(manager.settings()['monitoring']['collection'])
+            root = Path(folder) / 'root'
+            manager = controller.Manager(root, Path(folder) / 'state')
+            for enabled in (True, False):
+                evaluated = copy.deepcopy(self.site)
+                evaluated['monitoring']['collection'] = enabled
+                with patch('controller.read_settings', return_value=evaluated) as reader:
+                    self.assertEqual(manager.settings(), evaluated)
+                    reader.assert_called_once_with(root)
 
     def test_management_bridge_requires_address_transfer_and_no_wifi_ports(self):
         self.site['connectivity']['bridges'] = [{'name': 'br-lan', 'interfaces': ['eth0']}]

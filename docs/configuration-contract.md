@@ -46,3 +46,28 @@ Scheduled backup stops/exports/recovers one consistency group at a time. Shared 
 ## Validation boundary
 
 CI evaluates configuration variants, verifies defaults and minimal services, builds packages/host artifacts and runs portal and Incus-container VM tests. A configured gate is not evidence of a successful run. It does not establish physical USB/NIC behavior, real network-loss rollback, disk failure recovery or an end-to-end installed-host restore. Migration checks compare effective resources and service settings rather than derivation hashes. See [validation evidence](validation.md).
+
+## Settings schema and projections
+
+`schemaVersion` is source-owned and currently 1. Missing version means legacy
+schema 0. Pure `lib/settings-migrations.nix` preserves the legacy rule that a
+ready host without an explicit `monitoring.collection` collects metrics; explicit
+false stays false. Current versions are unchanged, migration is idempotent, and
+unknown future versions fail before review/build. Directory-layout version 1 in
+`machine/format.json` is unrelated.
+
+The broker evaluates the selected source's `site.nix` with bounded local
+`nix-instantiate --eval --strict --json`; it does not fetch flake inputs or clone
+migration rules in Python. Nix must be available. Failure never falls back to a
+Python interpretation or exposes raw evaluator output. The existing
+`nixlabDesiredSettings` flake projection and internal `nixlab.desiredSettings`
+represent normalized source intent before host-module overrides. The build worker
+captures desired and effective settings from the same evaluation and binds the
+candidate to its existing source digest. Overrides retain their existing Nix
+module precedence. A legacy candidate source lacking the desired projection is
+reported as unavailable rather than inferred from effective settings.
+
+Reading does not rewrite JSON. Review stages normalized settings in the candidate;
+only guarded activation publishes them. The portal review and CLI update show a
+schema transition when applicable; status exposes stored/desired schema versions.
+No secret values belong in this input or either projection.

@@ -103,6 +103,10 @@ def run(manager, interface=None, repair=None):
         if not isinstance(plan, dict) or plan.get('blocked') is not False:
             raise ValueError('Update has an unavailable or blocked impact plan; inspect Changes in the host console')
         print('Proposed effects:', flush=True)
+        migration = record.get('settingsMigration')
+        if migration and migration['from'] != migration['to']:
+            print('  Settings schema migration: ' + str(migration['from']) + ' → ' + str(migration['to']) +
+                  '; previous settings/source remain available for rollback.', flush=True)
         for change in plan.get('changes', []):
             print('  ' + str(change.get('message', 'Review change')), flush=True)
         print('Platform files changed: ' + str(len(record.get('platformChanges', []))) +

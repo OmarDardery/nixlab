@@ -51,6 +51,49 @@ with tempfile.TemporaryDirectory(prefix='nixlab-direct-eval-') as folder:
                                   gateway='192.0.2.1', trustedCIDRs=['192.0.2.0/24'])
     path = root / 'machine/settings.json'
     path.write_text(json.dumps(settings))
+    # The backend reads the same pure Nix entrypoint, without a Python migration.
+    # Reading legacy JSON is idempotent and cannot rewrite the installed file.
+    from settings_reader import read_settings
+    legacy = json.loads(json.dumps(settings))
+    legacy.pop('schemaVersion')
+    legacy['ready'] = True
+    legacy['monitoring'].pop('collection')
+    legacy_bytes = json.dumps(legacy)
+    path.write_text(legacy_bytes)
+    normalized = read_settings(root)
+    assert normalized['schemaVersion'] == 1 and normalized['monitoring']['collection'] is True
+    assert path.read_text() == legacy_bytes
+    assert read_settings(root) == normalized
+    path.write_text(json.dumps(normalized))
+    assert read_settings(root) == normalized
+    path.write_text('{"schemaVersion":2}')
+    try:
+        read_settings(root)
+    except ValueError as error:
+        assert 'Unsupported NixLab settings schema' in str(error)
+    else:
+        raise AssertionError('Future schema was accepted')
+    path.write_text('{"secret":"SENTINEL-malformed-config"')
+    try:
+        read_settings(root)
+    except ValueError as error:
+        assert 'SENTINEL' not in str(error)
+    else:
+        raise AssertionError('Malformed JSON was accepted')
+    # Roll back to the original source-compatible input bytes, then normal flow.
+    path.write_text(legacy_bytes)
+    assert read_settings(root) == normalized
+    # Model a pre-schema source contract returning v0 intent. The reader must
+    # obey the selected source rather than impose a newer Python interpretation.
+    site_path = root / 'site.nix'
+    source_bytes = site_path.read_text()
+    try:
+        site_path.write_text('builtins.fromJSON (builtins.readFile ./machine/settings.json)')
+        assert read_settings(root) == legacy
+    finally:
+        site_path.write_text(source_bytes)
+    assert read_settings(root) == normalized
+    path.write_text(json.dumps(settings))
     overview = evaluate(root, 'nixlabOverview')
     assert set(overview['adminKeys']) == {key(1), key(3)}, overview['adminKeys']
     host = {'architecture': 'x86_64', 'cpuVendor': 'intel', 'kvm': True,
@@ -63,6 +106,7 @@ with tempfile.TemporaryDirectory(prefix='nixlab-direct-eval-') as folder:
       rootDevice = c.fileSystems."/".device;
       networkManager = c.networking.networkmanager.enable;
       settings = c.nixlab.settings;
+      desired = c.nixlab.desiredSettings;
       incus = c.virtualisation.incus.enable;
       cockpit = c.services.cockpit.enable;
       hostDocker = c.virtualisation.docker.enable;
@@ -83,7 +127,16 @@ with tempfile.TemporaryDirectory(prefix='nixlab-direct-eval-') as folder:
     assert actual['readerKeys'] == [key(2)], actual
     assert actual['alias'] == 'ls --all' and actual['promptLength'] == 5, actual
     assert actual['settings']['management'] == settings['management'], actual
+    assert actual['desired'] == read_settings(root), actual
     assert set(actual['settings']['adminKeys']) == {key(1), key(3)}, actual
+    module_dir = root / 'machine/modules'
+    module_dir.mkdir(parents=True, exist_ok=True)
+    override_module = module_dir / 'settings-override.nix'
+    override_module.write_text('{ lib, ... }: { nixlab.settings.hostName = lib.mkForce "file-owned"; }')
+    overridden = evaluate(root, 'nixosConfigurations.hypervisor.config',
+        'c: { desired = c.nixlab.desiredSettings.hostName; effective = c.nixlab.settings.hostName; }')
+    assert overridden == {'desired': candidate['hostName'], 'effective': 'file-owned'}, overridden
+    override_module.unlink()
     # Evaluate the actual system derivation to force NixOS assertions too.
     evaluate(root, 'nixosConfigurations.hypervisor.config.system.build.toplevel.drvPath')
     # A physical-console install is valid without a key. Adoption can use an
