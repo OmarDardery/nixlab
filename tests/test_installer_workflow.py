@@ -74,7 +74,10 @@ class SourceTests(unittest.TestCase):
     def test_initial_wizard_and_retry_preserve_the_installed_source(self):
         self.check_fresh_install_and_retry(wizard=True)
 
-    def check_fresh_install_and_retry(self, wizard=False):
+    def test_retry_consumes_nix_normalized_legacy_settings(self):
+        self.check_fresh_install_and_retry(legacy=True)
+
+    def check_fresh_install_and_retry(self, wizard=False, legacy=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             original, target, source, state = [root / name for name in ('original', 'target', 'source', 'state')]
@@ -101,6 +104,12 @@ class SourceTests(unittest.TestCase):
             def activate(candidate, **kwargs):
                 rt.write_json(rt.machine_path(target, 'settings'), candidate)
                 return None, {}
+            evaluated_retry = None
+            def read_evaluated(config):
+                # Fixed evaluated fixture; migration policy is qualified by the
+                # real Nix tests, not reimplemented in this unit boundary.
+                return copy.deepcopy(evaluated_retry) if evaluated_retry is not None else rt.read_json(rt.machine_path(config, 'settings'))
+            reader = Mock(side_effect=read_evaluated)
             patches = [
                 patch.object(installer, 'installed_host', return_value=True),
                 patch.object(installer, 'TARGET', target), patch.object(installer, 'ORIGINAL', original),
@@ -108,6 +117,7 @@ class SourceTests(unittest.TestCase):
                  patch.object(installer, 'choose_network', return_value=('eth0', '192.0.2.10', 24, '192.0.2.1')),
                  patch('model.inventory', return_value=inventory()), patch('workflow.remote_session', return_value=False),
                  patch.object(installer, 'evaluate', side_effect=evaluate), patch.object(installer, 'run', side_effect=run),
+                 patch.object(installer, 'read_settings', reader),
                  patch.object(installer, 'validate_kvm'), patch.object(installer, 'setup_password'),
                  patch.object(installer, 'publish_etc'), patch.object(installer, 'summarize'),
                  patch.object(rt, 'issue_tls'), patch.object(rt, 'prepare_state_access'),
@@ -123,9 +133,23 @@ class SourceTests(unittest.TestCase):
                 installer.main()
                 self.assertEqual(rt.read_json(rt.machine_path(target, 'settings'))['ready'], not wizard)
                 self.assertEqual(rt.read_json(rt.machine_path(target, 'settings'))['adminKeys'], [])
+                reader.assert_not_called()  # A fresh host uses fresh defaults.
+                if legacy:
+                    evaluated_retry = rt.read_json(rt.machine_path(target, 'settings'))
+                    evaluated_retry['schemaVersion'] = 1
+                    evaluated_retry['monitoring']['collection'] = True
+                    stored = copy.deepcopy(evaluated_retry)
+                    stored.pop('schemaVersion')
+                    stored['monitoring'].pop('collection')
+                    rt.write_json(rt.machine_path(target, 'settings'), stored)
                 rt.atomic(target / 'machine/modules/mine.nix', '{ }')
                 (source / 'admin/main.py').write_text('updated')
                 installer.main()
+                reader.assert_called_once()
+                self.assertNotEqual(reader.call_args.args[0], target)
+                if legacy:
+                    self.assertTrue(rt.read_json(rt.machine_path(target, 'settings'))['monitoring']['collection'])
+                    self.assertEqual(rt.read_json(rt.machine_path(target, 'settings'))['schemaVersion'], 1)
             self.assertEqual((target / 'admin/main.py').read_text(), 'updated')
             self.assertTrue((target / 'machine/modules/mine.nix').exists())
             self.assertEqual((target / 'machine/installed-system/configuration.nix').read_text(), '{ }')

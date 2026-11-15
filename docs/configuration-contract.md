@@ -71,3 +71,9 @@ Reading does not rewrite JSON. Review stages normalized settings in the candidat
 only guarded activation publishes them. The portal review and CLI update show a
 schema transition when applicable; status exposes stored/desired schema versions.
 No secret values belong in this input or either projection.
+
+Installer retries read the selected planning source's `site.nix` through the same
+Nix reader. They must not merge fresh defaults directly over legacy JSON: that
+bypasses compatibility rules such as collection on an already-ready legacy host.
+New adoption starts from explicit fresh defaults. Installer source publication and
+its recovery boundaries are tracked separately from the pure migration contract.
