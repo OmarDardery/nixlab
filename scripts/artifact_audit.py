@@ -48,10 +48,13 @@ def audit(root, names):
     omitted = {}
     for name in names:
         path = PurePosixPath(name)
-        if not name or '\\x00' in name or path.is_absolute() or '..' in path.parts:
+        if not name or '\0' in name or path.is_absolute() or '..' in path.parts:
             raise ValueError('Invalid tracked path')
         target = root / name
-        if target.is_symlink():
+        # Check every parent too: a tracked path under a symlinked directory
+        # must not cause this read-only audit to inspect files outside root.
+        if any((root / PurePosixPath(*path.parts[:i])).is_symlink()
+               for i in range(1, len(path.parts) + 1)):
             omitted[name] = 'symlink: target not followed'
             continue
         if not target.is_file():
