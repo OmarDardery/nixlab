@@ -5,10 +5,11 @@ import runtime as rt
 PRINCIPAL = 'root-wizard-install'
 
 
-def activate(manager=None):
+def activate(manager=None, staged_source=None):
     from controller import Manager
     manager = manager or Manager()
-    job_id = manager.review({}, principal=PRINCIPAL, host_role='bootstrap')['id']
+    job_id = manager.review({}, principal=PRINCIPAL, host_role='bootstrap',
+                            staged_source=staged_source)['id']
     print('Building initial onboarding; transaction ' + job_id, flush=True)
     direct.wait_for(manager, job_id, {'ready'})
     manager.apply(job_id)
