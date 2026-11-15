@@ -533,6 +533,30 @@ class RecoveryTests(unittest.TestCase):
             self.assertEqual(rt.read_json(state / 'platform-baseline.json'), {'admin/main.py': 'prior'})
 
 
+
+class FreshPortalConfirmationTests(unittest.TestCase):
+    def test_only_post_activation_authenticated_remote_session_can_confirm(self):
+        from main import require_fresh_web_confirmation as check
+        transaction = {'id': 'a' * 32, 'status': 'awaiting-confirmation', 'awaitingAt': 102.5,
+                       'appliedAt': 100}
+        self.assertTrue(check({'authenticatedAt': 103}, transaction, '192.0.2.15'))
+        for ip, issued in (('127.0.0.1', 103), ('::1', 103),
+                           ('192.0.2.15', 99), ('192.0.2.15', 102.5)):
+            with self.subTest(ip=ip, issued=issued), self.assertRaises(PermissionError):
+                check({'authenticatedAt': issued}, transaction, ip)
+        with self.assertRaises(PermissionError):
+            check({}, transaction, '192.0.2.15')
+        with self.assertRaises(ValueError):
+            check({'authenticatedAt': 120}, {'status': 'confirmed'}, '192.0.2.15')
+
+    def test_legacy_pending_without_fresh_timestamp_requires_new_login(self):
+        from main import require_fresh_web_confirmation as check
+        legacy = {'status': 'awaiting-confirmation', 'appliedAt': 100}
+        self.assertTrue(check({'authenticatedAt': 101}, legacy, '192.0.2.2'))
+        with self.assertRaises(PermissionError):
+            check({'authenticatedAt': 200}, {'status': 'awaiting-confirmation'}, '192.0.2.2')
+
+
 class HttpsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
