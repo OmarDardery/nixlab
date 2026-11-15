@@ -180,3 +180,26 @@ Both are opt-in through declared settings. The setup portal serves its own stati
 its existing authenticated Python HTTP service. Only the optional Portainer portal needs Nginx,
 limited to one worker and providing verified TLS/WebSocket proxying. See [setup](setup.md#lightweight-defaults-and-declarative-ownership)
 for service ownership, monitoring trade-offs and state that must be backed up separately.
+
+## HTTPS request limits
+
+The existing portal HTTPS server admits at most 32 worker threads. TLS handshakes
+run in those workers with a 10-second socket timeout; HTTP reads/writes use a
+20-second inactivity timeout. A stalled handshake cannot block the accept loop.
+This is bounded concurrency, not a guarantee of availability under sustained load.
+
+The stdlib header parser has a 16 KiB aggregate header budget, in addition to its
+request-line and header-count limits. Management requests require exactly one
+Host header. JSON POSTs require one decimal Content-Length between 1 and 262144
+bytes; duplicate lengths and Transfer-Encoding are rejected before body reads.
+Malformed, incomplete or unreadable bodies close the connection so leftover bytes
+cannot become another request. Transport/JSON decode errors and unsupported-method
+responses do not reflect the submitted content. Domain validation errors retain
+their existing behavior and require the separate credential-output audit.
+
+`tests/test_http_limits.py` checks framing and bounded reads. The real HTTPS
+fixture in `tests/test_setup.py` checks rejection/closure, existing auth/CSRF and
+hostname rules, safe method errors, and recovery after 100 stalled TLS clients.
+HTTP timeouts are inactivity bounds, not an absolute request deadline. Management
+firewall policy, TLS trust and private-network deployment remain necessary; these
+tests do not qualify public Internet exposure or complete the broader #74 audit.
