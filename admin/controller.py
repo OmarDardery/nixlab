@@ -126,7 +126,7 @@ class Manager:
                 sys.executable, str(rt.SOURCE / 'main.py'), 'job', phase, job_id]
         subprocess.run(args, check=True, capture_output=True, text=True)
 
-    def review(self, changes, secret_values=None, update_inputs=False, modules=None, revision=None, principal='root', host_role='hypervisor', staged_source=None):
+    def review(self, changes, secret_values=None, update_inputs=False, modules=None, revision=None, principal='root', host_role='hypervisor', staged_source=None, expected_base_digest=None):
         if host_role not in ('hypervisor', 'bootstrap'):
             raise ValueError('Unsupported host role')
         if host_role == 'bootstrap' and (principal != 'root-wizard-install' or update_inputs or modules or revision or secret_values):
@@ -135,9 +135,12 @@ class Manager:
         # The portal cannot select it or inject an arbitrary directory through
         # the broker. Review/activation still use the existing Manager worker.
         if staged_source is not None and (principal not in ('root-direct-install', 'root-wizard-install')
-                                          or revision is not None or update_inputs or modules):
+                                          or revision is not None or update_inputs or modules
+                                          or expected_base_digest is None):
             raise ValueError('Staged source is reserved for the local installer')
         with rt.locked(blocking=False):
+            if staged_source is not None and rt.digest_source(self.root) != expected_base_digest:
+                raise ValueError('Installed source changed during planning; restart review')
             from deployments import check_idle
             check_idle(self.state)
             if revision is not None and (not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{40}', revision)):
