@@ -12,7 +12,8 @@ class AuthorizationError(PermissionError):
 
 def record(username):
     if username == 'admin':
-        return {'role': 'admin', 'password': rt.read_json(rt.STATE / 'auth.json')}
+        password = rt.read_json(rt.STATE / 'auth.json')
+        return {'role': 'admin', 'password': password} if password else None
     return rt.read_json(rt.STATE / 'users.json', {}).get(username)
 
 
@@ -20,7 +21,7 @@ def matches(username, password):
     item = record(username)
     # Use the same expensive hash check for unknown identities.
     baseline = item['password'] if item else rt.read_json(rt.STATE / 'auth.json')
-    valid = rt.password_matches(password, baseline)
+    valid = baseline is not None and rt.password_matches(password, baseline)
     return bool(item and valid)
 
 
@@ -51,9 +52,13 @@ def update(username, role=None, password=None, delete=False):
     return {'users': list_users()}
 
 
-def change_password(username, password):
+def change_password(username, password, *, clear_setup_password=False):
     if username == 'admin':
-        rt.write_json(rt.STATE / 'auth.json', rt.password_record(password), mode=0o640, group='nixlab-ui')
+        verifier = rt.password_record(password)
+        with rt.locked(blocking=False):
+            rt.write_json(rt.STATE / 'auth.json', verifier, mode=0o640, group='nixlab-ui')
+            if clear_setup_password:
+                rt.durable_unlink(rt.STATE / 'setup-password')
     else:
         current = record(username)
         if not current: raise ValueError('Unknown account')

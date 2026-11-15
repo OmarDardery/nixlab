@@ -1,5 +1,6 @@
 """Retry, source-preservation, health-gating and recovery regressions."""
 import copy
+from concurrent.futures import ThreadPoolExecutor
 import contextlib
 import importlib.util
 import io
@@ -24,6 +25,28 @@ from test_direct_install import initial, inventory
 spec = importlib.util.spec_from_file_location('installed_nixos_workflow', BASE / 'installer/install.py')
 installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
+
+
+class BootstrapCredentialTests(unittest.TestCase):
+    def test_concurrent_legacy_bootstrap_reuses_one_verifier(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(rt, 'STATE', Path(folder)), \
+                patch.object(installer.secrets, 'token_urlsafe', wraps=installer.secrets.token_urlsafe) as token:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                first, second = [future.result() for future in (
+                    pool.submit(installer.setup_password), pool.submit(installer.setup_password))]
+            self.assertTrue(first)
+            self.assertTrue(first == second)
+            self.assertEqual(token.call_count, 1)
+            self.assertTrue(rt.password_matches(first, rt.read_json(rt.STATE / 'auth.json')))
+
+    def test_legacy_retry_preserves_existing_authenticator(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(rt, 'STATE', Path(folder)):
+            auth = rt.STATE / 'auth.json'
+            rt.write_json(auth, rt.password_record('synthetic-existing-admin-password'))
+            original = auth.read_bytes()
+            self.assertIsNone(installer.setup_password())
+            self.assertFalse((rt.STATE / 'setup-password').exists())
+            self.assertEqual(auth.read_bytes(), original)
 
 
 class SourceTests(unittest.TestCase):

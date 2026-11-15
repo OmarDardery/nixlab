@@ -142,15 +142,20 @@ def installed_host():
 
 
 def setup_password():
-    path = rt.STATE / 'setup-password'
-    auth = rt.STATE / 'auth.json'
-    if not auth.exists():
-        if not path.exists():
-            rt.atomic(path, secrets.token_urlsafe(24) + '\n')
-        rt.write_json(auth, rt.password_record(path.read_text().strip()), mode=0o640)
-    if path.is_file() and rt.password_matches(path.read_text().strip(), rt.read_json(auth)):
-        return path.read_text().strip()
-    return None
+    with rt.locked():
+        path = rt.STATE / 'setup-password'
+        auth = rt.STATE / 'auth.json'
+        record = rt.read_json(auth)
+        if not auth.exists() and not auth.is_symlink():
+            if not path.exists():
+                rt.atomic(path, secrets.token_urlsafe(24) + '\n')
+            record = rt.password_record(path.read_text().strip())
+            rt.write_json(auth, record, mode=0o640)
+        if path.is_file() and record:
+            password = path.read_text().strip()
+            if rt.password_matches(password, record):
+                return password
+        return None
 
 
 def publish_etc():
