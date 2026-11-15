@@ -119,7 +119,7 @@ from the job directory, verifies private access and requires the reviewed key se
 
 | Transaction state | Staged credentials |
 | --- | --- |
-| Building | Retained for the candidate build and activation |
+| Building | Retained while the worker is active or its state is unknown. The guard cancels an expired build whose worker is confirmed stopped |
 | Ready or failed, with no pending activation | Retained for up to 24 hours from review, then the guard cancels the candidate and removes the file |
 | Applying, awaiting confirmation, or rolling back | Retained while the mutation or pending activation still owns recovery |
 | Confirmed, rolled back, cancelled, or superseded | Removed by the terminal action or retried by the guard |

@@ -4,6 +4,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 BASE = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(BASE / 'admin'), str(BASE / 'scripts')]
@@ -41,6 +42,42 @@ class CleanupTests(unittest.TestCase):
             self.assertFalse(path.exists())
             self.assertEqual(rt.read_job_record(job)['status'], 'cancelled')
             assert_public_clean(self, job.read_bytes())
+
+    def test_expired_interrupted_build_cleaned_only_after_worker_is_proven_stopped(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            directory = root / 'jobs' / ('b' * 32)
+            record = directory / 'job.json'
+            stage = directory / 'secrets.json'
+            rt.write_json(record, {'status': 'building', 'created': time.time() - rt.STAGED_SECRET_LIFETIME - 1})
+            rt.write_json(stage, {'portainerPassword': SECRETS['staged']})
+            with patch.object(rt, 'worker_active', return_value=True):
+                rt.cleanup_terminal_secrets(root)
+            self.assertTrue(stage.exists())
+            with patch.object(rt, 'worker_active', side_effect=ValueError('Unknown unit status')):
+                rt.cleanup_terminal_secrets(root)
+            self.assertTrue(stage.exists())
+            with patch.object(rt, 'worker_active', return_value=False) as worker:
+                rt.cleanup_terminal_secrets(root)
+            worker.assert_called_once_with('nixlab-build-' + directory.name)
+            self.assertFalse(stage.exists())
+            self.assertEqual(rt.read_job_record(record)['status'], 'cancelled')
+            assert_public_clean(self, record.read_bytes())
+
+    def test_failed_cleanup_reports_fixed_error_and_guard_retries(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            directory = root / 'jobs' / ('c' * 32)
+            rt.write_json(directory / 'job.json', {'status': 'confirmed'})
+            staged = directory / 'secrets.json'
+            rt.write_json(staged, {'portainerPassword': SECRETS['staged']})
+            with patch.object(rt, 'durable_unlink', side_effect=OSError(SECRETS['staged'])):
+                with self.assertRaisesRegex(ValueError, 'Staged credential cleanup failed') as failure:
+                    rt.cleanup_terminal_secrets(root)
+            assert_public_clean(self, str(failure.exception))
+            self.assertTrue(staged.exists())
+            rt.cleanup_terminal_secrets(root)
+            self.assertFalse(staged.exists())
 
     def test_staged_secret_reader_rejects_missing_aliased_and_nonprivate_files(self):
         with tempfile.TemporaryDirectory() as folder:

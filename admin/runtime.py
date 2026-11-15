@@ -237,12 +237,22 @@ def cleanup_terminal_secrets(state):
             continue
         if status in {'confirmed', 'rolled-back', 'cancelled', 'superseded'}:
             remove_staged_secrets(directory)
-        elif status in {'ready', 'failed'}:
+        elif status in {'ready', 'failed', 'building'}:
             created = job.get('created')
-            if type(created) in (float, int) and 0 < created <= cutoff:
-                job.update(status='cancelled', error='Staged credentials expired; review the change again')
-                write_json(record, job)
-                remove_staged_secrets(directory)
+            if type(created) not in (float, int) or not 0 < created <= cutoff:
+                continue
+            if status == 'building':
+                # A killed build can leave this status indefinitely if nobody
+                # opens the portal. An unavailable systemd response is not
+                # evidence that the build has stopped.
+                try:
+                    if worker_active('nixlab-build-' + directory.name) or read_job_record(record) != job:
+                        continue
+                except ValueError:
+                    continue
+            job.update(status='cancelled', error='Staged credentials expired; review the change again')
+            write_json(record, job)
+            remove_staged_secrets(directory)
 
 
 def prepare_state_access():
