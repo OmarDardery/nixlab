@@ -43,6 +43,7 @@ jobs:
           node --check admin/static/commands.js
           node tests/test_commands_ui.js
           node tests/test_homepage.js
+          node tests/test_redesign_ui.js
           node tests/test_operations_ui.js
           node tests/test_foundation_ui.js
           node tests/test_deployments_ui.js

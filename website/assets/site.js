@@ -1,6 +1,14 @@
 (() => {
   'use strict';
   const announcer = document.getElementById('announcer');
+  const docsMenu = document.querySelector('.docs-menu');
+  if (docsMenu && window.matchMedia) {
+    const narrow = window.matchMedia('(max-width: 760px)');
+    const sync = () => { docsMenu.open = !narrow.matches; };
+    sync();
+    narrow.addEventListener?.('change', sync);
+  }
+
   document.querySelectorAll('[data-copy]').forEach(button => {
     button.addEventListener('click', async () => {
       const code = document.getElementById(button.dataset.copy);
