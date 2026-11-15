@@ -578,11 +578,11 @@ class FreshCliConfirmationTests(unittest.TestCase):
         from main import ssh_login_epoch
         with tempfile.TemporaryDirectory() as folder:
             proc = Path(folder)
-            (proc / 'stat').write_text('cpu 1 2 3\\nbtime 1000\\n')
+            (proc / 'stat').write_text('cpu 1 2 3\nbtime 1000\n')
             for pid, comm, parent in ((999, 'python3', 200), (200, 'sshd-session', 1)):
                 directory = proc / str(pid); directory.mkdir()
                 (directory / 'comm').write_text(comm)
-                (directory / 'status').write_text('Name:\\t' + comm + '\\nPPid:\\t' + str(parent) + '\\n')
+                (directory / 'status').write_text('Name:\t' + comm + '\nPPid:\t' + str(parent) + '\n')
                 fields = ['S'] + ['0'] * 21
                 fields[19] = '5000'
                 (directory / 'stat').write_text(str(pid) + ' (' + comm + ') ' + ' '.join(fields))
