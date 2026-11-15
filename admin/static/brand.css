@@ -16,14 +16,14 @@
 :root {
   color-scheme: dark;
   font-synthesis: none;
-  --bg: #111310;
-  --panel: #191c17;
-  --panel2: #20241d;
-  --text: #eeeee4;
-  --muted: #a4aa9b;
-  --line: #34392e;
-  --accent: #ed8654;
-  --green: #b6c78b;
+  --bg: #0e1116;
+  --panel: #171c24;
+  --panel2: #1d242e;
+  --text: #f1f3f5;
+  --muted: #adb6c3;
+  --line: #303947;
+  --accent: #f4aa78;
+  --green: #a6d5ab;
   --mono: ui-monospace, SFMono-Regular, Consolas, monospace;
   --display: "Space Grotesk", Arial, sans-serif;
   --body: "DM Sans", Arial, sans-serif;

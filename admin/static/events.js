@@ -3,11 +3,7 @@
 function bind() {
   document.querySelectorAll("[data-go]").forEach(
     (el) =>
-      (el.onclick = () => {
-        state.page = el.dataset.go;
-        shell();
-        window.scrollTo(0, 0);
-      }),
+      (el.onclick = () => navigateTo(el.dataset.go)),
   );
   document.querySelectorAll("[data-path]").forEach((el) => {
     if (

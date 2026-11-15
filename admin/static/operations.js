@@ -112,7 +112,7 @@ function operationsPage() {
       ? card(
           "Portable recovery kit",
           `<p>Export host configuration and optionally separately encrypted credentials. VM/application data still requires its independent backup.</p><div class="fields"><label class="field full"><span>age public recipient (optional)</span><input id="recovery-recipient" placeholder="age1…"></label><label class="field"><span>Your password</span><input id="recovery-password" type="password" autocomplete="current-password"></label></div><button data-download-recovery>Download recovery kit</button>`,
-        ) + accountCard()
+        )
       : "")
   );
 }
@@ -173,7 +173,7 @@ async function refreshOperations(full = true) {
   } finally {
     operationView.loading = false;
     if (
-      state.page === "operations" &&
+      ["operations", "accounts"].includes(state.page) &&
       (full || changed) &&
       !document.activeElement?.matches("input,textarea,select")
     )
@@ -343,7 +343,7 @@ function bindOperations() {
       by("platform-selected").textContent = state.platformRevision ? "Selected: " + state.platformRevision : "No platform update selected.";
     };
   if (
-    state.page === "operations" &&
+    ["operations", "accounts"].includes(state.page) &&
     !operationView.loaded &&
     !operationView.loading
   )
