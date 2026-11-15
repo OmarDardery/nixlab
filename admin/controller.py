@@ -262,7 +262,7 @@ class Manager:
             rt.audit('review', job=job_id, changes=len(job['changes']), secrets=list(encoded))
             try:
                 if encoded:
-                    rt.write_json(directory / 'secrets.json', encoded)
+                    rt.stage_secrets(directory, encoded)
                 self.spawn('build', job_id)
             except Exception:
                 job['status'] = 'failed'; job['error'] = 'Could not stage credentials or start the build service'
@@ -280,6 +280,7 @@ class Manager:
                 raise ValueError('This candidate was superseded; review the active transaction')
             if job['status'] != 'ready':
                 raise ValueError('Build and review this transaction before activation')
+            rt.require_fresh_staged_secrets(job)
             if job['baseDigest'] != rt.digest_source(self.root):
                 raise ValueError('Source/settings changed since review; build a new transaction')
             if job.get('candidateDigest') != rt.digest_source(directory / 'source'):
@@ -353,6 +354,8 @@ class Manager:
         with rt.locked(blocking=False):
             directory = self.job_path(job_id)
             job = rt.read_job_record(directory / 'job.json')
+            if rt.read_json(self.state / 'pending.json', {}).get('id') == job_id:
+                raise ValueError('Recover the pending activation before discarding its candidate')
             if job['status'] not in ('building', 'ready', 'failed'):
                 raise ValueError('Only an unapplied candidate can be discarded')
             if job['status'] == 'building':

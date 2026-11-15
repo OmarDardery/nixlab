@@ -53,7 +53,7 @@ override them. Secret *contents* are never inventory fields.
 | Portainer reset result | `admin/portainer.py:reset`; root `main.py` portainer action | Guest data backup under `/var/lib/nixlab/portainer-recovery/TIMESTAMP`; host `portainer-reset-TIMESTAMP.txt` retains helper stdout plus current credential file/account metadata | Helper output is captured, but successful CLI returns only URL, backup and protected credential file path; #66 must accept a supplied password without exposing it; helper image `latest` also requires #58 |
 | Incus browser private key/P12 passphrase | `controller.Manager.browser_certificate`; Incus trust API and browser | Root-only temporary directory is removed; public trust entry persists in Incus; current self-signed identity lasts 365 days | Authenticated response returns P12 and generated passphrase; currently unrestricted trust, no dedicated reauthentication/revocation UI: #68. Clock precondition exists; this is not a complete enrollment security claim |
 | Management CA/server/app TLS keys | `runtime.issue_tls`, `diagnostics.identity`, `main.renew` | `/var/lib/nixlab-admin/{ca,tls,apps-tls}.key`; host CA retained, leaf renewal; worker recovery retains prior host TLS files | Portal uses systemd LoadCredential; Incus bind mounts host leaf files; apps leaf copied into guest; public CA/fingerprint are safe, private CA never distributed to guests |
-| Transaction secret inputs | `controller.review`, `runtime.encode_secrets`, `worker.apply/save_recovery/rollback` | Root-only `jobs/ID/secrets.json`, then fixed live paths; terminal cleanup retries confirmed/rolled-back/cancelled/superseded; failed/resumable jobs and recovery manifests retained | Separate from candidate source/job metadata; #73 still needs bounded expiry, stricter lifetime/access and failure visibility; do not delete rollback material as generic cleanup |
+| Transaction secret inputs | `controller.review`, `runtime.encode_secrets`, `worker.apply/save_recovery/rollback` | Root-only `jobs/ID/secrets.json`, then fixed live paths; terminal cleanup retries confirmed/rolled-back/cancelled/superseded; failed/resumable jobs and recovery manifests retained | Separate from candidate source/job metadata; see [staged transaction lifetime](staged-transaction-secrets.md) for enforced admission/expiry, protected publication and visible cleanup failures; rollback material is not generic staging |
 | Wi-Fi, restic environment/password, tunnel credential JSON | `runtime.encode_secrets`, fixed `runtime.SECRET_PATHS`, or `modules/secrets.nix` sops | Host `/var/lib/nixlab-secrets`; restic/tunnel paths source-managed; sops age key defaults `/var/lib/sops-nix/key.txt` | Intended services read files; password hashing uses stdin, environment-file values are quoted; command/error and generated-unit audits remain required |
 | Failure webhook URL | `modules/notifications.nix`, `scripts/notify.py:send` | Root-owned `/var/lib/nixlab-secrets/notification-url` by default; source declares only its path | systemd LoadCredential; delivery failure withholds URL/response. URLs may contain bearer credentials and must not appear in public status; Alertmanager routing in #53 must reuse this boundary |
 | Demo database credential | `modules/apps-onboarding.nix`, `modules/guest-secrets.nix`, Compose consumer | Guest `/var/lib/nixlab-secrets/demo-db-password`, intentionally readable by its application container via secret mount | Application-level credential, not host login; protect host/guest parent directories and exclude from public artifacts; optional demo only |
@@ -121,20 +121,18 @@ qualification still requires its executable evidence contract and matching CI.
 
 ### Staged host transaction credentials
 
-The job record stores the names of reviewed secret fields. Transactions with no
-secret changes need no staging file. The worker reads the staging file only
-from the job directory, verifies private access and requires the reviewed key set.
+The job record stores reviewed secret field names. Transactions without secret
+changes need no staging file. All installer/controller paths use one protected,
+no-overwrite staging helper. Both activation entrypoints enforce the original
+24-hour review deadline. The existing locked boot/periodic guard removes partial
+publication files, cancels safely expired work, retries terminal cleanup and
+reports unknown state/access failures without deleting recovery evidence.
 
-| Transaction state | Staged credentials |
-| --- | --- |
-| Building | Retained while the worker is active or its state is unknown. The guard cancels an expired build whose worker is confirmed stopped |
-| Ready or failed, with no pending activation | Retained for up to 24 hours from review, then the guard cancels the candidate and removes the file |
-| Applying, awaiting confirmation, or rolling back | Retained while the mutation or pending activation still owns recovery |
-| Confirmed, rolled back, cancelled, or superseded | Removed by the terminal action or retried by the guard |
-
-Recovery manifests and live service credentials have separate lifetimes.
-A failed unlink yields a fixed error in the transaction or guard service. The
-guard retries on its next run.
+See [the complete state-transition table and location audit](staged-transaction-secrets.md).
+Wall-clock uncertainty fails closed; pending or unknown recovery remains protected
+and requires explicit recovery rather than speculative deletion. Real reboot and
+non-root permission qualification is encoded in the portal VM fixture and requires
+matching NixOS CI evidence.
 
 ### Output-boundary hardening evidence
 
