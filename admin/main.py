@@ -251,7 +251,8 @@ class Auth:
             token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
             item = accounts.record(username)
             self.sessions[token] = {'csrf': csrf, 'created': now, 'used': now, 'username': username,
-                                    'role': item['role'], 'identity': accounts.fingerprint(item)}
+                                    'role': item['role'], 'identity': accounts.fingerprint(item),
+                                    'authenticatedAt': time.time()}
             return token, csrf
     def get(self, cookie):
         import accounts
@@ -296,6 +297,29 @@ class BoundedHttpsServer(ThreadingHTTPServer):
             request.close()
         finally:
             self.slots.release()
+
+
+
+def require_fresh_web_confirmation(session, job, address):
+    """A post-activation remote login demonstrates the NEW HTTPS path works.
+
+    Host-health probes from loopback and cookies issued before activation are
+    not evidence of remotely reachable management access. The root CLI has a
+    separate, operator-controlled recovery path when LAN access is unavailable.
+    """
+    if not isinstance(job, dict) or job.get('status') != 'awaiting-confirmation':
+        raise ValueError('No active transaction is awaiting access confirmation')
+    try:
+        remote = not ipaddress.ip_address(address).is_loopback
+    except ValueError:
+        remote = False
+    if not remote:
+        raise PermissionError('Loopback access cannot confirm remote management; use a fresh LAN login or local console')
+    ready = job.get('awaitingAt', job.get('appliedAt'))
+    issued = session.get('authenticatedAt')
+    if not isinstance(ready, (int, float)) or not isinstance(issued, (int, float)) or issued <= ready:
+        raise PermissionError('Sign out, reconnect to the new management address, and sign in again before confirming')
+    return True
 
 
 def web():
@@ -441,6 +465,12 @@ def web():
                     if body.get('acknowledgePrivilegedModules') is not True or not accounts.matches(session['username'], body.get('adminPassword')):
                         raise ValueError('Reauthenticate and acknowledge privileged Nix modules')
                     body.pop('adminPassword', None)
+                if self.path == '/api/confirm':
+                    state = broker_request('GET', '/status')
+                    active = state.get('job') or {}
+                    if active.get('id') != body.get('id'):
+                        raise ValueError('Confirm the current reviewed transaction only')
+                    require_fresh_web_confirmation(session, active, self.client_address[0])
                 if self.path in ('/api/recovery-export', '/api/users'):
                     if not accounts.matches(session['username'], body.pop('current', None)):
                         raise ValueError('Reauthenticate before exporting recovery material or changing accounts')
