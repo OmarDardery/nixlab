@@ -2,12 +2,23 @@
 
 ## Initial onboarding and host activation
 
-The initial web-wizard bootstrap and full installation share the existing
+The initial web-wizard bootstrap, full installer and updater share the existing
 Manager/worker recovery manifest, previous-generation pin and independent pending
-deadline. Local health checks leave access unconfirmed. Verify a fresh management
-connection and confirm explicitly before the deadline; otherwise the guard
-restores the saved host configuration and generation. This cannot undo guest data
-or an incompatible Incus database change.
+deadline. Local health checks leave access **unconfirmed**. A remote CLI
+confirmation must originate from an interactive SSH/Cockpit session opened
+**after** activation; an old SSH session is not proof. At a physical VT/serial
+console, the operator may acknowledge local access directly. The HTTPS portal
+requires a new post-activation login from a non-loopback client. If the new
+address, certificate or login is unusable, do not confirm; request
+`sudo nixlab-admin config rollback TRANSACTION_ID` at the host console or let
+the guard expire. After interrupted activation, re-running the original installer
+or updater resumes/rechecks the same pending job. A stopped or missing worker
+and an unknown status are not authorization to create a competing transaction.
+
+The guarded worker also owns existing-install source and installation-metadata
+publication. A rollback restores their exact saved predecessors, the matching
+platform baseline and the old host generation. This does **not** revert arbitrary
+Incus guest disks, Docker volumes or an incompatible Incus database change.
 
 After a disconnected initial wizard, rerun the installer with `--wizard` to resume
 its transaction. After a disconnected full installation, rerun without that flag.

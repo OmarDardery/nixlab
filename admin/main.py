@@ -251,7 +251,8 @@ class Auth:
             token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
             item = accounts.record(username)
             self.sessions[token] = {'csrf': csrf, 'created': now, 'used': now, 'username': username,
-                                    'role': item['role'], 'identity': accounts.fingerprint(item)}
+                                    'role': item['role'], 'identity': accounts.fingerprint(item),
+                                    'authenticatedAt': time.time()}
             return token, csrf
     def get(self, cookie):
         import accounts
@@ -296,6 +297,29 @@ class BoundedHttpsServer(ThreadingHTTPServer):
             request.close()
         finally:
             self.slots.release()
+
+
+
+def require_fresh_web_confirmation(session, job, address):
+    """A post-activation remote login demonstrates the NEW HTTPS path works.
+
+    Host-health probes from loopback and cookies issued before activation are
+    not evidence of remotely reachable management access. The root CLI has a
+    separate, operator-controlled recovery path when LAN access is unavailable.
+    """
+    if not isinstance(job, dict) or job.get('status') != 'awaiting-confirmation':
+        raise ValueError('No active transaction is awaiting access confirmation')
+    try:
+        remote = not ipaddress.ip_address(address).is_loopback
+    except ValueError:
+        remote = False
+    if not remote:
+        raise PermissionError('Loopback access cannot confirm remote management; use a fresh LAN login or local console')
+    ready = job.get('awaitingAt', job.get('appliedAt'))
+    issued = session.get('authenticatedAt')
+    if not isinstance(ready, (int, float)) or not isinstance(issued, (int, float)) or issued <= ready:
+        raise PermissionError('Sign out, reconnect to the new management address, and sign in again before confirming')
+    return True
 
 
 def web():
@@ -441,6 +465,12 @@ def web():
                     if body.get('acknowledgePrivilegedModules') is not True or not accounts.matches(session['username'], body.get('adminPassword')):
                         raise ValueError('Reauthenticate and acknowledge privileged Nix modules')
                     body.pop('adminPassword', None)
+                if self.path == '/api/confirm':
+                    state = broker_request('GET', '/status')
+                    active = state.get('job') or {}
+                    if active.get('id') != body.get('id'):
+                        raise ValueError('Confirm the current reviewed transaction only')
+                    require_fresh_web_confirmation(session, active, self.client_address[0])
                 if self.path in ('/api/recovery-export', '/api/users'):
                     if not accounts.matches(session['username'], body.pop('current', None)):
                         raise ValueError('Reauthenticate before exporting recovery material or changing accounts')
@@ -466,6 +496,57 @@ def web():
     context.load_cert_chain(credentials / 'tls.crt', credentials / 'tls.key')
     server.context = context
     server.serve_forever()
+
+
+
+def ssh_login_epoch(proc_root=Path('/proc'), pid=None):
+    """Creation time of the nearest SSH/Cockpit terminal session ancestor."""
+    pid = os.getpid() if pid is None else pid
+    try:
+        uptime = (proc_root / 'stat').read_text().splitlines()
+        boot_line = next(line for line in uptime if line.startswith('btime '))
+        boot = int(boot_line.split()[1])
+        ticks = os.sysconf('SC_CLK_TCK')
+        for _ in range(64):
+            process = proc_root / str(pid)
+            name = (process / 'comm').read_text().strip()
+            if name.startswith(('sshd', 'cockpit-')):
+                raw = (process / 'stat').read_text()
+                start_ticks = int(raw.rsplit(')', 1)[1].split()[19])
+                return boot + start_ticks / ticks
+            status = (process / 'status').read_text().splitlines()
+            parent = int(next(line.split()[1] for line in status if line.startswith('PPid:')))
+            if parent <= 1 or parent == pid:
+                break
+            pid = parent
+    except (OSError, ValueError, StopIteration, IndexError, ZeroDivisionError):
+        return None
+    return None
+
+
+def require_fresh_cli_confirmation(job, *, tty=None, ssh_started_at=None):
+    """Root confirmation must come from a new remote login or physical VT."""
+    if not isinstance(job, dict) or job.get('status') != 'awaiting-confirmation':
+        raise ValueError('No transaction is awaiting access confirmation')
+    ready = job.get('awaitingAt', job.get('appliedAt'))
+    if not isinstance(ready, (int, float)):
+        raise ValueError('Cannot establish activation time; inspect recovery at the host console')
+    if tty is None:
+        if not sys.stdin.isatty():
+            raise ValueError('Use an interactive NEW SSH login or the physical host console to confirm access')
+        try:
+            tty = os.ttyname(sys.stdin.fileno())
+        except OSError:
+            raise ValueError('Cannot verify operator terminal; use physical host console') from None
+    if re.fullmatch(r'/dev/(?:tty[0-9]+|ttyS[0-9]+|hvc[0-9]+)', tty):
+        return True  # Physical operator can observe local access after activation.
+    if not tty.startswith('/dev/pts/'):
+        raise ValueError('Unrecognized terminal; use a new SSH login or the physical host console')
+    if ssh_started_at is None:
+        ssh_started_at = ssh_login_epoch()
+    if ssh_started_at is None or ssh_started_at <= ready:
+        raise ValueError('This terminal predates activation; open a NEW SSH/Cockpit terminal and confirm there')
+    return True
 
 
 def config_cli(argv):
@@ -504,6 +585,12 @@ def config_cli(argv):
         if args.revision: request['revision'] = args.revision
         result = broker_request('POST', '/review', request)
     else:
+        if args.command == 'confirm':
+            state = broker_request('GET', '/status')
+            job = state.get('job') or {}
+            if job.get('id') != args.id:
+                raise ValueError('Confirm the active transaction only')
+            require_fresh_cli_confirmation(job)
         result = broker_request('POST', '/' + args.command, {'id': args.id})
     print(json.dumps(result, indent=2))
 

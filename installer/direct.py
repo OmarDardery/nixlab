@@ -85,7 +85,7 @@ def wait_for(manager, job_id, statuses, timeout=10800):
     raise ValueError('Conversion timed out; inspect ' + str(log_path) + ' and the transaction status before retrying')
 
 
-def activate(candidate, manager=None, effective=None):
+def activate(candidate, manager=None, effective=None, staged_source=None, expected_base_digest=None):
     from controller import Manager
     manager = manager or Manager()
     effective = effective or candidate
@@ -98,7 +98,8 @@ def activate(candidate, manager=None, effective=None):
         # Created once outside the rollback manifest: failed activation must not
         # rotate the credential after Portainer has initialized its database.
         rt.atomic(rt.SECRET_PATHS['portainerPassword'], initial + '\n')
-    job_id = manager.review(candidate, secret_values={}, principal=PRINCIPAL)['id']
+    job_id = manager.review(candidate, secret_values={}, principal=PRINCIPAL,
+                            staged_source=staged_source, expected_base_digest=expected_base_digest)['id']
     print('Building hypervisor; transaction ' + job_id, flush=True)
     wait_for(manager, job_id, {'ready'})
     print('Switching to the built hypervisor generation.', flush=True)

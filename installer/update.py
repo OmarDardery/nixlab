@@ -127,12 +127,10 @@ def run(manager, interface=None, repair=None):
         for check in report['checks']:
             if check['name'] in ('Nixlab', 'Incus UI', 'Cockpit', 'Portainer') and check['ok']:
                 print(check['name'] + ': ' + check['url'], flush=True)
-        print('Health checks passed. Open a second SSH connection and check the web console and workloads.', flush=True)
-        deadline = time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(record['deadline']))
-        print('Confirmation deadline: ' + deadline, flush=True)
-        if not ask('Access and workloads verified; keep this update?'):
-            raise ValueError('Update was not confirmed')
-        manager.confirm(job_id)
+        # The initiating SSH connection may survive while new logins and
+        # portal access are broken. It cannot prove independent reachability.
+        # Leave the existing rollback timer armed until a NEW session confirms.
+        rt.pending_access(job_id, record)
     except (ValueError, OSError, subprocess.SubprocessError):
         # Roll back promptly on failed health/user rejection. Disconnection and
         # Ctrl-C still leave the existing independent rollback guard in charge.
@@ -143,7 +141,7 @@ def run(manager, interface=None, repair=None):
         except (ValueError, OSError, subprocess.SubprocessError):
             print('Rollback needs attention; inspect the host console before retrying.', file=sys.stderr)
         raise
-    print('NixLab update confirmed.', flush=True)
+    print('NixLab update activated but NOT confirmed; a new management session must confirm before the rollback deadline.', flush=True)
     if manager.status().get('rebootRequired'):
         print('A kernel reboot is pending; reboot separately when ready.', flush=True)
 

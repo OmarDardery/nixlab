@@ -443,7 +443,7 @@ def issue_tls(address, hostname):
 def pending_access(job_id, record):
     """Local probes cannot prove that an administrator can reconnect."""
     print('Activation is awaiting access confirmation; automatic rollback remains armed.', flush=True)
-    print('Open a new SSH session or use the local console, verify access and workloads, then run:', flush=True)
+    print('Open a NEW SSH/Cockpit login after activation (or use the physical console), verify access, then run:', flush=True)
     print('sudo nixlab-admin config confirm ' + job_id, flush=True)
     print('You can also confirm this transaction in the NixLab portal.', flush=True)
     if record.get('deadline'):

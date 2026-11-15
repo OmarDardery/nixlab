@@ -447,27 +447,20 @@ def main():
             run(['nix-store', '--add-root', str(rt.STATE / 'original-system'), '--indirect', '--realise', installation['originalSystem']])
             rt.write_json(rt.STATE / 'platform-baseline.json', workflow.hashes(TARGET))
         else:
-            with rt.locked(blocking=False):
-                active = rt.read_json(rt.STATE / 'active.json', {})
-                job = rt.read_json(rt.STATE / 'jobs' / active.get('id', '-') / 'job.json', {})
-                if job.get('status') in ('building', 'ready', 'applying', 'awaiting-confirmation', 'rolling-back'):
-                    raise ValueError('A configuration transaction started during planning; retry after it finishes')
-                if rt.digest_source(TARGET) != source_digest:
-                    raise ValueError('Source changed during planning; retry to preserve the latest local changes')
-                checkpoint = rt.STATE / ('source-before-install-' + str(time.time_ns()))
-                rt.snapshot(checkpoint, TARGET)
-                if changed:
-                    import upgrades
-                    upgrades.publish(stage, TARGET)
-                    rt.write_json(rt.STATE / 'platform-baseline.json', workflow.hashes(TARGET))
-                rt.write_json(rt.machine_path(TARGET, 'installation'), installation)
-                rt.write_json(rt.machine_path(TARGET, 'settings'), default)
+            # An existing host must not publish source, settings or installation
+            # metadata until the Manager worker has saved a rollback manifest.
+            # The digest is rechecked under Manager.review's mutation lock so
+            # a competing portal or update cannot slip in after this plan.
+            if rt.digest_source(TARGET) != source_digest:
+                raise ValueError('Source changed during planning; retry to preserve the latest local changes')
+            if args.switch:
+                rt.write_json(rt.machine_path(stage, 'settings'), candidate)
     password = setup_password()
     pin = rt.STATE / 'original-system'
     if not pin.exists() and installation.get('originalSystem'):
         run(['nix-store', '--add-root', str(pin), '--indirect', '--realise', installation['originalSystem']])
     if args.switch and existing and prior.get('status') == 'confirmed' and candidate == Manager().settings() \
-            and rt.digest_source(TARGET) == prior.get('candidateDigest'):
+            and rt.digest_source(stage) == prior.get('candidateDigest'):
         import diagnostics
         diagnostics.wait_ready(Manager().effective_settings())
         publish_etc()
@@ -476,9 +469,12 @@ def main():
     if not (rt.STATE / 'tls.key').exists():
         rt.issue_tls(address, default['hostName'])
     if args.switch:
-        _, record = direct.activate(candidate, effective=effective_candidate)
+        _, record = direct.activate(candidate, effective=effective_candidate,
+                                    staged_source=stage if existing else None,
+                                    expected_base_digest=source_digest if existing else None)
     else:
-        record = wizard.activate()
+        record = wizard.activate(staged_source=stage if existing else None,
+                                 expected_base_digest=source_digest if existing else None)
     settings = Manager().effective_settings()
     rt.prepare_state_access()
     publish_etc()

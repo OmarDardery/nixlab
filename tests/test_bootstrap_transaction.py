@@ -179,7 +179,8 @@ class BootstrapClientTests(unittest.TestCase):
         with patch('direct.wait_for', side_effect=[{'status': 'ready'}, pending]), \
                 patch('builtins.print'):
             self.assertEqual(bootstrap.activate(manager=manager), pending)
-        manager.review.assert_called_once_with({}, host_role='bootstrap', principal=bootstrap.PRINCIPAL)
+        manager.review.assert_called_once_with({}, host_role='bootstrap', principal=bootstrap.PRINCIPAL,
+                                               staged_source=None, expected_base_digest=None)
         manager.apply.assert_called_once_with('a' * 32)
         manager.confirm.assert_not_called()
 

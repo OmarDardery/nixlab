@@ -357,6 +357,76 @@ class TransactionTests(SettingsFixture):
                 with self.assertRaisesRegex(ValueError,'changed since review'):
                     manager.apply(job_id)
 
+
+class StagedInstallerTransactionTests(SettingsFixture):
+    """Installer may prepare sources but cannot publish them before a review."""
+
+    def create_sources(self, directory):
+        root = directory / 'source'
+        staged = directory / 'staged'
+        state = directory / 'state'
+        rt.write_json(root / '.nixlab-files.json', [
+            'flake.nix', 'admin/main.py', 'machine/format.json',
+            'machine/settings.json', 'machine/installation.json'])
+        rt.atomic(root / 'flake.nix', '{}')
+        rt.atomic(root / 'admin/main.py', 'old platform')
+        rt.write_json(root / 'machine/format.json', {'version': 1})
+        rt.write_json(root / 'machine/settings.json', settings())
+        rt.write_json(root / 'machine/installation.json', {'interface': 'eth0'})
+        rt.snapshot(staged, root)
+        rt.atomic(staged / 'admin/main.py', 'new platform')
+        rt.write_json(staged / 'machine/installation.json', {'interface': 'eth0', 'pendingTasks': ['reboot']})
+        return root, staged, state
+
+    def test_installer_stages_code_and_inventory_only_in_transaction(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root, staged, state = self.create_sources(Path(folder))
+            original = {name: (root / name).read_bytes()
+                        for name in ('admin/main.py', 'machine/installation.json', 'machine/settings.json')}
+            manager = Manager(root, state)
+            with patch.object(rt, 'STATE', state), patch('controller.inventory', return_value=HOST), patch.object(manager, 'spawn') as worker_spawn:
+                reviewed = manager.review(settings(), principal='root-direct-install',
+                                          staged_source=staged, expected_base_digest=rt.digest_source(root))
+            job_dir = manager.job_path(reviewed['id'])
+            self.assertTrue(rt.read_json(job_dir / 'job.json')['sourceStaged'])
+            self.assertTrue(rt.read_json(job_dir / 'job.json')['sourcePlatformUpdated'])
+            self.assertEqual((job_dir / 'source/admin/main.py').read_text(), 'new platform')
+            self.assertEqual(rt.read_json(job_dir / 'source/machine/installation.json')['pendingTasks'], ['reboot'])
+            worker_spawn.assert_called_once_with('build', reviewed['id'])
+            for name, previous in original.items():
+                self.assertEqual((root / name).read_bytes(), previous, name)
+
+    def test_stale_or_untrusted_installer_stage_cannot_start_a_job(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root, staged, state = self.create_sources(Path(folder))
+            manager = Manager(root, state)
+            digest = rt.digest_source(root)
+            rt.atomic(root / 'admin/main.py', 'concurrent source edit')
+            with patch.object(rt, 'STATE', state), patch('controller.inventory', return_value=HOST), patch.object(manager, 'spawn') as spawn:
+                with self.assertRaisesRegex(ValueError, 'changed during planning'):
+                    manager.review(settings(), principal='root-direct-install',
+                                   staged_source=staged, expected_base_digest=digest)
+                with self.assertRaisesRegex(ValueError, 'local installer'):
+                    manager.review(settings(), principal='web-admin',
+                                   staged_source=staged, expected_base_digest=rt.digest_source(root))
+                spawn.assert_not_called()
+            self.assertEqual(list((state / 'jobs').iterdir()), [])
+            self.assertEqual((root / 'admin/main.py').read_text(), 'concurrent source edit')
+
+    def test_installer_stage_cannot_alter_unreviewed_modules(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root, staged, state = self.create_sources(Path(folder))
+            rt.atomic(root / 'machine/modules/operator.nix', 'old')
+            rt.atomic(staged / 'machine/modules/operator.nix', 'new')
+            manager = Manager(root, state)
+            with patch.object(rt, 'STATE', state), patch('controller.inventory', return_value=HOST), patch.object(manager, 'spawn') as spawn:
+                with self.assertRaisesRegex(ValueError, 'unreviewed local machine files'):
+                    manager.review(settings(), principal='root-direct-install',
+                                   staged_source=staged, expected_base_digest=rt.digest_source(root))
+                spawn.assert_not_called()
+            self.assertEqual((root / 'machine/modules/operator.nix').read_text(), 'old')
+
+
 class CandidateLifecycleTests(unittest.TestCase):
     def test_superseded_candidate_cannot_activate(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -429,6 +499,110 @@ class RecoveryTests(unittest.TestCase):
                 worker.restore_files(directory)
             self.assertEqual(rt.read_json(root/'local/settings.json'),{'old':True})
             self.assertFalse(secret.exists())
+
+
+    def test_staged_platform_and_installation_rollback_restores_original_files(self):
+        import worker
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / 'repo'
+            state = Path(folder) / 'state'
+            job = state / 'jobs' / ('a' * 32)
+            rt.write_json(root / '.nixlab-files.json', [
+                'flake.nix', 'admin/main.py', 'machine/format.json',
+                'machine/settings.json', 'machine/installation.json'])
+            rt.atomic(root / 'flake.nix', '{}')
+            rt.atomic(root / 'admin/main.py', 'original-platform')
+            rt.write_json(root / 'machine/format.json', {'version': 1})
+            rt.write_json(root / 'machine/settings.json', settings())
+            rt.write_json(root / 'machine/installation.json', {'interface': 'eth0'})
+            rt.write_json(state / 'platform-baseline.json', {'admin/main.py': 'prior'})
+            rt.write_json(job / 'job.json', {'sourceStaged': True, 'sourcePlatformUpdated': True,
+                                             'effectiveSettings': {'cockpit': {'managePassword': False}}})
+            with patch.object(rt, 'ROOT', root), patch.object(rt, 'STATE', state), \
+                 patch.object(rt, 'SECRET_PATHS', {}):
+                worker.save_recovery(job)
+                rt.atomic(root / 'admin/main.py', 'updated-platform')
+                rt.write_json(root / 'machine/installation.json', {'interface': 'eth1'})
+                rt.write_json(root / 'machine/settings.json', dict(settings(), hostName='new'))
+                rt.write_json(state / 'platform-baseline.json', {'admin/main.py': 'changed'})
+                worker.restore_files(job)
+                worker.restore_files(job)  # Interrupted recovery must remain retryable.
+            self.assertEqual((root / 'admin/main.py').read_text(), 'original-platform')
+            self.assertEqual(rt.read_json(root / 'machine/installation.json'), {'interface': 'eth0'})
+            self.assertEqual(rt.read_json(root / 'machine/settings.json')['hostName'], 'fixture')
+            self.assertEqual(rt.read_json(state / 'platform-baseline.json'), {'admin/main.py': 'prior'})
+
+
+
+class FreshPortalConfirmationTests(unittest.TestCase):
+    def test_only_post_activation_authenticated_remote_session_can_confirm(self):
+        from main import require_fresh_web_confirmation as check
+        transaction = {'id': 'a' * 32, 'status': 'awaiting-confirmation', 'awaitingAt': 102.5,
+                       'appliedAt': 100}
+        self.assertTrue(check({'authenticatedAt': 103}, transaction, '192.0.2.15'))
+        for ip, issued in (('127.0.0.1', 103), ('::1', 103),
+                           ('192.0.2.15', 99), ('192.0.2.15', 102.5)):
+            with self.subTest(ip=ip, issued=issued), self.assertRaises(PermissionError):
+                check({'authenticatedAt': issued}, transaction, ip)
+        with self.assertRaises(PermissionError):
+            check({}, transaction, '192.0.2.15')
+        with self.assertRaises(ValueError):
+            check({'authenticatedAt': 120}, {'status': 'confirmed'}, '192.0.2.15')
+
+    def test_legacy_pending_without_fresh_timestamp_requires_new_login(self):
+        from main import require_fresh_web_confirmation as check
+        legacy = {'status': 'awaiting-confirmation', 'appliedAt': 100}
+        self.assertTrue(check({'authenticatedAt': 101}, legacy, '192.0.2.2'))
+        with self.assertRaises(PermissionError):
+            check({'authenticatedAt': 200}, {'status': 'awaiting-confirmation'}, '192.0.2.2')
+
+
+
+class FreshCliConfirmationTests(unittest.TestCase):
+    def test_only_new_ssh_session_or_physical_console_can_confirm(self):
+        from main import require_fresh_cli_confirmation as check
+        job = {'status': 'awaiting-confirmation', 'awaitingAt': 100}
+        self.assertTrue(check(job, tty='/dev/tty1'))
+        self.assertTrue(check(job, tty='/dev/ttyS0'))
+        self.assertTrue(check(job, tty='/dev/pts/3', ssh_started_at=101))
+        for tty, timestamp in (('/dev/pts/3', 99), ('/dev/pts/3', 100),
+                               ('/dev/pts/3', 0), ('/run/tty', 200)):
+            with self.subTest(tty=tty, timestamp=timestamp), self.assertRaises(ValueError):
+                check(job, tty=tty, ssh_started_at=timestamp)
+        with self.assertRaises(ValueError):
+            check({'status': 'awaiting-confirmation'}, tty='/dev/tty1')
+        with self.assertRaises(ValueError):
+            check({'status': 'confirmed', 'awaitingAt': 100}, tty='/dev/tty1')
+
+    def test_proc_session_start_is_bounded_to_nearest_remote_ancestor(self):
+        from main import ssh_login_epoch
+        with tempfile.TemporaryDirectory() as folder:
+            proc = Path(folder)
+            (proc / 'stat').write_text('cpu 1 2 3\nbtime 1000\n')
+            for pid, comm, parent in ((999, 'python3', 200), (200, 'sshd-session', 1)):
+                directory = proc / str(pid); directory.mkdir()
+                (directory / 'comm').write_text(comm)
+                (directory / 'status').write_text('Name:\t' + comm + '\nPPid:\t' + str(parent) + '\n')
+                fields = ['S'] + ['0'] * 21
+                fields[19] = '5000'
+                (directory / 'stat').write_text(str(pid) + ' (' + comm + ') ' + ' '.join(fields))
+            with patch('main.os.sysconf', return_value=100):
+                self.assertEqual(ssh_login_epoch(proc, 999), 1050)
+            (proc / '200/comm').write_text('untrusted-daemon')
+            self.assertIsNone(ssh_login_epoch(proc, 999))
+
+    def test_cli_denies_old_session_without_contacting_confirm_broker(self):
+        from main import config_cli
+        job_id = 'a' * 32
+        def broker(method, path, data=None):
+            if method == 'GET':
+                return {'job': {'id': job_id, 'status': 'awaiting-confirmation', 'awaitingAt': 100}}
+            self.fail('No POST permitted before fresh access proof')
+        with patch('main.broker_request', side_effect=broker), \
+             patch('main.require_fresh_cli_confirmation', side_effect=ValueError('old SSH session')):
+            with self.assertRaisesRegex(ValueError, 'old SSH session'):
+                config_cli(['confirm', job_id])
+
 
 class HttpsTests(unittest.TestCase):
     @classmethod
