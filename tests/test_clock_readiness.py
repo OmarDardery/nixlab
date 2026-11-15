@@ -45,6 +45,36 @@ class ClockTests(unittest.TestCase):
                 trust.assert_not_called()
                 openssl.assert_not_called()
 
+    def test_browser_bundle_requires_supplied_passphrase_and_restricts_incus_project(self):
+        import base64
+        import subprocess
+        from credential_fixtures import SECRETS, assert_public_clean
+
+        with tempfile.TemporaryDirectory() as folder:
+            manager = Manager(root=folder, state=folder)
+            with patch('diagnostics.require_plausible_clock'), patch('controller.command') as trust, patch('runtime.audit') as audit:
+                with self.assertRaisesRegex(ValueError, 'bundle passphrase'):
+                    manager.browser_certificate('test-device', 'short')
+                trust.assert_not_called()
+                bundle = manager.browser_certificate('test-device', SECRETS['p12'])
+                trust_args = trust.call_args.args[0]
+                self.assertEqual(trust_args[-3:], ['--projects', 'lab', '--restricted'])
+                self.assertEqual(bundle['project'], 'lab')
+                self.assertEqual(len(bundle['fingerprint']), 64)
+                self.assertEqual(bundle['validDays'], 90)
+                assert_public_clean(self, [trust_args, bundle, audit.call_args.args, audit.call_args.kwargs])
+                self.assertEqual([p.name for p in Path(folder).iterdir()], ['jobs'])
+
+            secret_bundle = Path(folder) / 'test.p12'
+            secret_bundle.write_bytes(base64.b64decode(bundle['pkcs12']))
+            args = ['openssl', 'pkcs12', '-in', str(secret_bundle), '-nokeys', '-passin', 'stdin']
+            bad = subprocess.run(args, input=b'incorrect\n', capture_output=True)
+            self.assertNotEqual(bad.returncode, 0)
+            cert = subprocess.run(args, input=(SECRETS['p12'] + '\n').encode(), capture_output=True, check=True)
+            inspected = subprocess.run(['openssl', 'x509', '-noout', '-text'], input=cert.stdout,
+                                       capture_output=True, check=True)
+            self.assertIn(b'secp384r1', inspected.stdout)
+
     def test_plausible_clock_does_not_require_ntp_for_issuance(self):
         with patch('diagnostics.clock_status', return_value={'state': 'plausible-but-unsynchronized'}):
             diagnostics.require_plausible_clock()

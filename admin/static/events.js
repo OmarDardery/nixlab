@@ -236,11 +236,17 @@ async function action(name, el) {
       return;
     }
     if (name === "certificate") {
-      const cert = await api("browser-certificate", {});
+      const input = document.querySelector("#certificate-passphrase");
+      const passphrase = input.value;
+      input.value = "";
+      const cert = await api("browser-certificate", {
+        device: document.querySelector("#certificate-device").value,
+        passphrase,
+      });
       const bytes = Uint8Array.from(atob(cert.pkcs12), (c) => c.charCodeAt(0));
       download(cert.name + ".p12", bytes, "application/x-pkcs12");
       document.querySelector("#certificate-result").innerHTML =
-        `<div class="cert-result"><b>Browser identity downloaded</b><p>Import the PKCS#12 file into your browser or OS personal certificates, then open Incus. Keep the identity and its password private.</p><p>Password: <code>${esc(cert.password)}</code></p><p class="note">Identity: ${esc(cert.name)}. Revoke it through Incus when no longer needed.</p></div>`;
+        `<div class="cert-result"><b>Browser identity downloaded</b><p>Import the PKCS#12 file using your bundle passphrase. Open Incus and select the lab project.</p><p>Fingerprint <code>${esc(cert.fingerprint)}</code></p><p class="note">Identity ${esc(cert.name)} expires after ${esc(cert.validDays)} days. Revoke the fingerprint through Incus when no longer needed.</p></div>`;
       return;
     }
   } catch (err) {
