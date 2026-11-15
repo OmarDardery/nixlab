@@ -634,6 +634,13 @@ def certificate(self, device=None, password=None, owner='root', full_admin=False
          'owner':owner,'issuedAt':1000,'expiresAt':'fixture-expiry','restricted':not full_admin,
          'projects':[] if full_admin else ['lab'],'status':'active','validDays':90,
          'pkcs12':base64.b64encode(b'encrypted-transport-fixture').decode()}
+original_review=controller.Manager.review
+def review(self, changes, secret_values=None, update_inputs=False, modules=None, revision=None, principal='root'):
+ if changes != {'hostName':'authorized-fixture'}: return original_review(self,changes,secret_values,update_inputs,modules,revision,principal=principal)
+ directory=runtime.STATE/'jobs'/('d'*32)
+ runtime.write_json(directory/'job.json', {'settings':changes,'modules':modules,'revision':revision,'principal':principal})
+ return {'id':'d'*32}
+controller.Manager.review=review
 controller.Manager.browser_certificate=certificate
 controller.Manager.revoke_browser_certificate=lambda *a: {'ok':True}
 controller.Manager.browser_certificates=lambda self: {'certificates':[]}
@@ -647,6 +654,12 @@ main.backend()
 """.replace('BROKER_PORT',str(broker_port))
         cls.backend=subprocess.Popen([sys.executable,'-c',backend_code],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         frontend_code="import main,http.client; main.UnixConnection=lambda *a,**k:http.client.HTTPConnection('127.0.0.1',"+str(broker_port)+",timeout=30); main.web()"
+        frontend_code = frontend_code.replace("main.web()", """original=main.broker_request
+def broker(method,path,data=None):
+ if path=='/review' and method=='POST': main.rt.write_json(main.SOCKET.parent/'review-forwarded.json',data)
+ return original(method,path,data)
+main.broker_request=broker
+main.web()""")
         cls.web=subprocess.Popen([sys.executable,'-c',frontend_code],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         cls.addClassCleanup(lambda: (cls.web.terminate(), cls.web.wait(timeout=10), cls.backend.terminate(), cls.backend.wait(timeout=10)))
         cls.context=ssl.create_default_context(cafile=str(cls.state/'ca.crt'))
@@ -748,18 +761,34 @@ main.backend()
         self.assertEqual(status,400)
         self.assertIn('Reauthenticate',data['error'])
 
-    def test_module_upload_requires_reauthentication(self):
-        for extra in ({}, {'adminPassword':'wrong','acknowledgePrivilegedModules':True}):
-            body={'settings':{},'modules':{'archive.nix':'{}'}} | extra
-            data,_,status=self.request('/api/review',body,origin=self.origin)
-            self.assertEqual(status,400)
-            self.assertIn('Reauthenticate',data['error'])
+    def test_privileged_review_requires_distinct_approval_and_password_checks(self):
+        for code in ({'modules': {'archive.nix': '{}'}}, {'revision': 'a' * 40}):
+            for extra, expected in (
+                ({}, 'Explicitly approve'),
+                ({'adminPassword': 'https-test-password'}, 'Explicitly approve'),
+                ({'acknowledgePrivilegedModules': 'true'}, 'Explicitly approve'),
+                ({'acknowledgePrivilegedModules': True}, 'Reauthenticate with your current portal password'),
+                ({'acknowledgePrivilegedModules': True, 'adminPassword': 'wrong'}, 'Reauthenticate with your current portal password'),
+            ):
+                data, _, status = self.request('/api/review', {'settings': {}} | code | extra, origin=self.origin)
+                self.assertEqual(status, 400)
+                self.assertIn(expected, data['error'])
+                self.assertNotIn('https-test-password', json.dumps(data))
+                self.assertNotIn('wrong', json.dumps(data))
+        self.assertEqual(list((self.state/'jobs').iterdir()), [])
 
-    def test_platform_upgrade_requires_reauthentication_before_a_job_is_created(self):
-        data,_,status=self.request('/api/review',{'settings':{},'revision':'a'*40},origin=self.origin)
-        self.assertEqual(status,400)
-        self.assertIn('Reauthenticate',data['error'])
-        self.assertEqual(list((self.state/'jobs').iterdir()),[])
+    def test_authorized_review_strips_password_before_broker_and_job_storage(self):
+        for code in ({'modules': {'archive.nix': '{}'}}, {'revision': 'a' * 40}, {}):
+            result, _, status = self.request('/api/review', {'settings': {'hostName':'authorized-fixture'}, 'adminPassword': 'https-test-password',
+                'acknowledgePrivilegedModules': True} | code, origin=self.origin)
+            self.assertEqual(status, 200)
+            forwarded = rt.read_json(self.folder/'review-forwarded.json')
+            recorded = rt.read_json(self.state/'jobs'/result['id']/'job.json')
+            for value in (result, forwarded, recorded):
+                self.assertTrue('adminPassword' not in json.dumps(value), 'Reauthentication field must stay at the web boundary')
+                self.assertTrue('https-test-password' not in json.dumps(value), 'Reauthentication secret must stay at the web boundary')
+            self.assertEqual(forwarded['_actor'], 'admin')
+            shutil.rmtree(self.state/'jobs'/result['id'])
 
     def test_viewer_cannot_mutate_and_role_changes_revoke_live_https_session(self):
         username='viewer-http'

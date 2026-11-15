@@ -563,10 +563,14 @@ def web():
                     return reply(self, 200, result)
                 if self.path == '/api/migrate-layout' and not accounts.matches(session['username'], body.get('current')):
                     raise rt.PublicError('Reauthenticate to migrate the machine layout')
-                if self.path == '/api/review' and (body.get('modules') or body.get('revision')):
-                    if body.get('acknowledgePrivilegedModules') is not True or not accounts.matches(session['username'], body.get('adminPassword')):
-                        raise rt.PublicError('Reauthenticate and acknowledge privileged Nix modules')
-                    body.pop('adminPassword', None)
+                if self.path == '/api/review':
+                    password = body.pop('adminPassword', None)
+                    if body.get('modules') or body.get('revision'):
+                        if body.get('acknowledgePrivilegedModules') is not True:
+                            raise rt.PublicError('Explicitly approve the privileged platform revision or Nix modules before building')
+                        if not accounts.matches(session['username'], password):
+                            raise rt.PublicError('Reauthenticate with your current portal password before building privileged code')
+                    del password
                 if self.path == '/api/confirm':
                     state = broker_request('GET', '/status')
                     active = state.get('job') or {}

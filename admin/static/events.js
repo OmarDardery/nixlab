@@ -194,12 +194,12 @@ async function action(name, el) {
         modules: state.modules,
         revision: state.platformRevision || null,
         adminPassword:
-          document.querySelector("#module-password")?.value ||
           document.querySelector("#platform-password")?.value,
         acknowledgePrivilegedModules:
-          document.querySelector("#module-ack")?.checked ||
           document.querySelector("#platform-ack")?.checked,
       });
+      document.querySelector("#platform-password").value = "";
+      document.querySelector("#platform-ack").checked = false;
       state.modules = {};
       state.platformRevision = "";
       state.status = await api("status");

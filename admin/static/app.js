@@ -139,7 +139,10 @@ function draftChanges() {
   walk(state.status.settings, state.draft, "");
   return differences;
 }
-function stagedCount() { return draftChanges().length + Object.keys(state.modules).length + Object.values(state.secrets).filter(Boolean).length + (state.updateInputs ? 1 : 0) + (state.platformRevision ? 1 : 0); }
+function platformUpdateSelected() { return !!state.platformRevision && state.platformRevision !== state.status.release?.revision; }
+function reviewScope() { return JSON.stringify([state.principal?.username, state.platformRevision, state.modules]); }
+let renderedReviewScope = null;
+function stagedCount() { return draftChanges().length + Object.keys(state.modules).length + Object.values(state.secrets).filter(Boolean).length + (state.updateInputs ? 1 : 0) + (platformUpdateSelected() ? 1 : 0); }
 function stagedBanner() {
   const n = stagedCount();
   return n ? `<div class="draft-bar" role="status"><div><strong>${n} staged change${n === 1 ? "" : "s"}</strong><span>Not applied to your host</span></div><div class="draft-actions"><button class="small" data-ui-discard>Discard drafts</button><button class="primary" data-go="review">Review changes</button></div></div>` : "";
@@ -190,6 +193,13 @@ function bindUiChrome() {
   };
 }
 function shell() {
+  // Keep authorization only in live controls, never in app state or storage.
+  // Restore across a synchronous rerender only while the reviewed code is unchanged.
+  const scope = state.page === "review" && administrator() ? reviewScope() : null;
+  const password = document.querySelector("#platform-password");
+  const approval = document.querySelector("#platform-ack");
+  const authorization = scope !== null && scope === renderedReviewScope && password && approval
+    ? {password: password.value, approved: approval.checked} : null;
   const settings = state.status.effectiveSettings || state.status.settings;
   const current = pages.find(([id]) => id === state.page)?.[1] || "Overview";
   const address = state.status.managementAddress || settings.management.address;
@@ -216,6 +226,11 @@ function shell() {
      <footer class="footer-note">NixOS owns the host · Incus owns guests · <a href="/docs/projects.md">Upstream credits</a></footer>
   </main></div></div>
   <dialog id="ui-jump" class="ui-dialog" aria-label="Navigate to a console page"><div class="ui-dialog-heading"><strong>Go to a page</strong><form method="dialog"><button aria-label="Close page search" type="submit">✕</button></form></div><label for="ui-search-input">Search navigation</label><input id="ui-search-input" type="search" placeholder="Guests, backups, access…" autocomplete="off"><nav aria-label="Search results">${pages.map(([id,label]) => `<button type="button" data-go="${id}">${esc(label)}</button>`).join("")}</nav></dialog>`;
+  renderedReviewScope = scope;
+  if (authorization) {
+    document.querySelector("#platform-password").value = authorization.password;
+    document.querySelector("#platform-ack").checked = authorization.approved;
+  }
   bind();
   bindOperations();
   bindFoundation();
@@ -371,7 +386,7 @@ function moduleReview() {
   const recorded = state.status.job?.moduleChanges || [];
   return card(
     "Nix module changes",
-    `${pending.length ? `<p>${pending.length} staged file(s). Reauthenticate to build these privileged configuration changes.</p><label class="field"><span>Administrator password</span><input id="module-password" type="password" autocomplete="current-password"></label><label class="toggle"><input type="checkbox" id="module-ack"> I authorize these modules as privileged system configuration.</label>` : ""}${recorded.map((c) => `<h3>${esc(c.path)}</h3><p>Previous file</p><pre class="log">${esc(c.before ?? "(new file)")}</pre><p>Candidate file</p><pre class="log">${esc(c.after)}</pre>`).join("")}`,
+    `${pending.length ? `<p>${pending.length} staged file(s). Reauthenticate to build these privileged configuration changes.</p>Use the privileged code approval below.` : ""}${recorded.map((c) => `<h3>${esc(c.path)}</h3><p>Previous file</p><pre class="log">${esc(c.before ?? "(new file)")}</pre><p>Candidate file</p><pre class="log">${esc(c.after)}</pre>`).join("")}`,
   );
 }
 function deploymentTimeline() {

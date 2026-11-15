@@ -124,16 +124,22 @@ function accountCard() {
   );
 }
 
+function platformSelectionText() {
+  if (!state.platformRevision) return "No platform update selected.";
+  if (!platformUpdateSelected()) return "Selected installed revision: rebuild only; no platform update.";
+  return "Proposed: " + state.platformRevision + ". File changes will be calculated by a new review.";
+}
 function platformReview() {
   if (!administrator()) return "";
   const job = state.status.job;
   const files = job?.platformChanges || [];
+  const historical = job?.status === "confirmed";
   const changes = files.map(file => `<tr><td><code>${esc(file.path)}</code></td><td>${file.after === null ? "Removed" : file.before === null ? "Added" : "Changed"}</td></tr>`).join("");
   return card("Platform update", `<p>Installed: ${esc(state.status.release?.version || "unknown")} · <code>${esc((state.status.release?.revision || "unknown").slice(0, 12))}</code>. Machine settings and modules are retained.</p>
-    <button type="button" data-load-main>Review latest main</button><p class="note" id="platform-selected">${state.platformRevision ? "Selected: " + esc(state.platformRevision) : "No platform update selected."}</p>
+    <button type="button" data-load-main>Review latest main</button><p class="note" id="platform-selected">${esc(platformSelectionText())}</p>
     <details><summary>Advanced: published release or commit</summary><button type="button" data-load-releases>Find published releases</button><label class="field full"><span>Release</span><select id="platform-release"><option value="">Select a release</option>${operationView.releases.map(r => `<option value="${esc(r.revision)}">${esc(r.name)} · ${esc(r.tag)}</option>`).join("")}</select></label><label class="field full"><span>Upstream commit SHA (optional)</span><input id="platform-revision" value="${esc(state.platformRevision || "")}" maxlength="40" placeholder="40 hexadecimal characters"></label></details>
-    <div class="fields"><label class="field"><span>Your password for code changes</span><input id="platform-password" type="password" autocomplete="current-password"></label></div><label class="toggle"><input id="platform-ack" type="checkbox">I reviewed this privileged platform revision and approve building its system code.</label>
-    ${job?.platformRevision ? `<p>Candidate: <a href="${projectRepository}/commit/${esc(job.platformRevision)}" target="_blank" rel="noopener noreferrer">${esc(job.platformRevision.slice(0, 12))}</a></p><details><summary>Changed platform files (${files.length})</summary><div class="table-wrap"><table><thead><tr><th>Path</th><th>Change</th></tr></thead><tbody>${changes || '<tr><td colspan="2">No platform file changes.</td></tr>'}</tbody></table></div></details>` : ""}
+    <div class="fields"><label class="field"><span>Current portal password for privileged code</span><input id="platform-password" type="password" autocomplete="current-password"></label></div><label class="toggle"><input id="platform-ack" type="checkbox">I approve building the selected privileged platform revision and staged Nix modules.</label>
+    ${job?.platformRevision ? `<p>${historical ? "Historical confirmed review" : "Existing job (not a preview of the selection above)"}: <a href="${projectRepository}/commit/${esc(job.platformRevision)}" target="_blank" rel="noopener noreferrer">${esc(job.platformRevision.slice(0, 12))}</a></p><details><summary>${historical ? "Historical platform files" : "Existing job platform files"} (${files.length})</summary><div class="table-wrap"><table><thead><tr><th>Path</th><th>Change</th></tr></thead><tbody>${changes || '<tr><td colspan="2">No platform file changes.</td></tr>'}</tbody></table></div></details>` : ""}
     ${job?.inputChanges && Object.keys(job.inputChanges).length ? `<details><summary>Changed pinned inputs</summary><pre class="log">${esc(JSON.stringify(job.inputChanges, null, 2))}</pre></details>` : ""}
     ${job?.rebootRequired ? '<p class="note">The new kernel needs a separate reboot after confirming activation.</p>' : ""}`);
 }
@@ -332,15 +338,19 @@ function bindOperations() {
   if (release)
     release.onchange = () => {
       state.platformRevision = release.value;
+      by("platform-password").value = "";
+      by("platform-ack").checked = false;
       const revision = by("platform-revision");
       if (revision) revision.value = release.value;
-      by("platform-selected").textContent = state.platformRevision ? "Selected: " + state.platformRevision : "No platform update selected.";
+      shell();
     };
   const revision = by("platform-revision");
   if (revision)
     revision.oninput = () => {
       state.platformRevision = revision.value.trim();
-      by("platform-selected").textContent = state.platformRevision ? "Selected: " + state.platformRevision : "No platform update selected.";
+      by("platform-password").value = "";
+      by("platform-ack").checked = false;
+      by("platform-selected").textContent = platformSelectionText();
     };
   if (
     ["operations", "accounts"].includes(state.page) &&
