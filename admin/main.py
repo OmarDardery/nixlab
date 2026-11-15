@@ -153,8 +153,10 @@ def backend():
                 else:
                     return reply(self, 404, {'error': 'Unknown endpoint'})
                 reply(self, 200, result)
-            except Exception as exc:
+            except ValueError as exc:
                 reply(self, 400, {'error': str(exc)})
+            except Exception:
+                reply(self, 500, {'error': 'Could not retrieve management status; inspect the host services'})
         def do_POST(self):
             try:
                 body = json_body(self)
@@ -197,8 +199,10 @@ def backend():
                 else:
                     return reply(self, 404, {'error': 'Unknown action'})
                 reply(self, 200, result)
-            except (ValueError, KeyError, OSError) as exc:
+            except ValueError as exc:
                 reply(self, 400, {'error': str(exc)})
+            except KeyError:
+                reply(self, 400, {'error': 'A required request field or configuration value is missing'})
             except Exception:
                 reply(self, 500, {'error': 'Operation failed; inspect the root broker journal'})
     SOCKET.parent.mkdir(parents=True, exist_ok=True)

@@ -14,6 +14,7 @@ BASE = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(BASE / name) for name in ('admin', 'scripts')]
 from credential_fixtures import SECRETS, assert_public_clean, credential_exposures
 import accounts
+import main
 from main import Auth
 import portainer
 import runtime as rt
@@ -61,6 +62,27 @@ class CredentialContractTests(unittest.TestCase):
                 'audit': (rt.STATE / 'audit.jsonl').read_text(),
                 'error': str(error.exception), 'output': output.getvalue(),
             })
+
+    def test_broker_errors_hide_hostile_system_and_mapping_details(self):
+        with tempfile.TemporaryDirectory() as folder, \
+                patch.object(main, 'SOCKET', Path(folder) / 'broker.sock'), \
+                patch.object(main, 'UnixHTTPServer') as server, \
+                patch.object(main.os, 'chmod'), patch('controller.Manager') as manager, \
+                patch('operations.Operations'), patch.object(rt, 'audit'), \
+                patch.object(main, 'reply') as response, patch.object(main, 'json_body', return_value={'id': 'a' * 32}):
+            main.backend()
+            handler = object.__new__(server.call_args.args[1])
+            for method, path, action, error, status in (
+                (handler.do_GET, '/status', manager.return_value.status, OSError(SECRETS['private-key']), 500),
+                (handler.do_POST, '/apply', manager.return_value.apply, OSError(SECRETS['staged']), 500),
+                (handler.do_POST, '/apply', manager.return_value.apply, KeyError(SECRETS['operator']), 400),
+            ):
+                with self.subTest(path=path, exception=type(error)):
+                    handler.path = path
+                    action.side_effect = error
+                    method()
+                    self.assertEqual(response.call_args.args[1], status)
+                    assert_public_clean(self, response.call_args.args[2])
 
     def test_cancelled_candidate_scrubs_staged_value_without_public_disclosure(self):
         from controller import Manager

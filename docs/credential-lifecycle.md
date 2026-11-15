@@ -75,6 +75,10 @@ These findings are defects, not compatibility promises. This audit changes no
 authentication flow, persisted schema, state path or recovery behavior. Rollback
 of this documentation/test change requires no production data migration.
 
+Unexpected Unix broker system errors and missing mapping keys return fixed
+messages. User-facing validation messages still require call-site review
+before a complete zero-secret-output claim.
+
 ## Reproducible tests and evidence limits
 
 `tests/credential_fixtures.py` provides distinct synthetic setup, Linux, Portainer,
