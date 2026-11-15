@@ -168,6 +168,8 @@ in pkgs.testers.runNixOSTest {
     host.succeed("incus start restored --project lab")
     assert host.succeed("incus config get native volatile.eth0.hwaddr --project lab").strip() != host.succeed("incus config get restored volatile.eth0.hwaddr --project lab").strip()
     assert host.succeed("incus exec restored --project lab --disable-stdin -- /bin/cat /var/lib/test/index.html").strip() == "preserved"
+    host.succeed("incus stop restored --project lab --timeout 120", timeout=180)
+    host.succeed("incus delete restored --project lab")
     native_uuid = host.succeed("incus config get native volatile.uuid --project lab").strip()
     assert native_uuid
     host.wait_for_unit("NetworkManager.service")
@@ -192,8 +194,6 @@ in pkgs.testers.runNixOSTest {
 
     # Recover actual archives on an independent Incus daemon/storage node. This
     # fixture is automated VM evidence, never physical replacement qualification.
-    host.succeed("incus stop restored --project lab --timeout 120", timeout=180)
-    host.succeed("incus delete restored --project lab")
     host.succeed("incus stop native --project lab --timeout 120", timeout=180)
     host.succeed("incus config device remove native serial --project lab")
     host.succeed("incus storage volume create guests recoverdata --project lab")
