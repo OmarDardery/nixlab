@@ -17,6 +17,7 @@ import accounts
 import main
 from main import Auth
 import portainer
+import recovery
 import runtime as rt
 
 
@@ -83,6 +84,44 @@ class CredentialContractTests(unittest.TestCase):
                     method()
                     self.assertEqual(response.call_args.args[1], status)
                     assert_public_clean(self, response.call_args.args[2])
+
+    def test_configuration_download_does_not_package_runtime_or_job_secrets(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root, state = Path(folder) / 'source', Path(folder) / 'state'
+            rt.write_json(root / '.nixlab-files.json', ['flake.nix'])
+            rt.atomic(root / 'flake.nix', '{}')
+            rt.atomic(state / 'ca.key', SECRETS['private-key'])
+            rt.atomic(state / 'setup-password', SECRETS['setup'])
+            rt.write_json(state / 'jobs' / ('a' * 32) / 'secrets.json', {'portainerPassword': SECRETS['staged']})
+            with patch.object(rt, 'ROOT', root), patch.object(rt, 'STATE', state):
+                response = recovery.download()
+            self.assertEqual(set(response['files']), {'nixlab-config.tar.gz'})
+            archive = Path(folder) / 'download.tar.gz'
+            archive.write_bytes(base64.b64decode(response['files']['nixlab-config.tar.gz']))
+            manifest, entries = recovery.inspect(archive)
+            self.assertEqual(set(entries), {'config/flake.nix'})
+            assert_public_clean(self, [response, manifest, entries])
+
+    def test_failed_recovery_encryption_suppresses_child_output_and_removes_partial_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root, target = Path(folder), Path(folder) / 'kit'
+            rt.write_json(root / '.nixlab-files.json', ['flake.nix'])
+            rt.atomic(root / 'flake.nix', '{}')
+            secret = root / 'runtime-secret'
+            rt.atomic(secret, SECRETS['staged'])
+            encryptor = Mock(stdin=io.BytesIO(), stderr=io.BytesIO(SECRETS['staged'].encode()))
+            encryptor.wait.return_value = encryptor.poll.return_value = 1
+            def start(args, **kwargs):
+                self.assertEqual(kwargs['stderr'], subprocess.DEVNULL)
+                Path(args[-1]).write_bytes(b'partial ciphertext')
+                return encryptor
+
+            with patch.object(rt, 'ROOT', root), patch.object(recovery, 'secret_files', return_value={'runtime/key': secret}), \
+                    patch.object(recovery.upgrades, 'metadata', return_value={}), patch.object(recovery.subprocess, 'Popen', side_effect=start):
+                with self.assertRaisesRegex(ValueError, 'Secret encryption failed') as error:
+                    recovery.export(target, 'age1' + 'a' * 58, True)
+            assert_public_clean(self, str(error.exception))
+            self.assertFalse((target / 'nixlab-secrets.tar.gz.age').exists())
 
     def test_cancelled_candidate_scrubs_staged_value_without_public_disclosure(self):
         from controller import Manager
