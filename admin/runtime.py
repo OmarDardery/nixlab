@@ -20,6 +20,16 @@ from locking import open_lock
 ROOT = Path(os.environ.get('NIXLAB_ROOT', '/var/lib/nixlab/config'))
 STATE = Path(os.environ.get('NIXLAB_STATE', '/var/lib/nixlab-admin'))
 SOURCE = Path(__file__).resolve().parent
+
+
+class PublicError(ValueError):
+    """A fixed, reviewed user message, never formatted from input or child output."""
+
+
+def public_error(error):
+    return str(error) if type(error) is PublicError else 'Request rejected; check inputs and authentication, then retry'
+
+
 SECRET_PATHS = {
     'cockpitPassword': Path('/var/lib/nixlab-secrets/cockpit-operator-password'),
     'wifiPassword': Path('/var/lib/nixlab-secrets/wifi.env'),
@@ -159,6 +169,14 @@ def tail_log(path, limit=65536):
         return ''
     except (OSError, ValueError):
         raise ValueError('Job log is invalid or unreadable; inspect the transaction from the host console') from None
+
+
+def public_progress(text):
+    """Project only fixed worker progress, including when reading pre-upgrade logs."""
+    fixed = {'Host command started', 'ROLLBACK FAILED: local recovery may be required',
+             'FAILED: transaction did not complete'}
+    return ''.join(line + '\n' for line in text.splitlines()
+                   if line in fixed or re.fullmatch(r'Host command finished with status -?[0-9]{1,3}', line))
 
 
 def worker_active(unit: str) -> bool:

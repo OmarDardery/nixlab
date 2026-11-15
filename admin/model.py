@@ -15,7 +15,8 @@ ROLES = {'data', 'guests', 'pool', 'backup'}
 def command(args, timeout=20):
     result = subprocess.run(args, text=True, capture_output=True, timeout=timeout)
     if result.returncode:
-        raise ValueError(result.stderr.strip() or 'Command failed: ' + args[0])
+        # Child diagnostics can echo stdin, credentials or secret-bearing URLs.
+        raise ValueError('Host command failed')
     return result.stdout
 
 

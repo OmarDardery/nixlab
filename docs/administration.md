@@ -24,6 +24,21 @@ templates are labeled separately. Optional backup, secret, ingress and monitorin
 references are under the expanded resources list. Community compatibility and
 Nixlab qualification remain separate.
 
+## Credential delivery during installation and recovery
+
+Installer summaries and Portainer reset output show status and protected runtime file
+paths. They do not print passwords. A root operator can use those mode-0600 files for
+private local delivery; keep their contents out of shell arguments, transcripts and
+support bundles. Fresh portal enrollment uses the browser code plus local sudo
+approval. Existing portal accounts retain local `sudo nixlab-admin reset-password`
+recovery. For Linux operator recovery, use a trusted privileged local session and
+`sudo passwd operator`. Do this before ending the installation session if no other
+usable Linux login exists.
+
+Portainer reset still uses the backed-up offline helper and retains its generated
+credential privately. It does not replace the database. A supplied-password reset
+and removal of retained bootstrap credentials remain separate lifecycle work.
+
 ## SSH and Incus CLI
 
 The `operator` account accepts Linux passwords by default and optional declared SSH keys. Root SSH login is disabled. It may use sudo for infrastructure

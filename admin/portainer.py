@@ -71,12 +71,11 @@ def reset(settings, helper=HELPER_IMAGE):
         try:
             guest('systemctl', 'start', 'docker-portainer.service')
         except Exception as restart:
-            raise ValueError(str(failure or 'Password reset completed') + '; restart failed: ' + str(restart) +
-                             '; backup: ' + backup) from restart
+            raise ValueError('Portainer recovery could not restart the service; backup: ' + backup) from None
     if failure:
-        raise ValueError(str(failure) + '; Portainer restarted; backup: ' + backup) from failure
+        raise ValueError('Portainer recovery failed; Portainer restarted; backup: ' + backup) from None
     diagnostics.wait_ready(settings)
     result = credentials(settings)
     if not result:
         raise ValueError('Portainer restarted but authentication failed; backup: ' + backup)
-    return {**result, 'backup': backup, 'url': 'https://' + diagnostics.management_address(settings) + ':' + str(settings['apps']['portainerPort'])}
+    return {'backup': backup, 'url': 'https://' + diagnostics.management_address(settings) + ':' + str(settings['apps']['portainerPort'])}

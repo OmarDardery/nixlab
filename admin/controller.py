@@ -39,8 +39,11 @@ class Manager:
     def job(self, job_id):
         directory = self.job_path(job_id)
         job = rt.read_job_record(directory / 'job.json')
-        job['log'] = rt.tail_log(directory / 'build.log')
-        # Credentials never enter this metadata or its log.
+        job['log'] = rt.public_progress(rt.tail_log(directory / 'build.log'))
+        # Older workers recorded arbitrary child/exception output. Never replay it.
+        for field in ('error', 'rollbackError'):
+            if job.get(field):
+                job[field] = 'Transaction did not complete; inspect host status before retrying'
         if job.get('guestPlan'):
             from deployments import Deployments
             job['guestDeployment'] = Deployments(self.root, self.state).status(job_id)
@@ -106,7 +109,7 @@ class Manager:
             data['evaluated'] = json.loads(command(['nix', '--extra-experimental-features', 'nix-command flakes',
                                                   'eval', '--json', 'path:' + str(self.root) + '#nixlabOverview'], timeout=120))
         except (ValueError, subprocess.TimeoutExpired) as exc:
-            data['evaluationError'] = str(exc)
+            data['evaluationError'] = 'Host inventory evaluation failed'
         import ipaddress
         networks = [ipaddress.ip_network(r['dst'], strict=False) for r in data['routes'] if r.get('dst', 'default') != 'default']
         suggestion = next((ipaddress.ip_network(c) for c in ('10.77.0.0/24', '10.78.0.0/24', '172.30.77.0/24', '192.168.240.0/24')

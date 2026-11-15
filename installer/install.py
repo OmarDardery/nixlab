@@ -22,13 +22,13 @@ ORIGINAL = Path('/etc/nixos')
 
 
 def run(args, **kwargs):
+    if not kwargs.get('capture_output'):
+        kwargs.setdefault('stdout', subprocess.DEVNULL)
+        kwargs.setdefault('stderr', subprocess.DEVNULL)
     try:
         return subprocess.run(args, check=True, **kwargs)
-    except subprocess.CalledProcessError as exc:
-        if exc.stderr:
-            detail = exc.stderr.decode(errors='replace') if isinstance(exc.stderr, bytes) else exc.stderr
-            print(detail[-6000:], file=sys.stderr, flush=True)
-        raise
+    except subprocess.CalledProcessError:
+        raise ValueError('Installer host command failed') from None
 
 
 def choose_network(interface=None, address=None):
@@ -185,23 +185,21 @@ def summarize(settings, password=None, record=None):
     if (rt.STATE / 'web-enrollment').is_file() and not (rt.STATE / 'auth.json').exists():
         print('Open the portal, then approve its browser code with sudo nixlab-admin approve-enrollment.')
     elif password:
-        print('Setup password: ' + password)
+        print('Legacy setup credential is available in the root-only runtime file: ' + str(rt.STATE / 'setup-password'))
     else:
         print('Use your existing setup password; recover with sudo nixlab-admin reset-password.')
     if settings['ready']:
         print('Incus: https://' + address + ':8443 (create/import a browser certificate from the Nixlab portal)')
         if settings['cockpit']['enable']:
             print('Cockpit: https://' + address + ':' + str(settings['cockpit']['port']) + ' (existing non-root Linux account/password)')
-            import local_access
-            operator_password = local_access.operator_password()
-            if operator_password:
-                print('Verified Linux username: operator (SSH/Cockpit); password: ' + operator_password)
+            print('Managed operator credential, if provisioned, is in the root-only runtime file: ' + str(rt.STATE / 'operator-password'))
+            print('Linux operator recovery: use the local console and sudo passwd operator.')
         if settings['apps']['enable']:
             import portainer
             print('Portainer: https://' + address + ':' + str(settings['apps']['portainerPort']))
             credential = portainer.credentials(settings)
             if credential:
-                print('Verified Portainer username: ' + credential['username'] + '; password: ' + credential['password'])
+                print('Portainer authentication verified. Credential is available in the root-only runtime file: ' + str(rt.SECRET_PATHS['portainerPassword']))
             else:
                 print('Portainer has an existing account. The bootstrap file is not a verified current password.')
                 print('Recover access: sudo nixlab portainer reset-password')
@@ -501,6 +499,18 @@ def main():
         (rt.STATE / 'installer-intent-draft.json').unlink(missing_ok=True)
 
 
+def report_failure():
+    print('\nINSTALLATION FAILED: installation did not complete; retry or inspect host status.', file=sys.stderr, flush=True)
+    try:
+        report = {'error': 'Installation did not complete', 'time': time.time()}
+        rt.write_json(rt.STATE / 'installation-failure.json', report)
+        print('Failure report: ' + str(rt.STATE / 'installation-failure.json'), file=sys.stderr)
+        print('Retry the same install command; completed work is detected automatically.', file=sys.stderr)
+        print('Diagnostics: sudo nixlab doctor (once host tools are installed).', file=sys.stderr)
+    except OSError:
+        pass
+
+
 if __name__ == '__main__':
     os.umask(0o077)
     try:
@@ -513,13 +523,5 @@ if __name__ == '__main__':
                 raise ValueError('Another Nixlab installer is already running')
             main()
     except (ValueError, OSError, subprocess.SubprocessError) as exc:
-        print('\nINSTALLATION FAILED: ' + str(exc), file=sys.stderr, flush=True)
-        try:
-            report = {'error': str(exc), 'time': time.time()}
-            rt.write_json(rt.STATE / 'installation-failure.json', report)
-            print('Failure report: ' + str(rt.STATE / 'installation-failure.json'), file=sys.stderr)
-            print('Retry the same install command; completed work is detected automatically.', file=sys.stderr)
-            print('Diagnostics: sudo nixlab doctor (once host tools are installed).', file=sys.stderr)
-        except OSError:
-            pass
+        report_failure()
         sys.exit(1)

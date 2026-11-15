@@ -677,7 +677,7 @@ main.backend()
         self.assertEqual(status, 401)
         state, _, status = self.request('/api/enrollment', payload, origin=self.origin, auth=False)
         self.assertEqual(status, 400)
-        self.assertIn('unavailable', state['error'])
+        self.assertEqual(state['error'], 'Request rejected; check inputs and authentication, then retry')
 
     def test_private_status_requires_authentication(self):
         _,_,status=self.request('/api/status',auth=False)

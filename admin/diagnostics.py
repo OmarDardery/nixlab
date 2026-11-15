@@ -129,7 +129,7 @@ def wait_ready(settings, timeout=180):
             if report['ok']:
                 return report
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
-            report = {'ok': False, 'error': str(exc)}
+            report = {'ok': False, 'error': 'Management health probe failed'}
         if time.monotonic() >= deadline:
             rt.write_json(rt.STATE / 'last-health.json', report)
             raise ValueError('Management health checks failed: ' + json.dumps(report) + '; run sudo nixlab doctor')
@@ -161,7 +161,7 @@ def doctor(settings):
     try:
         report = probe(settings)
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        report = {'ok': False, 'error': str(exc)}
+        report = {'ok': False, 'error': 'Management health probe failed'}
     report['clock'] = clock_status()
     report['services'] = []
     for unit in ('incus', 'incus-preseed', 'nixlab-instances', 'nixlab-management-identity',

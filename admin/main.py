@@ -42,25 +42,25 @@ class HeaderReader:
 def json_body(handler):
     try:
         if handler.headers.get_all('Transfer-Encoding'):
-            raise ValueError('Transfer encoding is not accepted')
+            raise rt.PublicError('Transfer encoding is not accepted')
         lengths = handler.headers.get_all('Content-Length', [])
         if len(lengths) != 1 or not re.fullmatch(r'[0-9]+', lengths[0].strip()):
-            raise ValueError('Exactly one valid request length is required')
+            raise rt.PublicError('Exactly one valid request length is required')
         length = int(lengths[0].strip())
         if not 0 < length <= MAX_BODY:
-            raise ValueError('Request body is missing or too large')
+            raise rt.PublicError('Request body is missing or too large')
         raw = handler.rfile.read(length)
         if len(raw) != length:
-            raise ValueError('Incomplete request body')
+            raise rt.PublicError('Incomplete request body')
         try:
             body = json.loads(raw)
         except (ValueError, UnicodeError):
-            raise ValueError('Invalid JSON request body') from None
-        if not isinstance(body, dict): raise ValueError('Request body must be an object')
+            raise rt.PublicError('Invalid JSON request body') from None
+        if not isinstance(body, dict): raise rt.PublicError('Request body must be an object')
         return body
     except OSError:
         handler.close_connection = True
-        raise ValueError('Request body could not be read') from None
+        raise rt.PublicError('Request body could not be read') from None
     except ValueError:
         # Never parse leftover bytes from a rejected body as the next request.
         handler.close_connection = True
@@ -85,6 +85,9 @@ def reply(handler, status, data, content_type='application/json', extra=None):
 class UnixHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     address_family = socket.AF_UNIX
     daemon_threads = True
+    def handle_error(self, request, client_address):
+        # socketserver's default traceback can contain secret-bearing exceptions.
+        pass
     def server_bind(self):
         socketserver.TCPServer.server_bind(self)
         self.server_name = 'localhost'; self.server_port = 0
@@ -157,7 +160,7 @@ def backend():
                     return reply(self, 404, {'error': 'Unknown endpoint'})
                 reply(self, 200, result)
             except ValueError as exc:
-                reply(self, 400, {'error': str(exc)})
+                reply(self, 400, {'error': rt.public_error(exc)})
             except Exception:
                 reply(self, 500, {'error': 'Could not retrieve management status; inspect the host services'})
         def do_POST(self):
@@ -165,7 +168,7 @@ def backend():
                 body = json_body(self)
                 actor = body.pop('_actor', 'root')
                 if not isinstance(actor, str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,31}', actor):
-                    raise ValueError('Invalid audit identity')
+                    raise rt.PublicError('Invalid audit identity')
                 rt.audit('broker-request', principal=actor, operation=self.path)
                 if self.path == '/enrollment':
                     import accounts
@@ -206,7 +209,7 @@ def backend():
                     return reply(self, 404, {'error': 'Unknown action'})
                 reply(self, 200, result)
             except ValueError as exc:
-                reply(self, 400, {'error': str(exc)})
+                reply(self, 400, {'error': rt.public_error(exc)})
             except KeyError:
                 reply(self, 400, {'error': 'A required request field or configuration value is missing'})
             except Exception:
@@ -253,10 +256,10 @@ class Auth:
             attempts = [t for t in self.failures[address] if now - t < 300]
             self.failures[address] = attempts
             if len(attempts) >= 5:
-                raise ValueError('Too many sign-in attempts; wait five minutes')
+                raise rt.PublicError('Too many sign-in attempts; wait five minutes')
             if not isinstance(username, str) or not accounts.matches(username, password):
                 attempts.append(now)
-                raise ValueError('Invalid administrator password')
+                raise rt.PublicError('Invalid administrator password')
             self.failures.pop(address, None)
             if len(self.sessions) > 128:
                 self.sessions.clear()
@@ -287,6 +290,10 @@ class Auth:
 
 
 class BoundedHttpsServer(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        # Do not let the stdlib print request exceptions into the journal.
+        pass
+
     daemon_threads = True
     def __init__(self, address, handler):
         self.slots = threading.BoundedSemaphore(32)
@@ -320,7 +327,7 @@ def require_fresh_web_confirmation(session, job, address):
     separate, operator-controlled recovery path when LAN access is unavailable.
     """
     if not isinstance(job, dict) or job.get('status') != 'awaiting-confirmation':
-        raise ValueError('No active transaction is awaiting access confirmation')
+        raise rt.PublicError('No active transaction is awaiting access confirmation')
     try:
         remote = not ipaddress.ip_address(address).is_loopback
     except ValueError:
@@ -443,11 +450,11 @@ def web():
                     return reply(self, 200, result)
                 reply(self, 404, {'error': 'Unknown endpoint'})
             except access_accounts.AuthorizationError as exc:
-                reply(self, 403, {'error': str(exc)})
+                reply(self, 403, {'error': rt.public_error(exc)})
             except PermissionError as exc:
-                reply(self, 401, {'error': str(exc)})
+                reply(self, 401, {'error': rt.public_error(exc)})
             except (ValueError, OSError) as exc:
-                reply(self, 400, {'error': str(exc)})
+                reply(self, 400, {'error': rt.public_error(exc)})
         def do_POST(self):
             try:
                 host = self.access()
@@ -472,26 +479,26 @@ def web():
                     return reply(self, 200, {'ok': True}, extra={'Set-Cookie': 'nixlab_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0'})
                 if self.path == '/api/password':
                     if not accounts.matches(session['username'], body.get('current')):
-                        raise ValueError('Current password is incorrect')
+                        raise rt.PublicError('Current password is incorrect')
                     result = broker_request('POST', '/password', {'username': session['username'], 'password': body['password'], '_actor': session['username']})
                     with auth.lock:
                         auth.sessions = {key: item for key, item in auth.sessions.items() if item['username'] != session['username']}
                     return reply(self, 200, result)
                 if self.path == '/api/migrate-layout' and not accounts.matches(session['username'], body.get('current')):
-                    raise ValueError('Reauthenticate to migrate the machine layout')
+                    raise rt.PublicError('Reauthenticate to migrate the machine layout')
                 if self.path == '/api/review' and (body.get('modules') or body.get('revision')):
                     if body.get('acknowledgePrivilegedModules') is not True or not accounts.matches(session['username'], body.get('adminPassword')):
-                        raise ValueError('Reauthenticate and acknowledge privileged Nix modules')
+                        raise rt.PublicError('Reauthenticate and acknowledge privileged Nix modules')
                     body.pop('adminPassword', None)
                 if self.path == '/api/confirm':
                     state = broker_request('GET', '/status')
                     active = state.get('job') or {}
                     if active.get('id') != body.get('id'):
-                        raise ValueError('Confirm the current reviewed transaction only')
+                        raise rt.PublicError('Confirm the current reviewed transaction only')
                     require_fresh_web_confirmation(session, active, self.client_address[0])
                 if self.path in ('/api/recovery-export', '/api/users'):
                     if not accounts.matches(session['username'], body.pop('current', None)):
-                        raise ValueError('Reauthenticate before exporting recovery material or changing accounts')
+                        raise rt.PublicError('Reauthenticate before exporting recovery material or changing accounts')
                 actions = {'/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/browser-certificate', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests'}
                 if self.path not in actions:
                     return reply(self, 404, {'error': 'Unknown action'})
@@ -499,13 +506,13 @@ def web():
                 reply(self, 200, broker_request('POST', self.path[4:], body))
             except access_accounts.AuthorizationError as exc:
                 self.close_connection = True
-                reply(self, 403, {'error': str(exc)})
+                reply(self, 403, {'error': rt.public_error(exc)})
             except PermissionError as exc:
                 self.close_connection = True
-                reply(self, 401, {'error': str(exc)})
+                reply(self, 401, {'error': rt.public_error(exc)})
             except (ValueError, KeyError, OSError) as exc:
                 self.close_connection = True
-                reply(self, 400, {'error': str(exc)})
+                reply(self, 400, {'error': rt.public_error(exc)})
     server = BoundedHttpsServer(('0.0.0.0', int(os.environ.get('NIXLAB_PORT', '9440'))), Frontend)
     server.daemon_threads = True
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -545,25 +552,25 @@ def ssh_login_epoch(proc_root=Path('/proc'), pid=None):
 def require_fresh_cli_confirmation(job, *, tty=None, ssh_started_at=None):
     """Root confirmation must come from a new remote login or physical VT."""
     if not isinstance(job, dict) or job.get('status') != 'awaiting-confirmation':
-        raise ValueError('No transaction is awaiting access confirmation')
+        raise rt.PublicError('No transaction is awaiting access confirmation')
     ready = job.get('awaitingAt', job.get('appliedAt'))
     if not isinstance(ready, (int, float)):
-        raise ValueError('Cannot establish activation time; inspect recovery at the host console')
+        raise rt.PublicError('Cannot establish activation time; inspect recovery at the host console')
     if tty is None:
         if not sys.stdin.isatty():
-            raise ValueError('Use an interactive NEW SSH login or the physical host console to confirm access')
+            raise rt.PublicError('Use an interactive NEW SSH login or the physical host console to confirm access')
         try:
             tty = os.ttyname(sys.stdin.fileno())
         except OSError:
-            raise ValueError('Cannot verify operator terminal; use physical host console') from None
+            raise rt.PublicError('Cannot verify operator terminal; use physical host console') from None
     if re.fullmatch(r'/dev/(?:tty[0-9]+|ttyS[0-9]+|hvc[0-9]+)', tty):
         return True  # Physical operator can observe local access after activation.
     if not tty.startswith('/dev/pts/'):
-        raise ValueError('Unrecognized terminal; use a new SSH login or the physical host console')
+        raise rt.PublicError('Unrecognized terminal; use a new SSH login or the physical host console')
     if ssh_started_at is None:
         ssh_started_at = ssh_login_epoch()
     if ssh_started_at is None or ssh_started_at <= ready:
-        raise ValueError('This terminal predates activation; open a NEW SSH/Cockpit terminal and confirm there')
+        raise rt.PublicError('This terminal predates activation; open a NEW SSH/Cockpit terminal and confirm there')
     return True
 
 
@@ -589,7 +596,7 @@ def config_cli(argv):
         result = broker_request('GET', '/status')
         if args.command == 'plan':
             result = (result.get('job') or {}).get('impactPlan')
-            if result is None: raise ValueError('Build a new review to generate an impact plan')
+            if result is None: raise rt.PublicError('Build a new review to generate an impact plan')
     elif args.command == 'review':
         modules = {}
         for item in args.module:
@@ -607,7 +614,7 @@ def config_cli(argv):
             state = broker_request('GET', '/status')
             job = state.get('job') or {}
             if job.get('id') != args.id:
-                raise ValueError('Confirm the active transaction only')
+                raise rt.PublicError('Confirm the active transaction only')
             require_fresh_cli_confirmation(job)
         result = broker_request('POST', '/' + args.command, {'id': args.id})
     print(json.dumps(result, indent=2))
@@ -676,7 +683,7 @@ def enroll_key(manager, public_key_file, settings):
     import diagnostics
     keys = [line.strip() for line in Path(public_key_file).read_text().splitlines()
             if line.strip() and not line.lstrip().startswith('#')]
-    if not keys: raise ValueError('The public key file is empty')
+    if not keys: raise rt.PublicError('The public key file is empty')
     candidate = manager.settings()
     candidate['adminKeys'] = sorted(set(candidate['adminKeys'] + keys))
     # Use the same reviewed transaction and health checks as setup.
@@ -699,6 +706,14 @@ def enroll_key(manager, public_key_file, settings):
     print('Test the new key in a fresh session: ssh operator@' + diagnostics.management_address(settings), flush=True)
     rt.pending_access(job_id, record)
     return record
+
+
+def reset_portainer(settings):
+    import portainer
+    with rt.locked(blocking=False): result = portainer.reset(settings)
+    print('Portainer recovered: ' + result['url'])
+    print('Credential is available in the root-only runtime file: ' + str(rt.SECRET_PATHS['portainerPassword']))
+    print('Backup in applications VM: ' + result['backup'])
 
 
 if __name__ == '__main__':
@@ -727,17 +742,13 @@ if __name__ == '__main__':
                         if time.monotonic() >= deadline: raise
                         time.sleep(2)
             elif action == 'enroll-key':
-                if len(sys.argv) != 3: raise ValueError('Usage: sudo nixlab enroll-key laptop.pub')
+                if len(sys.argv) != 3: raise rt.PublicError('Usage: sudo nixlab enroll-key laptop.pub')
                 enroll_key(manager, sys.argv[2], settings)
             else:
-                if sys.argv[2:] != ['reset-password']: raise ValueError('Usage: sudo nixlab portainer reset-password')
-                import portainer
-                with rt.locked(blocking=False): result = portainer.reset(settings)
-                print('Portainer recovered: ' + result['url'])
-                print('Username: ' + result['username'] + '; password: ' + result['password'])
-                print('Backup in applications VM: ' + result['backup'])
+                if sys.argv[2:] != ['reset-password']: raise rt.PublicError('Usage: sudo nixlab portainer reset-password')
+                reset_portainer(settings)
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
-            sys.exit(str(exc))
+            sys.exit('Command failed; check inputs and host status before retrying')
     elif action == 'backend':
         backend()
     elif action == 'web':
@@ -758,7 +769,7 @@ if __name__ == '__main__':
         try:
             deploy_cli(sys.argv[2:])
         except (ValueError, OSError) as exc:
-            sys.exit(str(exc))
+            sys.exit('Command failed; check inputs and host status before retrying')
     elif action == 'recovery' and os.geteuid() == 0:
         import recovery
         recovery.cli(sys.argv[2:])
@@ -781,7 +792,7 @@ if __name__ == '__main__':
         try:
             prepare()
         except (ValueError, OSError, StopIteration, EOFError, subprocess.CalledProcessError) as exc:
-            sys.exit(str(exc))
+            sys.exit('Command failed; check inputs and host status before retrying')
     elif action == 'recovery-backup' and os.geteuid() == 0:
         import recovery
         recovery.backup(Path(sys.argv[2]))
@@ -792,7 +803,7 @@ if __name__ == '__main__':
         try:
             config_cli(sys.argv[2:])
         except (ValueError, OSError) as exc:
-            sys.exit(str(exc))
+            sys.exit('Command failed; check inputs and host status before retrying')
     elif action == 'prune-jobs' and os.geteuid() == 0:
         import argparse
         from controller import Manager
@@ -811,7 +822,7 @@ if __name__ == '__main__':
         try:
             accounts.approve_enrollment(getpass.getpass('Code displayed in your browser: '))
         except (ValueError, OSError) as exc:
-            sys.exit(str(exc))
+            sys.exit('Command failed; check inputs and host status before retrying')
         print('Browser approved for ten minutes. Return to the portal to create its password.')
     elif action == 'reset-password' and os.geteuid() == 0:
         import getpass
