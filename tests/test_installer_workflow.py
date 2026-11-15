@@ -102,6 +102,16 @@ class SourceTests(unittest.TestCase):
                 if attribute == 'nixlabSettings': return rt.read_json(rt.machine_path(config, 'settings'))
                 return copy.deepcopy(initial()) if attribute == 'nixlabDefaults' else {'adminKeys': [], 'wpaProfiles': False}
             def activate(candidate, **kwargs):
+                staged = kwargs.get('staged_source')
+                if staged is not None:
+                    # Existing-host planning must leave installed source,
+                    # settings and inventory untouched until the worker runs.
+                    self.assertEqual((target / 'admin/main.py').read_text(), 'fixture')
+                    self.assertNotEqual((staged / 'admin/main.py').read_text(), 'fixture')
+                    from upgrades import publish
+                    publish(staged, target)
+                    rt.atomic(rt.machine_path(target, 'installation'),
+                              rt.machine_path(staged, 'installation').read_bytes())
                 rt.write_json(rt.machine_path(target, 'settings'), candidate)
                 return None, {}
             evaluated_retry = None
@@ -125,7 +135,7 @@ class SourceTests(unittest.TestCase):
                  patch('controller.Manager.status', return_value={'job': None}),
                  patch('controller.read_settings', side_effect=lambda root: rt.read_json(rt.machine_path(root, 'settings'), {})),
                  patch('direct.activate', side_effect=activate), patch('builtins.print'),
-                 patch('bootstrap.activate', side_effect=lambda: activate(rt.read_json(rt.machine_path(target, 'settings')))[1]),
+                 patch('bootstrap.activate', side_effect=lambda **kw: activate(rt.read_json(rt.machine_path(target, 'settings')), **kw)[1]),
                  patch.object(sys, 'argv', ['nixlab-install', '--checkout', str(source)] + (['--wizard'] if wizard else []))
             ]
             with contextlib.ExitStack() as stack:
