@@ -195,7 +195,8 @@ sudo incus network show incusbr0
 sudo incus storage show guests
 ```
 
-Forward host TCP 9090 over SSH to inspect Prometheus (`ssh -L 9090:127.0.0.1:9090 operator@HOST_IP`).
+Forward host TCP 9091 over SSH to inspect Prometheus (`ssh -L 9091:127.0.0.1:9091 operator@HOST_IP`).
+Port 9090 remains available for Cockpit; history and Cockpit can be enabled together.
 Only loopback exposes Prometheus and the host node exporter. Incus metrics are fetched through
 its authenticated local UNIX socket into node-exporter textfiles. The VM node exporter is reached
 by the host bridge IP; other guest monitoring requires enabling/configuring an exporter in that guest.
