@@ -24,6 +24,11 @@ in pkgs.testers.runNixOSTest {
     system.switch.enable = lib.mkForce true;
     boot.kernelModules = lib.mkForce [ ];
     virtualisation.memorySize = 2048;
+    # A real switch installs the bootloader. The default partitionless direct-
+    # boot scratch disk cannot embed GRUB; use NixOS's bootable test-disk layout.
+    virtualisation.useBootLoader = true;
+    virtualisation.installBootLoader = true;
+    virtualisation.diskSize = 4096;
     virtualisation.vlans = [ 1 ];
     networking.interfaces.eth1.ipv4.addresses = [ { address = "192.168.1.1"; prefixLength = 24; } ];
     environment.etc."nixlab-test-settings.json".text = builtins.toJSON settings;
