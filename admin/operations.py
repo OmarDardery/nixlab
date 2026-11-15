@@ -92,11 +92,7 @@ class Operations:
         self.directory.mkdir(parents=True, mode=0o700, exist_ok=True)
 
     def path(self, job_id):
-        if not isinstance(job_id, str) or not re.fullmatch(r'[0-9a-f]{32}', job_id):
-            raise ValueError('Invalid operation ID')
-        directory = self.directory / job_id
-        if not directory.is_dir(): raise ValueError('Unknown operation')
-        return directory
+        return rt.job_directory(self.directory, job_id, 'operation')
 
     def status(self, limit=30):
         records = []
