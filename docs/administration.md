@@ -146,6 +146,8 @@ password and removes only the selected owned fingerprint through Incus trust API
 It also invalidates any pending portal download. The existing guard removes expired
 NixLab-owned trust; unrelated and older external trust entries are never adopted
 or removed automatically. Manage legacy/external certificates through Incus itself.
+The separate encrypted recovery kit preserves the root ownership registry;
+configuration-only exports and support metadata do not carry browser keys or bundles.
 
 If download/import is cancelled, a timeout occurs, or the broker restarts, inspect
 the identity list before retrying. Ownership intent is durable before Incus mutation,

@@ -63,9 +63,12 @@ def main():
             status, data = request(context, 'GET', path)
             assert status == 200 and data['metadata']['name'] == 'native', (status, data)
             status, data = request(context, 'PATCH', path, {'config': {'user.browser-certificate-fixture': 'permitted'}})
-            assert status == 202, (status, data)
-            status, finished = request(context, 'GET', data['operation'].split('?', 1)[0] + '/wait?timeout=10&project=lab')
-            assert status == 200 and finished['metadata']['status_code'] == 200, (status, finished)
+            assert status in (200, 202), (status, data)
+            if status == 202:
+                status, finished = request(context, 'GET', data['operation'].split('?', 1)[0] + '/wait?timeout=10&project=lab')
+                assert status == 200 and finished['metadata']['status_code'] == 200, (status, finished)
+            status, updated = request(context, 'GET', path)
+            assert status == 200 and updated['metadata']['config']['user.browser-certificate-fixture'] == 'permitted', (status, updated)
             private = '/1.0/instances/private-fixture?project=default'
             local = subprocess.run(['incus', '--force-local', 'query', private],
                                    check=True, capture_output=True, timeout=10)

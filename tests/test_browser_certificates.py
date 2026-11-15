@@ -119,6 +119,16 @@ class BrowserCertificateTests(unittest.TestCase):
         self.assertEqual(list(destination.iterdir()), [])
         self.assertEqual(self.live, {})
 
+    def test_recovery_preserves_ownership_metadata_without_runtime_keys(self):
+        import recovery
+        self.issue()
+        orphan = certs.RUNTIME / 'issue-abcdefgh'; orphan.mkdir(mode=0o700)
+        rt.atomic(orphan / 'key', SECRETS['private-key'])
+        with patch.object(recovery, 'settings', return_value={}):
+            files = recovery.secret_files()
+        self.assertEqual(files['admin/browser-certificates.json'], self.root / 'browser-certificates.json')
+        self.assertNotIn(orphan / 'key', files.values())
+
     def test_hostile_registry_metadata_cannot_become_a_public_error_or_inventory(self):
         bundle = self.issue()
         value = certs.registry(self.root)
