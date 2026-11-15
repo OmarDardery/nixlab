@@ -106,3 +106,20 @@ Never upload real host secrets to CI for this test.
 Pure Nix evaluation and supported VM tests must inspect generated artifacts; no
 local Python test proves absence from the Nix store or journals. Full release
 qualification still requires its executable evidence contract and matching CI.
+
+### Staged host transaction credentials
+
+The job record stores the names of reviewed secret fields. Transactions with no
+secret changes need no staging file. The worker reads the staging file only
+from the job directory, verifies private access and requires the reviewed key set.
+
+| Transaction state | Staged credentials |
+| --- | --- |
+| Building | Retained for the candidate build and activation |
+| Ready or failed, with no pending activation | Retained for up to 24 hours from review, then the guard cancels the candidate and removes the file |
+| Applying, awaiting confirmation, or rolling back | Retained while the mutation or pending activation still owns recovery |
+| Confirmed, rolled back, cancelled, or superseded | Removed by the terminal action or retried by the guard |
+
+Recovery manifests and live service credentials have separate lifetimes.
+A failed unlink yields a fixed error in the transaction or guard service. The
+guard retries on its next run.

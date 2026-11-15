@@ -2,11 +2,13 @@
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 
 BASE = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(BASE / 'admin'), str(BASE / 'scripts')]
 import runtime as rt
+from credential_fixtures import SECRETS, assert_public_clean
 
 
 class CleanupTests(unittest.TestCase):
@@ -26,6 +28,38 @@ class CleanupTests(unittest.TestCase):
                 self.assertEqual((job / 'secrets.json').exists(), i >= 4, status)
                 self.assertEqual((job / 'recovery/manifest.json').read_text(), 'retained')
             rt.cleanup_terminal_secrets(root)  # Idempotent after a partial/complete sweep.
+
+    def test_expired_review_is_cancelled_before_its_secret_is_removed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            directory = root / 'jobs' / ('a' * 32)
+            job = directory / 'job.json'
+            path = directory / 'secrets.json'
+            rt.write_json(job, {'status': 'ready', 'created': time.time() - rt.STAGED_SECRET_LIFETIME - 1})
+            rt.write_json(path, {'cockpitPassword': SECRETS['staged']})
+            rt.cleanup_terminal_secrets(root)
+            self.assertFalse(path.exists())
+            self.assertEqual(rt.read_job_record(job)['status'], 'cancelled')
+            assert_public_clean(self, job.read_bytes())
+
+    def test_staged_secret_reader_rejects_missing_aliased_and_nonprivate_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder)
+            path = directory / 'secrets.json'
+            expected = ['cockpitPassword']
+            with self.assertRaisesRegex(ValueError, 'Staged credentials are missing'):
+                rt.read_staged_secrets(directory, expected)
+            rt.write_json(path, {'cockpitPassword': SECRETS['staged']})
+            self.assertEqual(rt.read_staged_secrets(directory, expected)['cockpitPassword'], SECRETS['staged'])
+            path.chmod(0o640)
+            with self.assertRaisesRegex(ValueError, 'Staged credentials are invalid') as caught:
+                rt.read_staged_secrets(directory, expected)
+            assert_public_clean(self, str(caught.exception))
+            other = path.with_name('private.json')
+            path.rename(other)
+            path.symlink_to(other)
+            with self.assertRaisesRegex(ValueError, 'Staged credentials are invalid'):
+                rt.read_staged_secrets(directory, expected)
 
     def test_pending_pointer_and_unknown_records_are_preserved(self):
         with tempfile.TemporaryDirectory() as folder:
