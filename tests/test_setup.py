@@ -357,6 +357,76 @@ class TransactionTests(SettingsFixture):
                 with self.assertRaisesRegex(ValueError,'changed since review'):
                     manager.apply(job_id)
 
+
+class StagedInstallerTransactionTests(SettingsFixture):
+    """Installer may prepare sources but cannot publish them before a review."""
+
+    def create_sources(self, directory):
+        root = directory / 'source'
+        staged = directory / 'staged'
+        state = directory / 'state'
+        rt.write_json(root / '.nixlab-files.json', [
+            'flake.nix', 'admin/main.py', 'machine/format.json',
+            'machine/settings.json', 'machine/installation.json'])
+        rt.atomic(root / 'flake.nix', '{}')
+        rt.atomic(root / 'admin/main.py', 'old platform')
+        rt.write_json(root / 'machine/format.json', {'version': 1})
+        rt.write_json(root / 'machine/settings.json', settings())
+        rt.write_json(root / 'machine/installation.json', {'interface': 'eth0'})
+        rt.snapshot(staged, root)
+        rt.atomic(staged / 'admin/main.py', 'new platform')
+        rt.write_json(staged / 'machine/installation.json', {'interface': 'eth0', 'pendingTasks': ['reboot']})
+        return root, staged, state
+
+    def test_installer_stages_code_and_inventory_only_in_transaction(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root, staged, state = self.create_sources(Path(folder))
+            original = {name: (root / name).read_bytes()
+                        for name in ('admin/main.py', 'machine/installation.json', 'machine/settings.json')}
+            manager = Manager(root, state)
+            with patch.object(rt, 'STATE', state), patch('controller.inventory', return_value=HOST), patch.object(manager, 'spawn') as worker_spawn:
+                reviewed = manager.review(settings(), principal='root-direct-install',
+                                          staged_source=staged, expected_base_digest=rt.digest_source(root))
+            job_dir = manager.job_path(reviewed['id'])
+            self.assertTrue(rt.read_json(job_dir / 'job.json')['sourceStaged'])
+            self.assertTrue(rt.read_json(job_dir / 'job.json')['sourcePlatformUpdated'])
+            self.assertEqual((job_dir / 'source/admin/main.py').read_text(), 'new platform')
+            self.assertEqual(rt.read_json(job_dir / 'source/machine/installation.json')['pendingTasks'], ['reboot'])
+            worker_spawn.assert_called_once_with('build', reviewed['id'])
+            for name, previous in original.items():
+                self.assertEqual((root / name).read_bytes(), previous, name)
+
+    def test_stale_or_untrusted_installer_stage_cannot_start_a_job(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root, staged, state = self.create_sources(Path(folder))
+            manager = Manager(root, state)
+            digest = rt.digest_source(root)
+            rt.atomic(root / 'admin/main.py', 'concurrent source edit')
+            with patch.object(rt, 'STATE', state), patch('controller.inventory', return_value=HOST), patch.object(manager, 'spawn') as spawn:
+                with self.assertRaisesRegex(ValueError, 'changed during planning'):
+                    manager.review(settings(), principal='root-direct-install',
+                                   staged_source=staged, expected_base_digest=digest)
+                with self.assertRaisesRegex(ValueError, 'local installer'):
+                    manager.review(settings(), principal='web-admin',
+                                   staged_source=staged, expected_base_digest=rt.digest_source(root))
+                spawn.assert_not_called()
+            self.assertEqual(list((state / 'jobs').iterdir()), [])
+            self.assertEqual((root / 'admin/main.py').read_text(), 'concurrent source edit')
+
+    def test_installer_stage_cannot_alter_unreviewed_modules(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root, staged, state = self.create_sources(Path(folder))
+            rt.atomic(root / 'machine/modules/operator.nix', 'old')
+            rt.atomic(staged / 'machine/modules/operator.nix', 'new')
+            manager = Manager(root, state)
+            with patch.object(rt, 'STATE', state), patch('controller.inventory', return_value=HOST), patch.object(manager, 'spawn') as spawn:
+                with self.assertRaisesRegex(ValueError, 'unreviewed local machine files'):
+                    manager.review(settings(), principal='root-direct-install',
+                                   staged_source=staged, expected_base_digest=rt.digest_source(root))
+                spawn.assert_not_called()
+            self.assertEqual((root / 'machine/modules/operator.nix').read_text(), 'old')
+
+
 class CandidateLifecycleTests(unittest.TestCase):
     def test_superseded_candidate_cannot_activate(self):
         with tempfile.TemporaryDirectory() as folder:
