@@ -198,8 +198,9 @@ async function action(name, el) {
         acknowledgePrivilegedModules:
           document.querySelector("#platform-ack")?.checked,
       });
-      document.querySelector("#platform-password").value = "";
-      document.querySelector("#platform-ack").checked = false;
+      // The user may have navigated while the review request was in flight.
+      document.querySelectorAll("#platform-password").forEach(input => { input.value = ""; });
+      document.querySelectorAll("#platform-ack").forEach(input => { input.checked = false; });
       state.modules = {};
       state.platformRevision = "";
       state.status = await api("status");
