@@ -33,7 +33,8 @@ function healthSummary() {
         `<li>${esc(name)}: ${c.present ? (c.expiresWithin30Days ? "expires soon" : esc(c.expires || "present")) : "not present"}</li>`,
     )
     .join("");
-  return `<p>Backup: <b>${esc(h.backup?.health || "unknown")}</b> · Guests awaiting restart: ${esc(h.guestsAwaitingRestart ?? "unknown")}</p>${h.rootStorage ? `<p>Root storage: ${esc(formatBytes(h.rootStorage.availableBytes))} available of ${esc(formatBytes(h.rootStorage.totalBytes))}</p>` : ""}<ul>${services}${certificates}</ul>`;
+  const clock = h.clock ? `<p>Host clock: <b>${esc(h.clock.state)}</b>${h.clock.evidenceWarning ? ` · ${esc(h.clock.guidance)}` : ""}</p>` : "";
+  return `${clock}<p>Backup: <b>${esc(h.backup?.health || "unknown")}</b> · Guests awaiting restart: ${esc(h.guestsAwaitingRestart ?? "unknown")}</p>${h.rootStorage ? `<p>Root storage: ${esc(formatBytes(h.rootStorage.availableBytes))} available of ${esc(formatBytes(h.rootStorage.totalBytes))}</p>` : ""}<ul>${services}${certificates}</ul>`;
 }
 
 function backupCoverage(status) {

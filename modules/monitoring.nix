@@ -9,6 +9,8 @@ let collecting = site.monitoring.collection || site.monitoring.history; in {
   services.prometheus = {
     enable = site.monitoring.history;
     listenAddress = "127.0.0.1";
+    # Cockpit uses a wildcard socket on 9090, including the loopback address.
+    port = 9091;
     retentionTime = "${toString site.monitoring.retentionDays}d";
     globalConfig.scrape_interval = "${toString site.monitoring.scrapeSeconds}s";
     globalConfig.evaluation_interval = "${toString site.monitoring.scrapeSeconds}s";

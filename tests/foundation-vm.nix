@@ -52,7 +52,46 @@ in pkgs.testers.runNixOSTest {
     services.openssh = { enable = true; openFirewall = false; };
     # This fixture exercises real containers; it makes no KVM/VM-guest claim.
     systemd.services.nixlab-kvm-check = { serviceConfig.Type = "oneshot"; script = "true"; };
-    environment.systemPackages = [ pkgs.python3 pkgs.incus-lts.client pkgs.util-linux pkgs.git ];
+    environment.systemPackages = [ pkgs.python3 pkgs.incus-lts.client pkgs.util-linux pkgs.git pkgs.networkmanager pkgs.openssl ];
+    # Only this isolated Ethernet fixture belongs to NetworkManager.
+    networking.networkmanager = {
+      enable = true;
+      settings.main.no-auto-default = "*";
+      # NetworkManager's udev defaults exclude veth. This veth simulates the
+      # physical Ethernet port under test, so explicitly assign only it to NM.
+      settings.device-nixlab-test-port = {
+        match-device = "interface-name:repair-port";
+        managed = true;
+      };
+      unmanaged = [ "*" "except:interface-name:repair-port" "except:interface-name:repair-peer" "except:interface-name:br-repair" ];
+    };
+    systemd.services.nixlab-test-port = {
+      wantedBy = [ "multi-user.target" ]; before = [ "NetworkManager.service" ];
+      path = [ pkgs.iproute2 ];
+      serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+      script = "ip link add repair-port type veth peer name repair-peer; ip link set repair-peer up";
+    };
+    environment.etc."nixlab-repair-base.json".text = builtins.toJSON (site // {
+      management = site.management // { configure = false; };
+      cockpit = site.cockpit // { enable = false; };
+    });
+    systemd.services.nixlab-management-identity = {
+      # Raw fixture directories are separate Nix store inputs; production
+      # launchers bundle installer/admin siblings instead. Preserve these
+      # imports for both the native command and its temporary ExecStart.
+      environment.PYTHONPATH = "${../admin}:${../scripts}";
+      path = [ pkgs.iproute2 pkgs.openssl ];
+      wants = [ "network-online.target" ]; after = [ "network-online.target" ];
+      serviceConfig = { Type = "oneshot"; RemainAfterExit = true; Restart = "on-failure"; RestartSec = "3s"; TimeoutStartSec = "120s"; };
+      preStart = "test -e /var/lib/nixlab-test-identity.json || cp /etc/nixlab-repair-base.json /var/lib/nixlab-test-identity.json";
+      script = ''
+        ${pkgs.python3}/bin/python -c 'import json,diagnostics; diagnostics.identity(json.load(open("/var/lib/nixlab-test-identity.json")))'
+      '';
+    };
+    systemd.services.incus = {
+      requires = [ "nixlab-management-identity.service" ];
+      after = [ "nixlab-management-identity.service" ];
+    };
     environment.etc."nixlab-impact-fixture.json".text = builtins.toJSON {
       settings = site; disks = { }; instances = [ ];
       preseed = config.virtualisation.incus.preseed;
@@ -73,7 +112,7 @@ in pkgs.testers.runNixOSTest {
   };
   testScript = ''
     import json
-    host.start()
+    host.start(allow_reboot=True)
     client.start()
     replacement.start(allow_reboot=True)
     host.wait_for_unit("incus-preseed.service")
@@ -129,6 +168,27 @@ in pkgs.testers.runNixOSTest {
     host.succeed("incus start restored --project lab")
     assert host.succeed("incus config get native volatile.eth0.hwaddr --project lab").strip() != host.succeed("incus config get restored volatile.eth0.hwaddr --project lab").strip()
     assert host.succeed("incus exec restored --project lab --disable-stdin -- /bin/cat /var/lib/test/index.html").strip() == "preserved"
+    native_uuid = host.succeed("incus config get native volatile.uuid --project lab").strip()
+    assert native_uuid
+    host.wait_for_unit("NetworkManager.service")
+    host.succeed("PYTHONPATH=${../installer}:${../admin}:${../scripts} python3 ${./network-repair-integration.py}", timeout=180)
+    host.reboot()
+    host.wait_for_unit("NetworkManager.service")
+    host.wait_until_succeeds("ip -4 address show dev br-repair | grep 198.51.100.10", timeout=60)
+    try:
+        host.wait_until_succeeds("bridge link show dev repair-port | grep 'state forwarding'", timeout=60)
+    except Exception:
+        print(host.succeed("nmcli -f NAME,UUID,TYPE,AUTOCONNECT connection show"))
+        print(host.succeed("nmcli -f GENERAL device show repair-port"))
+        print(host.succeed("ip -d link show dev repair-port"))
+        print(host.succeed("journalctl -b -u NetworkManager --no-pager -n 80"))
+        raise
+    port = json.loads(host.succeed("ip -j link show dev repair-port"))[0]
+    assert port.get("master") == "br-repair" and port.get("operstate") == "UP", port
+    host.wait_for_unit("incus.service")
+    assert host.succeed("incus config get native volatile.uuid --project lab").strip() == native_uuid
+    host.wait_until_succeeds("incus exec native --project lab --disable-stdin -- /bin/cat /var/lib/test/index.html | grep -x preserved", timeout=60)
+    host.succeed("test ! -e /run/systemd/system/nixlab-management-identity.service.d/90-nixlab-network-repair.conf")
 
     # Recover actual archives on an independent Incus daemon/storage node. This
     # fixture is automated VM evidence, never physical replacement qualification.

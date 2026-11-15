@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "purpose": "Public compatibility baseline for NixLab host simplification; record existing behavior, not insecure defaults.",
+  "flakeAttributes": [
+    "nixosModules",
+    "nixosConfigurations.hypervisor",
+    "nixosConfigurations.apps",
+    "nixosConfigurations.bootstrap",
+    "packages.x86_64-linux.installer",
+    "packages.x86_64-linux.admin",
+    "apps.x86_64-linux.install",
+    "apps.x86_64-linux.update",
+    "checks.x86_64-linux.startup",
+    "checks.x86_64-linux.portal"
+  ],
+  "cliBinaries": {
+    "nixlab-install": "installer/package.nix",
+    "nixlab-update": "installer/package.nix",
+    "nixlab-admin": "admin/package.nix"
+  },
+  "portalRoutes": {
+    "get": [
+      "/api/session",
+      "/api/status",
+      "/api/inventory",
+      "/api/operations",
+      "/api/guests",
+      "/api/health",
+      "/api/recipes",
+      "/api/users",
+      "/api/guest-network",
+      "/api/deployment/"
+    ],
+    "post": [
+      "/api/login",
+      "/api/logout",
+      "/api/password",
+      "/api/review",
+      "/api/apply",
+      "/api/confirm",
+      "/api/rollback",
+      "/api/cancel",
+      "/api/migrate-layout",
+      "/api/operation",
+      "/api/browser-certificate",
+      "/api/users",
+      "/api/recovery-export",
+      "/api/deploy-guests"
+    ]
+  },
+  "statusFields": [
+    "job",
+    "pending",
+    "settings",
+    "effectiveSettings",
+    "lastConfirmed",
+    "managementAddress",
+    "currentSystem",
+    "setupComplete",
+    "settingsSchema"
+  ],
+  "runtimeDefaults": {
+    "NIXLAB_ROOT": "/var/lib/nixlab/config",
+    "NIXLAB_STATE": "/var/lib/nixlab-admin"
+  },
+  "machinePaths": {
+    "modern": {
+      "settings": "machine/settings.json",
+      "modules": "machine/modules",
+      "installation": "machine/installation.json"
+    },
+    "legacy": {
+      "settings": "local/settings.json",
+      "modules": "site-modules",
+      "installation": "local/installation.json"
+    }
+  },
+  "rootStateRecords": [
+    "auth.json",
+    "active.json",
+    "pending.json",
+    "last-confirmed.json",
+    "jobs"
+  ],
+  "systemdUnits": {
+    "modules/admin-ui.nix": [
+      "nixlab-management-identity",
+      "nixlab-admin-backend",
+      "nixlab-ui",
+      "nixlab-rollback-guard",
+      "nixlab-management-health",
+      "nixlab-tls-renew"
+    ],
+    "modules/backups.nix": [
+      "nixlab-backup-recover",
+      "nixlab-backup-check"
+    ]
+  },
+  "regressionSuites": [
+    "tests/test_architecture_contract.py",
+    "tests/test_installer_workflow.py",
+    "tests/test_update_command.py",
+    "tests/test_worker_inspection.py",
+    "tests/test_impact.py",
+    "tests/test_guest_network.py",
+    "tests/test_secret_cleanup.py",
+    "tests/test_management.py",
+    "tests/test_backup_plan.py",
+    "tests/test_platform.py",
+    "tests/test_release.py",
+    "tests/settings-checks.nix",
+    "tests/management-vm.nix",
+    "tests/foundation-vm.nix"
+  ]
+}

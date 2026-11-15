@@ -1,5 +1,21 @@
 # Security, storage, snapshots and recovery
 
+## Initial onboarding and host activation
+
+The initial web-wizard bootstrap and full installation share the existing
+Manager/worker recovery manifest, previous-generation pin and independent pending
+deadline. Local health checks leave access unconfirmed. Verify a fresh management
+connection and confirm explicitly before the deadline; otherwise the guard
+restores the saved host configuration and generation. This cannot undo guest data
+or an incompatible Incus database change.
+
+After a disconnected initial wizard, rerun the installer with `--wizard` to resume
+its transaction. After a disconnected full installation, rerun without that flag.
+Do not delete pending/job/recovery files to force a retry. Inspect the transaction
+and root worker journal from a local console if recovery fails; the retained
+original OS generation and bootloader remain the fallback. Recovery does not need
+the apps VM, Portainer or an application identity service.
+
 ## Storage policy
 
 | Backend | Benefits | Limits |

@@ -40,3 +40,13 @@ assert.ok(/data-action="apply" >/.test(vm.runInContext('review()',context)),'A r
 vm.runInContext('delete state.status.job.impactPlan',context);
 assert.ok(/data-action="apply" disabled/.test(vm.runInContext('review()',context)),'Legacy candidates must be rebuilt');
 console.log('Foundation UI checks passed: host forms, impact blockers/ownership, escaped metadata and compatibility.');
+vm.runInContext('state.status.job.settingsMigration={from:0,to:1}',context);
+assert.ok(vm.runInContext('settingsMigrationReview()',context).includes('Version 0 → 1'));
+vm.runInContext('state.status.job.settingsMigration={from:1,to:1}',context);
+assert.equal(vm.runInContext('settingsMigrationReview()',context), '');
+vm.runInContext(`state.status.job.candidateOverrides=[{setting:'hostName',before:'fixture',after:'<unsafe>'}]`,context);
+const overridesHtml=vm.runInContext('candidateOverridesReview()',context);
+assert.ok(overridesHtml.includes('hostName') && overridesHtml.includes('&lt;unsafe&gt;'));
+assert.ok(!overridesHtml.includes('<unsafe>'));
+vm.runInContext('state.status.job.candidateOverrides=null',context);
+assert.equal(vm.runInContext('candidateOverridesReview()',context),'');

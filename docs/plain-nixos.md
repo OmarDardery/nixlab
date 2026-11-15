@@ -44,6 +44,12 @@ can proceed with no key and enroll one later:
 sudo nixlab enroll-key /path/to/laptop.pub
 ```
 
+Key enrollment leaves the rollback guard armed. Open a new SSH session using
+the enrolled key, verify access, then run the printed
+`sudo nixlab-admin config confirm TRANSACTION_ID` command from that session.
+The portal can also confirm the pending transaction. If access fails, leave it
+unconfirmed so the deadline restores the previous generation.
+
 The key must come from the **client** that will connect. Generating a private key
 on the server does not authorize the laptop. A remote SSH installation using key-only access must have an administrator key. Detection also checks
 for an sshd process ancestor because sudo can remove SSH environment variables.

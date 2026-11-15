@@ -85,3 +85,15 @@ sufficient observation period and a successful independent restore drill.
 | `vzdump` | Offline Incus exports + application dump + independent restic |
 | `pvesh` | Authenticated Incus REST API / `incus query` |
 | host config changes | Reviewed Git/NixOS generation and rebuild |
+
+## Settings schema 0 to 1
+
+Unversioned JSON remains readable through the Nix migration. Existing authentication,
+trusted clients, addressing, mounts and guest declarations retain their values.
+There is no background rewrite or automatic access tightening. An ordinary reviewed
+change stages schema 1, shows the version transition and uses the existing activation,
+confirmation and rollback flow. Keep the old source and JSON together: an older
+source may not understand schema 1. The existing transaction recovery restores the
+original source and settings together; do not copy only the new settings onto an
+old checkout. Unknown future versions require compatible source, not hand-editing
+the version number. The broker fails clearly when Nix is unavailable.

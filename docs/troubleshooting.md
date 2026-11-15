@@ -1,5 +1,18 @@
 # Troubleshooting
 
+## Ethernet is up but there is no management address or web page
+
+A physical Ethernet port can be `UP` while its address belongs to a bridge. If
+NixLab still selects the port, identity generation fails and dependent services,
+including Incus, cannot start. Saved profiles with autoconnect disabled also
+explain a bridge disappearing after reload or reboot.
+
+Use the [console recovery command](operations.md#reviewed-upgrades).
+It repairs the existing connection and feeds the corrected selection through the
+normal guarded main update. Do not disable the firewall, delete Incus data, assign
+a guessed static address or reboot an unconfirmed test activation to hide this
+failure. Confirm portal/SSH access and inspect the boot-default notice first.
+
 ## Apps VM DHCP crashes during an update
 
 A core dump in `dhcpcd`'s `ipv6nd_expire` can match the upstream
@@ -127,6 +140,12 @@ enroll your **laptop's public key** through a local host terminal:
 ```sh
 sudo nixlab enroll-key /path/to/laptop.pub
 ```
+
+Key enrollment leaves the rollback guard armed. Open a new SSH session using
+the enrolled key, verify access, then run the printed
+`sudo nixlab-admin config confirm TRANSACTION_ID` command from that session.
+The portal can also confirm the pending transaction. If access fails, leave it
+unconfirmed so the deadline restores the previous generation.
 
 A key generated on the server does not authorize your laptop. Check **Access**
 for the password-login policy. A locked Linux account still needs a usable password;

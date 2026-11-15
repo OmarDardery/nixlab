@@ -70,6 +70,7 @@
             [ ./admin/recipes/laptop.json ./admin/recipes/disk-health.json ./admin/recipes/private-access.json ]);
         validation-host = mkHost testSite testApps [ ./tests/hardware.nix ];
         validation-management = mkHost (testSite // {
+          monitoring = testSite.monitoring // { history = true; };
           cockpit = testSite.cockpit // { enable = true; };
           apps = testSite.apps // { portainerPort = 9443; };
           setup = testSite.setup // { enable = true; };
@@ -139,6 +140,10 @@
         cockpitLocalOnly = !c.services.cockpit.settings.WebService.LoginTo;
         cockpitAddress = c.systemd.sockets.cockpit.listenStreams == [ "" "0.0.0.0:9090" ];
         cockpitPAM = c.security.pam.services ? cockpit;
+        monitoringWithCockpit = c.services.prometheus.enable
+          && c.services.prometheus.listenAddress == "127.0.0.1"
+          && c.services.prometheus.port == 9091
+          && c.services.prometheus.port != c.nixlab.settings.cockpit.port;
         hostDockerDisabled = !c.virtualisation.docker.enable;
         selectedPort = (builtins.head proxy.listen).port == 9443;
         legacyPortPreserved = (builtins.head legacy.services.nginx.virtualHosts.nixlab-portainer.listen).port == 9441;
@@ -172,10 +177,11 @@
             (builtins.attrValues bootstrap.config.users.users)));
       };
       checks.x86_64-linux = {
-        installer-runtime = self.packages.x86_64-linux.installer.tests.recovery-guard;
         startup = import ./tests/startup-vm.nix { inherit pkgs; };
         management = import ./tests/management-vm.nix { inherit pkgs; };
+        installer-runtime = self.packages.x86_64-linux.installer.tests.recovery-guard;
         portal = import ./tests/portal-vm.nix { inherit pkgs; };
+        bootstrap-transaction = import ./tests/bootstrap-transaction-vm.nix { inherit pkgs; };
         foundation = import ./tests/foundation-vm.nix { inherit pkgs; };
         guest-deployments = import ./tests/guest-deployments-vm.nix { inherit pkgs; };
         host = self.nixosConfigurations.validation-host.config.system.build.toplevel;

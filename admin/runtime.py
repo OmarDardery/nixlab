@@ -96,6 +96,71 @@ def read_json(path, fallback=None):
     return json.loads(Path(path).read_text()) if Path(path).exists() else fallback
 
 
+def job_directory(base, job_id, label='transaction'):
+    """Resolve an existing durable job without accepting paths or symlink aliases."""
+    if not isinstance(job_id, str) or not re.fullmatch(r'[0-9a-f]{32}', job_id):
+        raise ValueError('Invalid ' + label + ' ID')
+    directory = Path(base) / job_id
+    if directory.is_symlink() or not directory.is_dir():
+        raise ValueError('Unknown ' + label)
+    return directory
+
+
+def tail_log(path, limit=65536):
+    """Read a bounded UTF-8 view without loading a potentially large build log."""
+    try:
+        with Path(path).open('rb') as stream:
+            stream.seek(max(0, os.fstat(stream.fileno()).st_size - limit))
+            return stream.read(limit).decode(errors='replace')
+    except FileNotFoundError:
+        return ''
+
+
+def worker_active(unit: str) -> bool:
+    """Observe only NixLab workers; unknown systemd state is not stopped work."""
+    if not isinstance(unit, str) or not re.fullmatch(r'nixlab-(?:build|apply|operation|deploy)-[0-9a-f]{32}', unit):
+        raise ValueError('Invalid worker unit')
+    try:
+        result = subprocess.run(['systemctl', 'is-active', '--quiet', unit],
+                                capture_output=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        raise ValueError('Worker state unavailable; retry status or inspect systemd from the host console') from None
+    # systemctl's LSB codes distinguish inactive/failed (3) and missing (4)
+    # from an invocation, permission or transport failure. Never publish stderr.
+    if result.returncode not in (0, 3, 4):
+        raise ValueError('Worker state unavailable; retry status or inspect systemd from the host console')
+    return result.returncode == 0
+
+
+def cleanup_terminal_secrets(state):
+    """Retry interrupted cleanup; caller holds the existing mutation lock.
+
+    Failed or resumable work may still need staged credentials. Recovery manifests
+    and live credentials have a separate lifetime and are never touched here.
+    """
+    state = Path(state)
+    pending = read_json(state / 'pending.json', {}) or {}
+    jobs = state / 'jobs'
+    if not jobs.is_dir():
+        return
+    for directory in jobs.iterdir():
+        if directory.is_symlink() or not directory.is_dir() or not re.fullmatch(r'[0-9a-f]{32}', directory.name):
+            continue
+        if pending.get('id') == directory.name:
+            continue
+        record = directory / 'job.json'
+        if record.is_symlink():
+            continue
+        try:
+            status = read_json(record, {}).get('status')
+        except (ValueError, OSError, AttributeError):
+            continue  # Unknown state is not evidence that credentials are disposable.
+        if status in {'confirmed', 'rolled-back', 'cancelled', 'superseded'}:
+            staged = directory / 'secrets.json'
+            if staged.exists() or staged.is_symlink():
+                durable_unlink(staged)
+
+
 def prepare_state_access():
     """After declarative users exist, let the portal read its initial auth file."""
     auth = STATE / 'auth.json'
@@ -373,3 +438,14 @@ def issue_tls(address, hostname):
     leaf('tls', hostname, f'IP:{address},IP:127.0.0.1,DNS:localhost,DNS:{hostname}')
     if not (STATE / 'apps-tls.key').exists():
         leaf('apps-tls', 'apps.internal', 'DNS:apps.internal')
+
+
+def pending_access(job_id, record):
+    """Local probes cannot prove that an administrator can reconnect."""
+    print('Activation is awaiting access confirmation; automatic rollback remains armed.', flush=True)
+    print('Open a new SSH session or use the local console, verify access and workloads, then run:', flush=True)
+    print('sudo nixlab-admin config confirm ' + job_id, flush=True)
+    print('You can also confirm this transaction in the NixLab portal.', flush=True)
+    if record.get('deadline'):
+        print('Confirmation deadline: ' + time.strftime('%Y-%m-%d %H:%M:%S UTC',
+              time.gmtime(record['deadline'])), flush=True)

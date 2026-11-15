@@ -92,11 +92,7 @@ class Operations:
         self.directory.mkdir(parents=True, mode=0o700, exist_ok=True)
 
     def path(self, job_id):
-        if not isinstance(job_id, str) or not re.fullmatch(r'[0-9a-f]{32}', job_id):
-            raise ValueError('Invalid operation ID')
-        directory = self.directory / job_id
-        if not directory.is_dir(): raise ValueError('Unknown operation')
-        return directory
+        return rt.job_directory(self.directory, job_id, 'operation')
 
     def status(self, limit=30):
         records = []
@@ -105,8 +101,7 @@ class Operations:
             if not directory.is_dir() or not re.fullmatch(r'[0-9a-f]{32}', directory.name): continue
             record = rt.read_json(directory / 'job.json', {})
             if record.get('status') in ('queued', 'running') and time.time() - record.get('created', 0) > 30:
-                unit = subprocess.run(['systemctl', 'is-active', '--quiet', 'nixlab-operation-' + directory.name], capture_output=True)
-                if unit.returncode:
+                if not rt.worker_active('nixlab-operation-' + directory.name):
                     record.update(status='failed', error='Worker interrupted. Inspect guest state and recovery intent before retrying')
                     rt.write_json(directory / 'job.json', record)
             records.append(record)

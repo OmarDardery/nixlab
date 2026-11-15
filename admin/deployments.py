@@ -111,10 +111,7 @@ class Deployments:
         self.root, self.state = Path(root or rt.ROOT), Path(state or rt.STATE)
 
     def directory(self, job_id):
-        if not isinstance(job_id, str) or not re.fullmatch(r'[a-f0-9]{32}', job_id): raise ValueError('Invalid deployment transaction ID')
-        directory = self.state / 'jobs' / job_id
-        if not directory.is_dir(): raise ValueError('Unknown deployment transaction')
-        return directory
+        return rt.job_directory(self.state / 'jobs', job_id, 'deployment transaction')
 
     def host(self, directory):
         job = rt.read_json(directory / 'job.json')
@@ -130,8 +127,7 @@ class Deployments:
         directory = self.directory(job_id)
         record = rt.read_json(directory / 'deployment.json')
         if record and record['status'] in ACTIVE and time.time() - record['updatedAt'] > 30:
-            unit = subprocess.run(['systemctl', 'is-active', '--quiet', 'nixlab-deploy-' + job_id], capture_output=True, timeout=10)
-            if unit.returncode:
+            if not rt.worker_active('nixlab-deploy-' + job_id):
                 record['status'] = 'interrupted'
                 record['error'] = 'Worker stopped. Resume rechecks the guest identity and generations before continuing.'
         if record and not private:

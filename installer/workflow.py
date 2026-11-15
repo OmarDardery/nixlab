@@ -14,12 +14,12 @@ def remote_session():
     if os.environ.get('SSH_CONNECTION') or os.environ.get('SSH_TTY'):
         return True
     # sudo commonly removes SSH_* variables. Inspect process names, never their
-    # environment or argument vectors, to recognize an sshd ancestor anyway.
+    # environment or argument vectors, to recognize SSH or Cockpit terminal ancestors anyway.
     pid = os.getpid()
     for _ in range(64):
         try:
             proc = Path('/proc') / str(pid)
-            if (proc / 'comm').read_text().strip().startswith('sshd'):
+            if (proc / 'comm').read_text().strip().startswith(('sshd', 'cockpit-')):
                 return True
             status = (proc / 'status').read_text().splitlines()
             parent = int(next(line.split()[1] for line in status if line.startswith('PPid:')))
