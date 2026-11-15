@@ -94,6 +94,7 @@ def parser_args():
     mode.add_argument('--switch', dest='switch', action='store_true', help='Install the full stack (default)')
     mode.add_argument('--wizard', dest='switch', action='store_false', help='Only bootstrap the optional web wizard')
     parser.set_defaults(switch=True)
+    parser.add_argument('--web-enrollment', action='store_true', help='Use console-approved administrator enrollment with --wizard')
     parser.add_argument('--ssh-key', action='append', default=[], type=Path, help='Client public key file, never a private key')
     ssh = parser.add_mutually_exclusive_group()
     ssh.add_argument('--ssh-password-login', action='store_true', dest='ssh_password_login', help='Enable SSH password login for non-root Linux accounts (default on fresh installs)')
@@ -113,7 +114,10 @@ def parser_args():
     parser.add_argument('--guest-network', choices=['nat', 'lan', 'vlan'])
     parser.add_argument('--laptop-mode', action='store_true', help='Enable always-on laptop lid policy')
     parser.add_argument('--no-monitoring', action='store_true', help='Disable host metric collection')
-    return parser, parser.parse_args()
+    args = parser.parse_args()
+    if args.web_enrollment and args.switch:
+        parser.error('--web-enrollment requires --wizard')
+    return parser, args
 
 
 def evaluate(root, attribute):
@@ -143,6 +147,8 @@ def installed_host():
 
 def setup_password():
     with rt.locked():
+        if (rt.STATE / 'web-enrollment').is_file():
+            return None
         path = rt.STATE / 'setup-password'
         auth = rt.STATE / 'auth.json'
         record = rt.read_json(auth)
@@ -176,7 +182,9 @@ def summarize(settings, password=None, record=None):
     if not settings['management']['configure']:
         print('Preserving current addressing: ' + address + '. DHCP is retained; no static address was assigned.')
     print('Nixlab: https://' + address + ':' + str(settings['setup']['port']) + ' (username: admin)')
-    if password:
+    if (rt.STATE / 'web-enrollment').is_file() and not (rt.STATE / 'auth.json').exists():
+        print('Open the portal, then approve its browser code with sudo nixlab-admin approve-enrollment.')
+    elif password:
         print('Setup password: ' + password)
     else:
         print('Use your existing setup password; recover with sudo nixlab-admin reset-password.')
@@ -460,6 +468,9 @@ def main():
                 raise ValueError('Source changed during planning; retry to preserve the latest local changes')
             if args.switch:
                 rt.write_json(rt.machine_path(stage, 'settings'), candidate)
+    if args.web_enrollment:
+        import accounts
+        accounts.enable_enrollment()
     password = setup_password()
     pin = rt.STATE / 'original-system'
     if not pin.exists() and installation.get('originalSystem'):

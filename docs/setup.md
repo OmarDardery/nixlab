@@ -348,3 +348,16 @@ networking and can run before any guest subnet is chosen. It cannot enable optio
 host services/mounts or downgrade a configured host. Finish confirmation before
 reviewing the complete hypervisor configuration in the portal.
 
+
+### Console-approved first administrator
+
+For a fresh host with a trusted local or SSH administrator terminal, run
+`nix run github:OmarDardery/nixlab#install -- --wizard --web-enrollment`.
+Open the portal and verify the management CA fingerprint before approving the
+browser. In the host terminal, run `sudo nixlab-admin approve-enrollment`
+and paste the code displayed by that browser into the prompt. Return to the
+same page to set the first portal password, then sign in as `admin`.
+
+Approval expires in ten minutes or on host reboot. Refreshing the page creates
+a new code. Existing portal or legacy bootstrap credentials keep their
+normal login and recovery flow.

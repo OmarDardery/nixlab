@@ -248,13 +248,14 @@ def cleanup_terminal_secrets(state):
 def prepare_state_access():
     """After declarative users exist, let the portal read its initial auth file."""
     auth = STATE / 'auth.json'
-    if not auth.exists():
+    if not auth.exists() and not (STATE / 'web-enrollment').exists():
         return
     gid = grp.getgrnam('nixlab-ui').gr_gid
     os.chown(STATE, -1, gid)
     STATE.chmod(0o710)
-    os.chown(auth, -1, gid)
-    auth.chmod(0o640)
+    if auth.exists():
+        os.chown(auth, -1, gid)
+        auth.chmod(0o640)
 
 
 class BusyError(ValueError):

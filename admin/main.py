@@ -100,7 +100,10 @@ def backend():
             pass
         def do_GET(self):
             try:
-                if self.path == '/status':
+                if self.path == '/enrollment':
+                    import accounts
+                    result = {'available': accounts.enrollment_open()}
+                elif self.path == '/status':
                     result = manager.status()
                 elif self.path == '/inventory':
                     result = manager.host_inventory()
@@ -164,7 +167,10 @@ def backend():
                 if not isinstance(actor, str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,31}', actor):
                     raise ValueError('Invalid audit identity')
                 rt.audit('broker-request', principal=actor, operation=self.path)
-                if self.path == '/review':
+                if self.path == '/enrollment':
+                    import accounts
+                    result = accounts.claim_enrollment(body.get('code'), body.get('password'))
+                elif self.path == '/review':
                     result = manager.review(body['settings'], body.get('secrets', {}), body.get('updateInputs', False), body.get('modules', {}), body.get('revision'), principal=actor)
                 elif self.path == '/apply':
                     result = manager.apply(body['id'])
@@ -396,6 +402,8 @@ def web():
                     return reply(self, 200, (rt.SOURCE / 'static' / filename).read_bytes(), mime)
                 if path == '/ca.crt':
                     return reply(self, 200, broker_request('GET', '/ca')['certificate'].encode(), 'application/x-x509-ca-cert', {'Content-Disposition': 'attachment; filename=nixlab-ca.crt'})
+                if path == '/api/enrollment':
+                    return reply(self, 200, broker_request('GET', '/enrollment'))
                 session = self.session()
                 if path.startswith('/docs/'):
                     import html
@@ -445,6 +453,10 @@ def web():
                 host = self.access()
                 if self.headers.get('Origin') != 'https://' + host:
                     raise PermissionError('Same-origin request required')
+                if self.path == '/api/enrollment':
+                    body = json_body(self)
+                    result = broker_request('POST', '/enrollment', body)
+                    return reply(self, 200, result)
                 if self.path == '/api/login':
                     body = json_body(self)
                     username = body.get('username', 'admin')
@@ -791,6 +803,16 @@ if __name__ == '__main__':
         print(json.dumps(Manager().prune_jobs(args.apply, args.keep), indent=2))
     elif action == 'renew':
         renew()
+    elif action == 'approve-enrollment' and os.geteuid() == 0:
+        import accounts
+        import getpass
+        if len(sys.argv) != 2 or not sys.stdin.isatty():
+            sys.exit('Run sudo nixlab-admin approve-enrollment from a host terminal')
+        try:
+            accounts.approve_enrollment(getpass.getpass('Code displayed in your browser: '))
+        except (ValueError, OSError) as exc:
+            sys.exit(str(exc))
+        print('Browser approved for ten minutes. Return to the portal to create its password.')
     elif action == 'reset-password' and os.geteuid() == 0:
         import getpass
         value = getpass.getpass('New Nixlab administrator password: ')
@@ -798,5 +820,5 @@ if __name__ == '__main__':
         accounts.change_password('admin', value, clear_setup_password=True)
         print('Password changed. Restart nixlab-ui to revoke existing sessions.')
     else:
-        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|portainer reset-password|backend|web|guard|renew|reset-password|config|deploy|guests|recovery|commissioning|install-plan|prune-jobs|disk prepare}')
+        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|portainer reset-password|backend|web|guard|renew|approve-enrollment|reset-password|config|deploy|guests|recovery|commissioning|install-plan|prune-jobs|disk prepare}')
 

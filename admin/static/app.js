@@ -301,6 +301,30 @@ function login(message = "") {
       button.disabled = false;
     }
   };
+  const form = document.querySelector("#login-form");
+  api("enrollment").then(({available}) => {
+    if (available && form.isConnected) showEnrollment();
+  }).catch(() => {});
+}
+
+function showEnrollment() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  const code = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+  app.innerHTML = `<main class="login"><section class="login-card">${brandLogo()}<h1>Create the portal administrator</h1><p>Verify the management CA, then run <code>sudo nixlab-admin approve-enrollment</code> on the host and paste this code into its prompt.</p><label class="field"><span>Browser approval code</span><input value="${code}" readonly autocomplete="off"></label><form id="enrollment-form"><label class="field"><span>New admin password</span><input name="password" type="password" autocomplete="new-password" minlength="16" maxlength="256" required></label><p id="enrollment-error" class="error" aria-live="polite"></p><button class="primary">Create administrator</button></form><p><a href="/ca.crt">Download the management CA</a></p></section></main>`;
+  const form = document.querySelector("#enrollment-form");
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    const button = form.querySelector("button");
+    button.disabled = true;
+    try {
+      await api("enrollment", {code, password: new FormData(form).get("password")});
+      login("Administrator created. Sign in as admin.");
+    } catch (error) {
+      document.querySelector("#enrollment-error").textContent = error.message;
+      button.disabled = false;
+    }
+  };
+
 }
 async function load() {
   state.status = await api("status");
