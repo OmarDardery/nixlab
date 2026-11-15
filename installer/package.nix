@@ -43,5 +43,30 @@ let
 in pkgs.symlinkJoin {
   name = "nixlab-installer";
   paths = [ install update ];
+  passthru.tests.recovery-guard = pkgs.runCommand "nixlab-installer-recovery-guard" { } ''
+    export PYTHONPATH=${source}/admin
+    export NIXLAB_STATE="$TMPDIR/state"
+    ${pkgs.python3}/bin/python - <<'PY'
+    import json
+    import os
+    from pathlib import Path
+    from deployments import Deployments
+    from recovery_guard import require_normal
+
+    state = Path(os.environ['NIXLAB_STATE'])
+    state.mkdir()
+    journal = state / 'replacement-recovery.json'
+    journal.write_text(json.dumps({'format': 1, 'phase': 'planned'}))
+    try:
+        Deployments(state=state).submit('a' * 32)
+    except ValueError as error:
+        assert 'Unfinished recovery journal' in str(error), str(error)
+    else:
+        raise AssertionError('Packaged launcher allowed deployment during recovery')
+    journal.write_text(json.dumps({'format': 1, 'phase': 'complete'}))
+    require_normal()
+    PY
+    touch "$out"
+  '';
 }
 

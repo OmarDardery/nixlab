@@ -252,6 +252,9 @@ def download(recipient=None):
 
 
 def cli(argv):
+    if argv and argv[0] in ('plan', 'status', 'resume', 'release', 'export-report'):
+        import replacement
+        return replacement.cli(argv)
     import argparse
     parser = argparse.ArgumentParser(prog='nixlab-admin recovery')
     commands = parser.add_subparsers(dest='command', required=True)

@@ -52,7 +52,7 @@ in pkgs.testers.runNixOSTest {
     services.openssh = { enable = true; openFirewall = false; };
     # This fixture exercises real containers; it makes no KVM/VM-guest claim.
     systemd.services.nixlab-kvm-check = { serviceConfig.Type = "oneshot"; script = "true"; };
-    environment.systemPackages = [ pkgs.python3 pkgs.incus-lts.client pkgs.util-linux pkgs.networkmanager pkgs.openssl ];
+    environment.systemPackages = [ pkgs.python3 pkgs.incus-lts.client pkgs.util-linux pkgs.git pkgs.networkmanager pkgs.openssl ];
     # Only this isolated Ethernet fixture belongs to NetworkManager.
     networking.networkmanager = {
       enable = true;
@@ -102,10 +102,19 @@ in pkgs.testers.runNixOSTest {
     networking.interfaces.eth1.ipv4.routes = [ { address = "10.77.0.0"; prefixLength = 24; via = "192.0.2.10"; } ];
     environment.systemPackages = [ pkgs.curl ];
   };
+  nodes.replacement = { ... }: {
+    imports = [ ../modules/recovery-mode.nix ];
+    nixlab.recovery.enable = true;
+    virtualisation = { memorySize = 1536; diskSize = 4096; };
+    virtualisation.incus.enable = true;
+    networking.nftables.enable = true;
+    environment.systemPackages = [ pkgs.python3 pkgs.incus-lts.client ];
+  };
   testScript = ''
     import json
     host.start(allow_reboot=True)
     client.start()
+    replacement.start(allow_reboot=True)
     host.wait_for_unit("incus-preseed.service")
     host.wait_for_unit("nixlab-instances.service")
     client.wait_for_unit("network.target")
@@ -159,6 +168,8 @@ in pkgs.testers.runNixOSTest {
     host.succeed("incus start restored --project lab")
     assert host.succeed("incus config get native volatile.eth0.hwaddr --project lab").strip() != host.succeed("incus config get restored volatile.eth0.hwaddr --project lab").strip()
     assert host.succeed("incus exec restored --project lab --disable-stdin -- /bin/cat /var/lib/test/index.html").strip() == "preserved"
+    host.succeed("incus stop restored --project lab --timeout 120", timeout=180)
+    host.succeed("incus delete restored --project lab")
     native_uuid = host.succeed("incus config get native volatile.uuid --project lab").strip()
     assert native_uuid
     host.wait_for_unit("NetworkManager.service")
@@ -180,5 +191,32 @@ in pkgs.testers.runNixOSTest {
     assert host.succeed("incus config get native volatile.uuid --project lab").strip() == native_uuid
     host.wait_until_succeeds("incus exec native --project lab --disable-stdin -- /bin/cat /var/lib/test/index.html | grep -x preserved", timeout=60)
     host.succeed("test ! -e /run/systemd/system/nixlab-management-identity.service.d/90-nixlab-network-repair.conf")
+
+    # Recover actual archives on an independent Incus daemon/storage node. This
+    # fixture is automated VM evidence, never physical replacement qualification.
+    host.succeed("incus stop native --project lab --timeout 120", timeout=180)
+    host.succeed("incus config device remove native serial --project lab")
+    host.succeed("incus storage volume create guests recoverdata --project lab")
+    host.succeed("incus config device add native recovery-data disk pool=guests source=recoverdata path=/recoverdata --project lab")
+    host.succeed("incus start native --project lab")
+    host.succeed("incus exec native --project lab -- /bin/sh -c 'echo attached-data > /recoverdata/record'")
+    host.succeed("PYTHONPATH=${../scripts} NIXLAB_EXPORT_DIRECTORY=/var/lib/nixlab/test-exports python3 ${../scripts/backup.py}", timeout=300)
+    generation = json.loads(host.succeed("cat /var/lib/nixlab/test-exports/latest.json"))["generation"]
+    source = "/var/lib/nixlab/test-exports/generations/" + generation
+    host.succeed("PYTHONPATH=${../admin}:${../scripts} python3 ${./replacement-integration.py} material " + source)
+    host.succeed("tar -czf /tmp/shared/replacement-generation.tar.gz -C " + source + " .")
+    replacement.wait_for_unit("incus.service")
+    # Unprivileged LXC must traverse the custom pool root to mount its
+    # instance credentials; data/secret staging remains root-only.
+    replacement.succeed("mkdir -m 0711 /var/lib/nixlab-replacement-pool")
+    replacement.succeed("incus storage create replacement dir source=/var/lib/nixlab-replacement-pool")
+    replacement.succeed("mkdir -m 0700 /root/offhost-generation")
+    replacement.succeed("tar -xzf /tmp/shared/replacement-generation.tar.gz -C /root/offhost-generation")
+    run = "PYTHONPATH=${../admin}:${../scripts} python3 ${./replacement-integration.py}"
+    replacement.succeed(run + " restore", timeout=300)
+    replacement.succeed(run + " verify", timeout=240)
+    replacement.reboot()
+    replacement.wait_for_unit("incus.service")
+    replacement.succeed(run + " verify", timeout=240)
   '';
 }
