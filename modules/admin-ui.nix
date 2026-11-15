@@ -27,6 +27,7 @@ in {
       "d /var/lib/nixlab-admin 0710 root nixlab-ui -"
       "d /var/lib/nixlab-admin/jobs 0700 root root -"
       "d /run/nixlab-admin 0750 root nixlab-ui -"
+      "d /run/nixlab-browser 0700 root root -"
     ];
     # During bootstrap retain the existing firewall implementation. The HTTPS process
     # also enforces source CIDRs; after conversion the host uses nftables.

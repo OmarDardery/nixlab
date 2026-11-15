@@ -627,6 +627,16 @@ class HttpsTests(unittest.TestCase):
 import controller, runtime
 # HTTP transport/auth tests use an evaluated fixture, not a Nix evaluator.
 controller.read_settings=lambda root:runtime.read_json(runtime.machine_path(root,'settings'),{})
+# Synthetic private broker payload for real HTTPS transport/auth/download tests.
+import base64
+def certificate(self, device=None, password=None, owner='root', full_admin=False, renew=None):
+ return {'name':'nixlab-browser-http-000000000000','device':device,'fingerprint':'a'*64,
+         'owner':owner,'issuedAt':1000,'expiresAt':'fixture-expiry','restricted':not full_admin,
+         'projects':[] if full_admin else ['lab'],'status':'active','validDays':90,
+         'pkcs12':base64.b64encode(b'encrypted-transport-fixture').decode()}
+controller.Manager.browser_certificate=certificate
+controller.Manager.revoke_browser_certificate=lambda *a: {'ok':True}
+controller.Manager.browser_certificates=lambda self: {'certificates':[]}
 from http.server import ThreadingHTTPServer
 class TestTransport(ThreadingHTTPServer):
  def __init__(self,address,handler):
@@ -682,6 +692,52 @@ main.backend()
     def test_private_status_requires_authentication(self):
         _,_,status=self.request('/api/status',auth=False)
         self.assertEqual(status,401)
+
+    def test_browser_identity_requires_reauthentication_and_single_claim_https_delivery(self):
+        from concurrent.futures import ThreadPoolExecutor
+        body = {'device': 'http', 'passphrase': 'synthetic-bundle-passphrase', 'current': 'wrong'}
+        _, _, status = self.request('/api/browser-certificate', body, origin=self.origin)
+        self.assertEqual(status, 400)
+        body['current'] = 'https-test-password'
+        metadata, headers, status = self.request('/api/browser-certificate', body, origin=self.origin)
+        self.assertEqual(status, 200)
+        self.assertNotIn('pkcs12', metadata); self.assertNotIn('passphrase', metadata)
+        self.assertEqual(headers['Cache-Control'], 'no-store')
+        self.assertTrue(metadata['restricted']); self.assertEqual(metadata['projects'], ['lab'])
+        _, _, status = self.request('/api/browser-certificate/download', {}, origin=self.origin, auth=False)
+        self.assertEqual(status, 401)
+        _, _, status = self.request('/api/browser-certificate/download', {}, origin=self.origin, csrf=False)
+        self.assertEqual(status, 401)
+        # Another authenticated browser session cannot claim this browser's bytes.
+        primary_cookie, primary_csrf = self.__class__.cookie, self.__class__.csrf
+        other, other_headers, _ = self.request('/api/login', {'password': 'https-test-password'}, origin=self.origin, auth=False)
+        try:
+            self.__class__.cookie = other_headers['Set-Cookie'].split(';')[0]
+            self.__class__.csrf = other['csrf']
+            _, _, status = self.request('/api/browser-certificate/download', {}, origin=self.origin)
+            self.assertEqual(status, 400)
+        finally:
+            self.__class__.cookie, self.__class__.csrf = primary_cookie, primary_csrf
+        def claim(_): return self.request('/api/browser-certificate/download', {}, origin=self.origin)
+        with ThreadPoolExecutor(max_workers=2) as pool: results = list(pool.map(claim, range(2)))
+        self.assertEqual(sorted(result[2] for result in results), [200, 400])
+        data, headers, _ = next(result for result in results if result[2] == 200)
+        self.assertEqual(data, b'encrypted-transport-fixture')
+        self.assertIn('attachment;', headers['Content-Disposition'])
+        self.assertEqual(headers['Cache-Control'], 'no-store')
+        body['fullAdmin'] = True
+        _, _, status = self.request('/api/browser-certificate', body, origin=self.origin)
+        self.assertEqual(status, 400)
+        body['acknowledgeFullAdmin'] = True
+        metadata, _, status = self.request('/api/browser-certificate', body, origin=self.origin)
+        self.assertEqual(status, 200); self.assertFalse(metadata['restricted'])
+        self.request('/api/browser-certificate/download', {}, origin=self.origin)
+
+    def test_browser_revocation_requires_reauthentication(self):
+        _, _, status = self.request('/api/revoke-browser-certificate', {'fingerprint': 'a' * 64}, origin=self.origin)
+        self.assertEqual(status, 400)
+        _, _, status = self.request('/api/revoke-browser-certificate', {'fingerprint': 'a' * 64, 'current': 'https-test-password'}, origin=self.origin)
+        self.assertEqual(status, 200)
     def test_authenticated_read_and_secure_cookie(self):
         _,headers,status=self.request('/api/login',{'password':'https-test-password'},origin=self.origin,auth=False)
         self.assertEqual(status,200)
@@ -712,8 +768,9 @@ main.backend()
         self.assertEqual(status,200);self.assertEqual(result['role'],'viewer')
         with patch.object(type(self),'cookie',headers['Set-Cookie'].split(';')[0]),patch.object(type(self),'csrf',result['csrf']):
             _,_,status=self.request('/api/status');self.assertEqual(status,200)
-            for endpoint,body in [('/api/review',{'settings':{}}),('/api/operation',{'action':'start','name':'guest'}),('/api/recovery-export',{})]:
+            for endpoint,body in [('/api/review',{'settings':{}}),('/api/operation',{'action':'start','name':'guest'}),('/api/recovery-export',{}),('/api/browser-certificate',{}),('/api/browser-certificate/download',{}),('/api/revoke-browser-certificate',{})]:
                 _,_,status=self.request(endpoint,body,origin=self.origin);self.assertEqual(status,403)
+            _,_,status=self.request('/api/browser-certificates');self.assertEqual(status,403)
             record=rt.read_json(self.state/'users.json');record[username]['role']='operator';rt.write_json(self.state/'users.json',record)
             _,_,status=self.request('/api/status');self.assertEqual(status,401)
 

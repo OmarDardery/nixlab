@@ -235,18 +235,53 @@ async function action(name, el) {
       shell();
       return;
     }
+    if (name === "certificate-download") {
+      const bytes = await claimCertificate();
+      download("nixlab-browser.p12", bytes, "application/x-pkcs12");
+      return;
+    }
+    if (name === "certificate-list") {
+      const result = await api("browser-certificates");
+      renderCertificateRows(result.certificates || []);
+      return;
+    }
+    if (name === "certificate-renew") {
+      document.querySelector("#certificate-device").value = el.dataset.device;
+      document.querySelector("#certificate-renew").value = el.dataset.fingerprint;
+      document.querySelector("#certificate-full-admin").checked = false;
+      document.querySelector("#certificate-result").textContent = "Renewal selected. Supply a new bundle passphrase and your current password. The previous identity remains trusted until explicitly revoked.";
+      document.querySelector("#certificate-passphrase").focus();
+      return;
+    }
+    if (name === "certificate-revoke") {
+      const input = document.querySelector("#certificate-current");
+      const current = input.value; input.value = "";
+      await api("revoke-browser-certificate", { fingerprint: el.dataset.fingerprint, current });
+      const result = await api("browser-certificates");
+      renderCertificateRows(result.certificates || []);
+      toast("Browser identity revoked. Incus will reject subsequent authenticated requests.");
+      return;
+    }
     if (name === "certificate") {
       const input = document.querySelector("#certificate-passphrase");
-      const passphrase = input.value;
-      input.value = "";
+      const password = document.querySelector("#certificate-current");
+      const passphrase = input.value, current = password.value;
+      input.value = ""; password.value = "";
+      if (Array.from(passphrase).length < 16 || Array.from(passphrase).length > 256 || /[\r\n\0]/.test(passphrase))
+        throw Error("Use a bundle passphrase of 16–256 characters with no line breaks.");
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/.test(document.querySelector("#certificate-device").value))
+        throw Error("Use a device name of up to 32 letters, digits, hyphens or underscores.");
+      const fullAdmin = document.querySelector("#certificate-full-admin").checked;
+      const renew = document.querySelector("#certificate-renew").value || undefined;
       const cert = await api("browser-certificate", {
         device: document.querySelector("#certificate-device").value,
-        passphrase,
+        passphrase, current, fullAdmin, acknowledgeFullAdmin: fullAdmin, renew,
       });
-      const bytes = Uint8Array.from(atob(cert.pkcs12), (c) => c.charCodeAt(0));
-      download(cert.name + ".p12", bytes, "application/x-pkcs12");
+      document.querySelector("#certificate-renew").value = "";
       document.querySelector("#certificate-result").innerHTML =
-        `<div class="cert-result"><b>Browser identity downloaded</b><p>Import the PKCS#12 file using your bundle passphrase. Open Incus and select the lab project.</p><p>Fingerprint <code>${esc(cert.fingerprint)}</code></p><p class="note">Identity ${esc(cert.name)} expires after ${esc(cert.validDays)} days. Revoke the fingerprint through Incus when no longer needed.</p></div>`;
+        `<div class="cert-result"><b>Browser identity registered</b><p>Claiming its one-time encrypted download. If download or import fails, refresh the identity list to revoke or reissue.</p><p>Fingerprint <code>${esc(cert.fingerprint)}</code></p><p>Scope: ${esc(cert.restricted ? cert.projects.join(", ") : "Unrestricted host administration")}. Expires: ${esc(cert.expiresAt)}.</p><p>Import the PKCS#12 file with your bundle passphrase. In Firefox use Settings → Privacy &amp; Security → Certificates → View Certificates → Your Certificates → Import. In Chromium use Settings → Privacy and security → Security → Manage certificates (or your operating system certificate manager).</p><p>Open Incus, select this identity and switch to the lab project. Revocation is independent of your NixLab sign-in.</p></div>`;
+      const bytes = await claimCertificate();
+      download(cert.name + ".p12", bytes, "application/x-pkcs12");
       return;
     }
   } catch (err) {
@@ -260,3 +295,16 @@ async function action(name, el) {
   }
 }
 
+
+function certificateRows(items) {
+  if (!items.length) return "<p>No NixLab-owned browser identities. Existing Incus trust is unchanged.</p>";
+  return `<div class="table-wrap"><table><thead><tr><th>Device / fingerprint</th><th>Scope / expiry</th><th>Status / actions</th></tr></thead><tbody>${items.map(cert => `<tr><td>${esc(cert.device)}<br><code>${esc(cert.fingerprint)}</code></td><td>${esc(cert.restricted ? cert.projects.join(", ") : "Unrestricted host administration")}<br>${esc(cert.expiresAt)}</td><td>${esc(cert.status)}<br><button data-action="certificate-renew" data-device="${esc(cert.device)}" data-fingerprint="${esc(cert.fingerprint)}">Renew</button> <button data-action="certificate-revoke" data-fingerprint="${esc(cert.fingerprint)}" ${cert.status === "revoked" ? "disabled" : ""}>Revoke</button></td></tr>`).join("")}</tbody></table></div>`;
+}
+
+function renderCertificateRows(items) {
+  const target = document.querySelector("#certificate-list");
+  target.innerHTML = certificateRows(items);
+  target.querySelectorAll("[data-action]").forEach(button => {
+    button.onclick = () => action(button.dataset.action, button);
+  });
+}

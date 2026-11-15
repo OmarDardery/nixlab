@@ -5,6 +5,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname,'../admin/static/projects.js
 for(const name of ['foundation.js','operations.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../admin/static',name),'utf8'),context);
 const source=fs.readFileSync(path.join(__dirname,'../admin/static/app.js'),'utf8');
 vm.runInContext(source.slice(0,source.lastIndexOf('\n(async () =>')),context);
+vm.runInContext(fs.readFileSync(path.join(__dirname,'../admin/static/events.js'),'utf8'),context);
 const defaults=JSON.parse(fs.readFileSync(path.join(__dirname,'fixtures/defaults.json'),'utf8'));
 context.fixture=defaults;
 vm.runInContext(`
@@ -16,6 +17,17 @@ let html=vm.runInContext('hostHardware()',context);
 assert.ok(html.includes('&lt;script&gt;bad&lt;/script&gt;'));
 assert.ok(!html.includes('<script>bad'));
 assert.ok(html.includes('data-serial-pick'));
+const access=vm.runInContext('security()',context);
+assert.ok(access.includes('Current NixLab password'));
+assert.ok(access.includes('Default: lab project only'));
+assert.ok(access.includes('data-action="certificate-download"'));
+assert.ok(/id="certificate-full-admin" type="checkbox"/.test(access));
+assert.ok(!/id="certificate-full-admin"[^>]*checked/.test(access));
+const identities=vm.runInContext(`certificateRows([{device:'<img src=x>',fingerprint:'" onmouseover="bad',restricted:true,projects:['<script>bad</script>'],expiresAt:'tomorrow',status:'trusted'}])`,context);
+assert.ok(identities.includes('&lt;img src=x&gt;'));
+assert.ok(identities.includes('&lt;script&gt;bad&lt;/script&gt;'));
+assert.ok(!identities.includes('<img src=x>'));
+assert.ok(!identities.includes('data-fingerprint="" onmouseover='));
 html=vm.runInContext('hostConnectivity()',context);
 assert.ok(html.includes('connectivity.bridges'));
 assert.ok(html.includes('connectivity.vlans'));

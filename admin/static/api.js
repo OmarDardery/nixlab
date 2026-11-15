@@ -28,3 +28,16 @@ function download(name, bytes, type) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
+
+async function claimCertificate() {
+  const response = await fetch("/api/browser-certificate/download", {
+    method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json", "X-Nixlab-CSRF": state.csrf },
+    body: "{}",
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw Error(error.error || "Certificate download unavailable; refresh the identity list");
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}

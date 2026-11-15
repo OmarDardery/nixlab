@@ -1,5 +1,6 @@
 """Nixlab local configuration broker and authenticated HTTPS interface."""
 import collections
+import base64
 import http.client
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 import ipaddress
@@ -138,6 +139,8 @@ def backend():
                 elif self.path == '/users':
                     import accounts
                     result = {'users': accounts.list_users()}
+                elif self.path == '/browser-certificates':
+                    result = manager.browser_certificates()
                 elif self.path == '/health':
                     import recovery
                     result = recovery.health()
@@ -204,7 +207,10 @@ def backend():
                     import recovery
                     result = recovery.download(body.get('recipient'))
                 elif self.path == '/browser-certificate':
-                    result = manager.browser_certificate(body.get('device'), body.get('passphrase'))
+                    result = manager.browser_certificate(body.get('device'), body.get('passphrase'), actor,
+                                                         body.get('fullAdmin', False), body.get('renew'))
+                elif self.path == '/revoke-browser-certificate':
+                    result = manager.revoke_browser_certificate(body.get('fingerprint'), actor)
                 else:
                     return reply(self, 404, {'error': 'Unknown action'})
                 reply(self, 200, result)
@@ -278,6 +284,10 @@ class Auth:
         with self.lock:
             item = self.sessions.get(token)
             now = time.monotonic()
+            for holder in self.sessions.values():
+                pending = holder.get('certificateDownload')
+                if pending and now >= pending['deadline']:
+                    holder.pop('certificateDownload', None)
             if not item or now - item['used'] > 1800 or now - item['created'] > 28800:
                 self.sessions.pop(token, None)
                 return None
@@ -287,6 +297,42 @@ class Auth:
                 return None
             item['used'] = now
             return item
+
+    def begin_certificate(self, session):
+        with self.lock:
+            pending = session.get('certificateDownload')
+            if pending and time.monotonic() >= pending['deadline']:
+                session.pop('certificateDownload', None)
+            if session.get('certificateIssuing') or session.get('certificateDownload'):
+                raise rt.PublicError('Claim the pending certificate download before issuing another identity')
+            session['certificateIssuing'] = True
+
+    def stage_certificate(self, session, result):
+        with self.lock:
+            if not any(item is session for item in self.sessions.values()):
+                raise rt.PublicError('Session ended; inspect the identity list before reissuing')
+            data = base64.b64decode(result['pkcs12'], validate=True)
+            if len(data) > 65536 or not re.fullmatch(r'nixlab-browser-[A-Za-z0-9_-]{1,64}', result['name']):
+                raise rt.PublicError('Invalid private certificate download; inspect the identity list')
+            session['certificateDownload'] = {'data': data, 'name': result['name'],
+                                              'fingerprint': result['fingerprint'],
+                                              'deadline': time.monotonic() + 120}
+            fields = ('name', 'device', 'fingerprint', 'owner', 'issuedAt', 'expiresAt',
+                      'restricted', 'projects', 'status', 'validDays')
+            return {key: result[key] for key in fields} | {'downloadSeconds': 120}
+
+    def take_certificate(self, session):
+        with self.lock:
+            pending = session.pop('certificateDownload', None)
+            if not pending or time.monotonic() >= pending['deadline']:
+                raise rt.PublicError('Certificate download expired or was already claimed; inspect the identity list to revoke or reissue')
+            return pending
+
+    def discard_certificate(self, identity):
+        with self.lock:
+            for session in self.sessions.values():
+                if session.get('certificateDownload', {}).get('fingerprint') == identity:
+                    session.pop('certificateDownload', None)
 
 
 class BoundedHttpsServer(ThreadingHTTPServer):
@@ -438,6 +484,9 @@ def web():
                 if path == '/api/users':
                     if session['role'] != 'admin': raise access_accounts.AuthorizationError('Administrator account required')
                     return reply(self, 200, broker_request('GET', '/users'))
+                if path == '/api/browser-certificates':
+                    if session['role'] != 'admin': raise access_accounts.AuthorizationError('Administrator account required')
+                    return reply(self, 200, broker_request('GET', '/browser-certificates'))
                 if path in ('/api/releases', '/api/main-revision'):
                     if session['role'] != 'admin': raise access_accounts.AuthorizationError('Administrator account required')
                     return reply(self, 200, broker_request('GET', path[4:]))
@@ -474,7 +523,35 @@ def web():
                 body = json_body(self)
                 import accounts
                 accounts.authorize(session, self.path, body)
+                if self.path == '/api/browser-certificate/download':
+                    pending = auth.take_certificate(session)
+                    # Consume before writing the response. A disconnect cannot
+                    # replay the key; its owned trust entry stays revocable.
+                    return reply(self, 200, pending['data'], 'application/x-pkcs12', {
+                        'Content-Disposition': 'attachment; filename="' + pending['name'] + '.p12"'})
+                if self.path in ('/api/browser-certificate', '/api/revoke-browser-certificate'):
+                    if not accounts.matches(session['username'], body.pop('current', None)):
+                        raise rt.PublicError('Reauthenticate before issuing or revoking browser identities')
+                    if self.path == '/api/revoke-browser-certificate':
+                        result = broker_request('POST', '/revoke-browser-certificate', {
+                            'fingerprint': body.get('fingerprint'), '_actor': session['username']})
+                        auth.discard_certificate(body.get('fingerprint'))
+                        return reply(self, 200, result)
+                    if body.get('fullAdmin', False) is not False and body.pop('acknowledgeFullAdmin', False) is not True:
+                        raise rt.PublicError('Explicitly acknowledge that unrestricted Incus access grants host administration')
+                    auth.begin_certificate(session)
+                    try:
+                        body['_actor'] = session['username']
+                        result = broker_request('POST', '/browser-certificate', body)
+                        if not auth.get(self.headers.get('Cookie', '')):
+                            raise rt.PublicError('Session ended; inspect the identity list before reissuing')
+                        metadata = auth.stage_certificate(session, result)
+                        return reply(self, 200, metadata)
+                    finally:
+                        with auth.lock:
+                            session.pop('certificateIssuing', None)
                 if self.path == '/api/logout':
+                    session.pop('certificateDownload', None)
                     session['created'] = -1000000000
                     return reply(self, 200, {'ok': True}, extra={'Set-Cookie': 'nixlab_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0'})
                 if self.path == '/api/password':
@@ -499,7 +576,7 @@ def web():
                 if self.path in ('/api/recovery-export', '/api/users'):
                     if not accounts.matches(session['username'], body.pop('current', None)):
                         raise rt.PublicError('Reauthenticate before exporting recovery material or changing accounts')
-                actions = {'/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/browser-certificate', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests'}
+                actions = {'/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests'}
                 if self.path not in actions:
                     return reply(self, 404, {'error': 'Unknown action'})
                 body['_actor'] = session['username']
