@@ -11,6 +11,7 @@ from pathlib import Path
 import secrets
 import shlex
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
@@ -60,14 +61,15 @@ def atomic(path, data, mode=0o600, group=None):
     try:
         with os.fdopen(fd, 'wb') as stream:
             stream.write(data.encode() if isinstance(data, str) else data)
-            stream.flush(); os.fsync(stream.fileno())
-        os.chmod(temporary, mode)
-        if group is not None:
-            try:
-                os.chown(temporary, -1, grp.getgrnam(group).gr_gid)
-            except KeyError:
-                if os.environ.get('NIXLAB_TEST') != '1':
-                    raise
+            stream.flush()
+            os.chmod(temporary, mode)
+            if group is not None:
+                try:
+                    os.chown(temporary, -1, grp.getgrnam(group).gr_gid)
+                except KeyError:
+                    if os.environ.get('NIXLAB_TEST') != '1':
+                        raise
+            os.fsync(stream.fileno())
         os.replace(temporary, path)
         directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
         try:
@@ -106,14 +108,57 @@ def job_directory(base, job_id, label='transaction'):
     return directory
 
 
+_JOB_RECORD_LIMIT = 32 * 1024 * 1024
+_REQUIRED = object()
+
+
+@contextlib.contextmanager
+def open_job_file(path):
+    """Open one regular job file using the directory descriptor for lookup."""
+    path = Path(path)
+    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        descriptor = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+    finally:
+        os.close(directory)
+    with os.fdopen(descriptor, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        # A concurrent atomic replacement may unlink the already-open inode.
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or info.st_nlink > 1 or info.st_mode & 0o022):
+            raise ValueError
+        yield stream, info.st_size
+
+
+def read_job_record(path, fallback=_REQUIRED):
+    """Read a bounded job object without following job or file aliases."""
+    try:
+        with open_job_file(path) as (stream, size):
+            if size > _JOB_RECORD_LIMIT:
+                raise ValueError
+            raw = stream.read(_JOB_RECORD_LIMIT + 1)
+        record = json.loads(raw) if len(raw) <= _JOB_RECORD_LIMIT else None
+        if not isinstance(record, dict):
+            raise ValueError
+        return record
+    except FileNotFoundError:
+        if fallback is not _REQUIRED:
+            return fallback
+        raise ValueError('Job record is missing; inspect the transaction from the host console') from None
+    except (OSError, ValueError, RecursionError):
+        raise ValueError('Job record is invalid or unreadable; inspect the transaction from the host console') from None
+
+
 def tail_log(path, limit=65536):
     """Read a bounded UTF-8 view without loading a potentially large build log."""
     try:
-        with Path(path).open('rb') as stream:
-            stream.seek(max(0, os.fstat(stream.fileno()).st_size - limit))
+        with open_job_file(path) as (stream, size):
+            stream.seek(max(0, size - limit))
             return stream.read(limit).decode(errors='replace')
     except FileNotFoundError:
         return ''
+    except (OSError, ValueError):
+        raise ValueError('Job log is invalid or unreadable; inspect the transaction from the host console') from None
 
 
 def worker_active(unit: str) -> bool:
@@ -152,7 +197,7 @@ def cleanup_terminal_secrets(state):
         if record.is_symlink():
             continue
         try:
-            status = read_json(record, {}).get('status')
+            status = read_job_record(record, {}).get('status')
         except (ValueError, OSError, AttributeError):
             continue  # Unknown state is not evidence that credentials are disposable.
         if status in {'confirmed', 'rolled-back', 'cancelled', 'superseded'}:
@@ -231,7 +276,7 @@ def migrate_idle_layout(root, state):
     with locked():
         state = Path(state)
         active = read_json(state / 'active.json', {})
-        job = read_json(state / 'jobs' / active.get('id', '-') / 'job.json', {})
+        job = read_job_record(state / 'jobs' / active.get('id', '-') / 'job.json', {})
         if read_json(state / 'pending.json') or job.get('status') in ('building', 'ready', 'applying', 'awaiting-confirmation', 'rolling-back'):
             raise ValueError('Finish or discard the configuration transaction before migrating layout')
         return migrate_layout(root)

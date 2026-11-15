@@ -270,3 +270,11 @@ units are distinguished from a failed inspection. A timeout, missing systemctl o
 permission/transport error reports unavailable state without marking the durable
 job failed or interrupted; raw stderr is never returned. The caller retains its
 own stopped-worker recovery rules and mutation locking.
+
+The shared job reader bounds record size, opens the job directory and record
+without following aliases, and accepts only regular JSON objects owned by the
+privileged caller. Missing optional records keep their legacy defaults. Invalid
+records produce a fixed error with no record contents or filesystem details.
+Atomic writes sync file data and permissions before replacement, then sync the
+directory. Job formats, paths and recovery decisions still belong to each
+domain.
