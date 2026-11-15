@@ -54,8 +54,14 @@ def main():
             path = '/1.0/instances/native?project=lab'
             status, data = request(context, 'GET', path)
             assert status == 200 and data['metadata']['name'] == 'native', (status, data)
+            private = '/1.0/instances/private-fixture?project=default'
+            local = subprocess.run(['incus', '--force-local', 'query', private],
+                                   check=True, capture_output=True, timeout=10)
+            assert json.loads(local.stdout)['name'] == 'private-fixture'
             status, data = request(context, 'GET', '/1.0/instances?project=default')
-            assert status == 403, (status, data)
+            assert status == 200 and data['metadata'] == [], (status, data)
+            status, data = request(context, 'GET', private)
+            assert status in (403, 404), (status, data)
             status, data = request(context, 'PATCH', '/1.0', {'config': {}})
             assert status == 403, (status, data)
         finally:
