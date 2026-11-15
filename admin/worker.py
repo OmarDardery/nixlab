@@ -294,6 +294,9 @@ def recover_activation(directory, original):
 
 def apply(directory):
     job = rt.read_job_record(directory / 'job.json')
+    # Recheck after queueing/lock acquisition, before saving or publishing any
+    # live material. The guard timer is not the authority for admission.
+    rt.require_fresh_staged_secrets(job)
     role = host_role(job)
     if job['baseDigest'] != rt.digest_source(rt.ROOT) or job['candidateDigest'] != rt.digest_source(directory / 'source'):
         raise ValueError('Source changed since review')
@@ -411,10 +414,14 @@ def guard():
             elif pending and time.time() >= pending['deadline']:
                 rollback(rt.STATE / 'jobs' / pending['id'], 'confirmation timed out')
     try:
-        with rt.locked(blocking=False):
-            rt.cleanup_terminal_secrets(rt.STATE)
-    except rt.BusyError:
-        pass  # A live mutation owns staged credentials; the next guard retries.
-    from operations import Operations
-    Operations().recover_interrupted()
+        try:
+            with rt.locked(blocking=False):
+                rt.cleanup_terminal_secrets(rt.STATE)
+        except rt.BusyError:
+            pass  # A live mutation owns staged credentials; the next guard retries.
+    finally:
+        # A staging-health finding must not prevent an interrupted guest's
+        # existing restart/recovery path from running.
+        from operations import Operations
+        Operations().recover_interrupted()
 

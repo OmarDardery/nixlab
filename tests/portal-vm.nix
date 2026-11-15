@@ -48,5 +48,17 @@ in pkgs.testers.runNixOSTest {
     machine.succeed("python3 /etc/nixlab-test-cockpit.py")
     sshd = machine.succeed("sshd -T -f /etc/ssh/sshd_config")
     assert "passwordauthentication yes" in sshd.lower(), sshd
+    # Exercise the existing boot timer, real permissions and recovery-preserving
+    # cleanup after interrupted publication. All credentials are disposable.
+    machine.succeed("systemctl stop nixlab-rollback-guard.timer nixlab-rollback-guard.service")
+    machine.succeed("PYTHONPATH=${../admin}:${../scripts} python3 ${./staged-secret-fixture.py} prepare")
+    machine.fail("runuser -u outsider -- test -r /var/lib/nixlab-admin/jobs/0000000000000000000000000000006b/secrets.json")
+    machine.fail("runuser -u nixlab-ui -- test -r /var/lib/nixlab-admin/jobs/0000000000000000000000000000006b/secrets.json")
+    machine.shutdown()
+    machine.start()
+    machine.wait_for_unit("nixlab-ui.service")
+    machine.wait_for_unit("nixlab-rollback-guard.timer")
+    machine.wait_until_succeeds("PYTHONPATH=${../admin}:${../scripts} python3 ${./staged-secret-fixture.py} verify", timeout=90)
+    machine.succeed("systemctl is-active nixlab-rollback-guard.timer")
   '';
 }

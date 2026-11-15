@@ -5,6 +5,7 @@ import fcntl
 import grp
 import hashlib
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -198,14 +199,112 @@ def worker_active(unit: str) -> bool:
 STAGED_SECRET_LIFETIME = 24 * 60 * 60
 
 
+@contextlib.contextmanager
+def staged_directory(directory):
+    """Pin a trusted directory through no-follow lookups of every ancestor."""
+    path = Path(directory).absolute()
+    if '..' in path.parts:
+        raise ValueError('Staged credential storage is not protected')
+    descriptor = os.open('/', os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        info = os.fstat(descriptor)
+        if info.st_uid not in (0, os.geteuid()) or info.st_mode & 0o022:
+            raise ValueError('Staged credential storage is not protected')
+        for part in path.parts[1:]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+            info = os.fstat(descriptor)
+            # A root-owned sticky temporary-directory ancestor is safe: other
+            # users cannot replace a privileged user's existing child directory.
+            sticky = info.st_uid == 0 and bool(info.st_mode & stat.S_ISVTX)
+            if info.st_uid not in (0, os.geteuid()) or (info.st_mode & 0o022 and not sticky):
+                raise ValueError('Staged credential storage is not protected')
+        info = os.fstat(descriptor)
+        if info.st_uid != os.geteuid() or info.st_mode & 0o022:
+            raise ValueError('Staged credential storage is not protected')
+        yield descriptor
+    finally:
+        os.close(descriptor)
+
+
+def staged_temporary_names(descriptor):
+    # Include the eight-character tempfile suffix used before the dedicated
+    # staging helper. Never sweep arbitrary hidden files or recovery directories.
+    return sorted(name for name in os.listdir(descriptor)
+                  if re.fullmatch(r'\.secrets\.json(?:[a-z0-9_]{8}|-[0-9a-f]{32})', name))
+
+
+def unlink_staged(descriptor, name):
+    try:
+        os.unlink(name, dir_fd=descriptor)
+    except FileNotFoundError:
+        pass
+    os.fsync(descriptor)
+
+
+def stage_secrets(directory, values):
+    """Publish once, without overwrite; caller holds the mutation lock.
+
+    A crash can leave a private temporary name. The locked guard removes those
+    names independently of the committed secret file and transaction recovery.
+    """
+    if not isinstance(values, dict) or any(key not in SECRET_PATHS or not isinstance(value, str)
+                                           for key, value in values.items()):
+        raise ValueError('Invalid staged credential fields')
+    if not values:
+        return
+    data = (json.dumps(values, sort_keys=True) + '\n').encode()
+    if len(data) > 1024 * 1024:
+        raise ValueError('Staged credential input is too large')
+    try:
+        with staged_directory(directory) as descriptor:
+            temporary = '.secrets.json-' + secrets.token_hex(16)
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                         0o600, dir_fd=descriptor)
+            try:
+                with os.fdopen(fd, 'wb') as stream:
+                    stream.write(data)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                # link is atomic and refuses an existing file, symlink or other
+                # object. Unlike replace it cannot overwrite another publisher.
+                os.link(temporary, 'secrets.json', src_dir_fd=descriptor,
+                        dst_dir_fd=descriptor, follow_symlinks=False)
+                os.fsync(descriptor)
+            finally:
+                unlink_staged(descriptor, temporary)
+    except (OSError, ValueError):
+        raise ValueError('Staged credential publication failed; inspect protected transaction storage and retry') from None
+
+
+def staged_secrets_expired(job, now=None):
+    """A fixed review-time deadline; retries and reboot do not renew it."""
+    created = job.get('created')
+    now = time.time() if now is None else now
+    if (type(created) not in (int, float) or not math.isfinite(created) or created <= 0
+            or not math.isfinite(now) or now < created):
+        raise ValueError('Staged credential age is unknown; check the host clock and review the change again')
+    return now - created >= STAGED_SECRET_LIFETIME
+
+
+def require_fresh_staged_secrets(job):
+    if job.get('secretChanges') and staged_secrets_expired(job):
+        raise ValueError('Staged credentials expired; review the change again')
+
+
 def read_staged_secrets(directory, expected):
     """Load only the reviewed keys, from a private regular file."""
     try:
-        with open_job_file(Path(directory) / 'secrets.json', private=True) as (stream, size):
-            if size > 1024 * 1024:
-                raise ValueError
-            raw = stream.read(1024 * 1024 + 1)
-            record = json.loads(raw) if len(raw) <= 1024 * 1024 else None
+        with staged_directory(directory) as descriptor:
+            fd = os.open('secrets.json', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=descriptor)
+            with os.fdopen(fd, 'rb') as stream:
+                info = os.fstat(stream.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                        or info.st_nlink != 1 or info.st_mode & 0o077 or info.st_size > 1024 * 1024):
+                    raise ValueError
+                raw = stream.read(1024 * 1024 + 1)
+                record = json.loads(raw) if len(raw) <= 1024 * 1024 else None
         if (not isinstance(record, dict) or sorted(record) != sorted(expected)
                 or any(key not in SECRET_PATHS or not isinstance(value, str) for key, value in record.items())):
             raise ValueError
@@ -220,57 +319,86 @@ def read_staged_secrets(directory, expected):
 
 def remove_staged_secrets(directory):
     try:
-        durable_unlink(Path(directory) / 'secrets.json')
-    except OSError:
+        with staged_directory(directory) as descriptor:
+            for name in ['secrets.json', *staged_temporary_names(descriptor)]:
+                unlink_staged(descriptor, name)
+    except (OSError, ValueError):
         raise ValueError('Staged credential cleanup failed; inspect NixLab transaction storage and retry') from None
 
 
 def cleanup_terminal_secrets(state):
-    """Retry interrupted cleanup; caller holds the existing mutation lock.
+    """Sweep under the mutation lock, preserving unknown/pending recovery.
 
-    Failed or resumable work may still need staged credentials. Recovery manifests
-    and live credentials have a separate lifetime and are never touched here.
+    Temporary publication files are never a consumer input. Committed secrets
+    expire only after the candidate is disposable; recovery/live files are not
+    staging and are never traversed here. Unknown state causes a health failure.
     """
     state = Path(state)
-    pending = read_json(state / 'pending.json', {}) or {}
+    try:
+        pending = read_job_record(state / 'pending.json', {})
+        if pending and (not isinstance(pending.get('id'), str) or not re.fullmatch(r'[0-9a-f]{32}', pending['id'])):
+            raise ValueError
+    except ValueError:
+        raise ValueError('Staged credential recovery state is unavailable; inspect transaction storage') from None
     jobs = state / 'jobs'
-    if not jobs.is_dir():
+    try:
+        with staged_directory(jobs) as descriptor:
+            names = os.listdir(descriptor)
+    except FileNotFoundError:
         return
-    cutoff = time.time() - STAGED_SECRET_LIFETIME
-    for directory in jobs.iterdir():
-        if directory.is_symlink() or not directory.is_dir() or not re.fullmatch(r'[0-9a-f]{32}', directory.name):
+    except (OSError, ValueError):
+        raise ValueError('Staged credential cleanup failed; inspect protected transaction storage') from None
+    problems = False
+    for name in names:
+        if not re.fullmatch(r'[0-9a-f]{32}', name):
             continue
-        if pending.get('id') == directory.name:
-            continue
-        record = directory / 'job.json'
-        if record.is_symlink():
-            continue
+        directory = jobs / name
         try:
-            job = read_job_record(record, {})
-            status = job.get('status')
-        except (ValueError, OSError, AttributeError):
-            continue  # Unknown state is not evidence that credentials are disposable.
-        staged = directory / 'secrets.json'
-        if not (staged.exists() or staged.is_symlink()):
-            continue
-        if status in {'confirmed', 'rolled-back', 'cancelled', 'superseded'}:
-            remove_staged_secrets(directory)
-        elif status in {'ready', 'failed', 'building'}:
-            created = job.get('created')
-            if type(created) not in (float, int) or not 0 < created <= cutoff:
+            with staged_directory(directory) as descriptor:
+                # The mutation lock excludes the only writer, even if a worker
+                # is still building. A partial publication is never resumable.
+                for name in staged_temporary_names(descriptor):
+                    unlink_staged(descriptor, name)
+                # Retry directory durability even if a prior unlink succeeded
+                # but its fsync failed and the final name is now absent.
+                os.fsync(descriptor)
+                present = 'secrets.json' in os.listdir(descriptor)
+                if present:
+                    info = os.stat('secrets.json', dir_fd=descriptor, follow_symlinks=False)
+                    if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                            or info.st_nlink != 1 or info.st_mode & 0o077):
+                        raise ValueError
+            if not present or pending.get('id') == directory.name:
                 continue
-            if status == 'building':
-                # A killed build can leave this status indefinitely if nobody
-                # opens the portal. An unavailable systemd response is not
-                # evidence that the build has stopped.
-                try:
-                    if worker_active('nixlab-build-' + directory.name) or read_job_record(record) != job:
-                        continue
-                except ValueError:
+            record = directory / 'job.json'
+            job = read_job_record(record)
+            status = job.get('status')
+            if status in {'confirmed', 'rolled-back', 'cancelled', 'superseded', 'expired'}:
+                remove_staged_secrets(directory)
+            elif status in {'reviewed', 'ready', 'failed', 'building'}:
+                if not staged_secrets_expired(job):
                     continue
-            job.update(status='cancelled', error='Staged credentials expired; review the change again')
-            write_json(record, job)
-            remove_staged_secrets(directory)
+                phases = ('build', 'apply', 'rollback') if status == 'failed' else ('build',) if status == 'building' else ()
+                if any(worker_active('nixlab-' + phase + '-' + directory.name) for phase in phases):
+                    continue
+                if read_job_record(record) != job:
+                    continue
+                # Commit disposal before unlink, so a crash cannot make this
+                # candidate eligible for activation with missing credentials.
+                job.update(status='cancelled', error='Staged credentials expired; review the change again')
+                write_json(record, job)
+                remove_staged_secrets(directory)
+            elif status in {'applying', 'awaiting-confirmation', 'rolling-back'}:
+                if staged_secrets_expired(job):
+                    # Missing pending state is not proof of a safe terminal
+                    # transition. Preserve evidence and flag manual recovery.
+                    problems = True
+            else:
+                problems = True
+        except (OSError, ValueError, AttributeError):
+            problems = True
+    if problems:
+        raise ValueError('Staged credential cleanup failed; inspect transaction storage, worker state and host clock; protected recovery was retained')
 
 
 def prepare_state_access():
