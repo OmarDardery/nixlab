@@ -83,6 +83,16 @@ with tempfile.TemporaryDirectory(prefix='nixlab-direct-eval-') as folder:
     # Roll back to the original source-compatible input bytes, then normal flow.
     path.write_text(legacy_bytes)
     assert read_settings(root) == normalized
+    # Model a pre-schema source contract returning v0 intent. The reader must
+    # obey the selected source rather than impose a newer Python interpretation.
+    site_path = root / 'site.nix'
+    source_bytes = site_path.read_text()
+    try:
+        site_path.write_text('builtins.fromJSON (builtins.readFile ./machine/settings.json)')
+        assert read_settings(root) == legacy
+    finally:
+        site_path.write_text(source_bytes)
+    assert read_settings(root) == normalized
     path.write_text(json.dumps(settings))
     overview = evaluate(root, 'nixlabOverview')
     assert set(overview['adminKeys']) == {key(1), key(3)}, overview['adminKeys']
