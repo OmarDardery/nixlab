@@ -2,6 +2,7 @@
 import copy
 import contextlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -26,6 +27,35 @@ spec.loader.exec_module(installer)
 
 
 class SourceTests(unittest.TestCase):
+    def test_wizard_cannot_downgrade_a_configured_host_to_bootstrap(self):
+        for status in ({'setupComplete': True}, {'setupComplete': False, 'effectiveSettings': {'ready': True}}):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder) / 'source'
+                state = Path(folder) / 'state'
+                rt.write_json(root / 'machine/format.json', {'version': 1})
+                rt.write_json(root / 'machine/installation.json', {'interface': 'eth0'})
+                rt.atomic(root / 'machine/settings.json', '{"ready":true}')
+                original = (root / 'machine/settings.json').read_bytes()
+                manager = Mock()
+                manager.status.return_value = status
+                with patch.object(installer, 'installed_host', return_value=True), \
+                     patch.object(installer, 'TARGET', root), patch.object(rt, 'STATE', state), \
+                     patch('controller.Manager', return_value=manager), \
+                     patch.object(installer, 'choose_network') as network, \
+                     patch.object(installer, 'run') as command, \
+                     patch.object(installer, 'setup_password') as credentials, \
+                     patch.object(sys, 'argv', ['nixlab-install', '--wizard']), \
+                     contextlib.redirect_stderr(io.StringIO()) as error:
+                    with self.assertRaises(SystemExit) as caught:
+                        installer.main()
+                    self.assertEqual(caught.exception.code, 2)
+                    self.assertIn('already configured', error.getvalue())
+                network.assert_not_called()
+                command.assert_not_called()
+                credentials.assert_not_called()
+                manager.review.assert_not_called()
+                self.assertEqual((root / 'machine/settings.json').read_bytes(), original)
+
     def test_pending_recovery_blocks_competing_review(self):
         from controller import Manager
         with tempfile.TemporaryDirectory() as folder:
@@ -39,6 +69,12 @@ class SourceTests(unittest.TestCase):
             self.assertEqual(list((state / 'jobs').iterdir()), [])
 
     def test_fresh_console_install_and_retry_from_bundled_source(self):
+        self.check_fresh_install_and_retry()
+
+    def test_initial_wizard_and_retry_preserve_the_installed_source(self):
+        self.check_fresh_install_and_retry(wizard=True)
+
+    def check_fresh_install_and_retry(self, wizard=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             original, target, source, state = [root / name for name in ('original', 'target', 'source', 'state')]
@@ -79,12 +115,12 @@ class SourceTests(unittest.TestCase):
                  patch('controller.Manager.status', return_value={'job': None}),
                  patch('controller.read_settings', side_effect=lambda root: rt.read_json(rt.machine_path(root, 'settings'), {})),
                  patch('direct.activate', side_effect=activate), patch('builtins.print'),
-                 patch.object(sys, 'argv', ['nixlab-install', '--checkout', str(source)])
+                 patch.object(sys, 'argv', ['nixlab-install', '--checkout', str(source)] + (['--wizard'] if wizard else []))
             ]
             with contextlib.ExitStack() as stack:
                 for mocked in patches: stack.enter_context(mocked)
                 installer.main()
-                self.assertTrue(rt.read_json(rt.machine_path(target, 'settings'))['ready'])
+                self.assertEqual(rt.read_json(rt.machine_path(target, 'settings'))['ready'], not wizard)
                 self.assertEqual(rt.read_json(rt.machine_path(target, 'settings'))['adminKeys'], [])
                 rt.atomic(target / 'machine/modules/mine.nix', '{ }')
                 (source / 'admin/main.py').write_text('updated')
