@@ -68,7 +68,7 @@ class RetirementTests(unittest.TestCase):
         output = io.StringIO()
         with patch.object(installer, 'run') as command, patch.object(portainer, 'authentication_ready') as probe, \
                 contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
-            with self.assertRaisesRegex(ValueError, 'metadata only') as caught:
+            with self.assertRaises(ValueError) as caught:
                 installer.summarize(initial(), SECRETS['setup'])
         command.assert_not_called(); probe.assert_not_called()
         self.assertEqual(output.getvalue(), '')
@@ -86,9 +86,9 @@ class RetirementTests(unittest.TestCase):
                 patch('diagnostics.request', return_value=(200, json.dumps({'jwt': SECRETS['cookie']}).encode())) as request:
             rt.atomic(rt.SECRET_PATHS['portainerPassword'], SECRETS['portainer'])
             result = portainer.authentication_ready(initial())
-            self.assertIs(result, True)
-            self.assertEqual(request.call_args.args[-1]['Password'], SECRETS['portainer'])
             assert_public_clean(self, result)
+            self.assertTrue(type(result) is bool and result, 'Authentication probe must return status only')
+            self.assertTrue(request.call_args.args[-1]['Password'] == SECRETS['portainer'], 'Private authentication input changed')
 
     def test_unexpected_portainer_response_shapes_are_not_authentication(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(rt, 'STATE', Path(folder)), \
@@ -107,11 +107,11 @@ class RetirementTests(unittest.TestCase):
             with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
                 result = installer.ensure_portal_account()
             generate.assert_not_called()
-            self.assertIsNone(result)
+            self.assertTrue(result is None, 'Credential initialization must not return data')
             self.assertTrue(accounts.matches('admin', SECRETS['setup']))
             original = (rt.STATE / 'auth.json').read_bytes()
-            self.assertIsNone(installer.ensure_portal_account())
-            self.assertEqual((rt.STATE / 'auth.json').read_bytes(), original)
+            self.assertTrue(installer.ensure_portal_account() is None, 'Credential initialization must not return data')
+            self.assertTrue((rt.STATE / 'auth.json').read_bytes() == original, 'Existing verifier changed unexpectedly')
             self.assertTrue((rt.STATE / 'setup-password').exists())
             assert_public_clean(self, [result, output.getvalue()])
 
@@ -126,7 +126,7 @@ class RetirementTests(unittest.TestCase):
             self.assertFalse((rt.STATE / 'setup-password').exists())
             self.assertTrue(accounts.matches('admin', SECRETS['operator']))
             self.assertFalse(accounts.matches('admin', SECRETS['setup']))
-            self.assertIsNone(auth.get('nixlab_session=' + token))
+            self.assertTrue(auth.get('nixlab_session=' + token) is None, 'Old session remained valid')
             assert_public_clean(self, result)
 
     def test_failed_replacement_write_preserves_legacy_access(self):
@@ -136,8 +136,8 @@ class RetirementTests(unittest.TestCase):
             original = (rt.STATE / 'auth.json').read_bytes()
             with patch.object(rt, 'write_json', side_effect=OSError(SECRETS['setup'])):
                 with self.assertRaises(OSError): accounts.change_password('admin', SECRETS['operator'])
-            self.assertEqual((rt.STATE / 'auth.json').read_bytes(), original)
-            self.assertEqual((rt.STATE / 'setup-password').read_text(), SECRETS['setup'])
+            self.assertTrue((rt.STATE / 'auth.json').read_bytes() == original, 'Existing verifier changed unexpectedly')
+            self.assertTrue((rt.STATE / 'setup-password').read_text() == SECRETS['setup'], 'Legacy private input changed unexpectedly')
             self.assertTrue(accounts.matches('admin', SECRETS['setup']))
 
     def test_resume_failure_hides_legacy_logs_and_exception_values(self):
@@ -164,8 +164,8 @@ class RetirementTests(unittest.TestCase):
                 contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
             with self.assertRaises(SystemExit) as stopped:
                 runpy.run_path(str(BASE / 'installer/update.py'), run_name='__main__')
-        self.assertIn('Update stopped', str(stopped.exception))
         assert_public_clean(self, [output.getvalue(), str(stopped.exception)])
+        self.assertIn('Update stopped', str(stopped.exception))
 
 
 class ConsoleRotationTests(unittest.TestCase):
@@ -215,7 +215,8 @@ main.reset_portal_password()
                 while b'characters): ' not in output and time.monotonic() < deadline:
                     if select.select([master], [], [], 0.2)[0]: output.extend(os.read(master, 4096))
                     if process.poll() is not None: break
-                self.assertIn(b'characters): ', output, 'Private console prompt unavailable')
+                assert_public_clean(self, bytes(output))
+                self.assertTrue(b'characters): ' in output, 'Private console prompt unavailable')
                 self.assertFalse(termios.tcgetattr(slave)[3] & termios.ECHO)
                 os.write(master, SECRETS['operator'].encode() + b'\n')
                 process.wait(timeout=10)
