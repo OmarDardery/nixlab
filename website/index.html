@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#111310">
+  <meta name="theme-color" content="#0e1116">
   <meta name="description" content="Nixlab turns an installed NixOS server into an Incus, Cockpit and Portainer homelab. One command, preserved guests, and actual troubleshooting docs.">
   <meta property="og:title" content="Nixlab — A NixOS hypervisor for homelabs.">
   <meta property="og:description" content="Incus, Cockpit and Portainer on plain NixOS. Native management tools with reviewed host configuration and recovery guidance.">
@@ -19,24 +19,24 @@
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header"><div class="header-inner">
     <a class="brand" href="@@BASE@@/" aria-label="Nixlab home"><span class="brand-mark" aria-hidden="true">[n]</span>nixlab<span class="brand-cursor" aria-hidden="true">_</span></a>
-    <nav aria-label="Main navigation"><a class="hide-small" href="#stack">The stack</a><a href="@@BASE@@/docs/">Docs</a><a class="hide-small" href="@@BASE@@/docs/troubleshooting/">Troubleshooting</a><a class="github-link" href="https://github.com/OmarDardery/nixlab">GitHub <span aria-hidden="true">↗</span></a></nav>
+    <nav aria-label="Main navigation"><a class="hide-small" href="#why">Why NixLab</a><a class="hide-small" href="#stack">The stack</a><a href="#install">Install</a><a href="@@BASE@@/docs/">Documentation</a><a class="github-link" href="https://github.com/OmarDardery/nixlab">GitHub <span aria-hidden="true">↗</span></a></nav>
   </div></header>
   <main id="main">
     <section class="hero section-wrap">
       <div class="hero-copy">
-        <p class="eyebrow"><span class="square" aria-hidden="true"></span> SINGLE-HOST HOMELAB HYPERVISOR</p>
-        <h1>Your homelab.<br>Built on<br><em>NixOS.</em></h1>
-        <p class="hero-intro">Containers, virtual machines and services.<br class="hide-small"> One small management hub.</p>
-        <p class="hero-detail">Incus, Cockpit and Portainer on an existing NixOS server. One install command, reviewed updates and independent backup coordination.</p>
-        <div class="hero-actions"><a class="button button-primary" href="#install">Install Nixlab <span aria-hidden="true">↗</span></a><a class="text-link" href="@@BASE@@/docs/">Read the docs <span aria-hidden="true">→</span></a></div>
-        <p class="hero-footnote">BETA CANDIDATE · PHYSICAL QUALIFICATION PENDING</p>
+        <p class="eyebrow"><span class="square" aria-hidden="true"></span> ONE HOST · CLEAR OWNERSHIP · REPRODUCIBLE OPERATIONS</p>
+        <h1>Your home server.<br><em>On your terms.</em></h1>
+        <p class="hero-intro">Build a dependable NixOS homelab with native tools, reviewed changes and a single management hub.</p>
+        <p class="hero-detail">Incus guests, Cockpit host services and optional Portainer—without turning your server into a pile of fragile scripts.</p>
+        <div class="hero-actions"><a class="button button-primary" href="#install">See installation <span aria-hidden="true">→</span></a><a class="text-link" href="@@BASE@@/docs/">Explore documentation <span aria-hidden="true">↗</span></a></div>
+        <p class="hero-footnote"><span class="beta-label">BETA CANDIDATE · PHYSICAL VALIDATION PENDING</span><span class="beta-explainer">Single x86_64 NixOS host. Existing guests require explicit adoption and backup review.</span></p>
       </div>
       <div class="stack-illustration" aria-label="NixOS host runs Incus and Cockpit, with Docker and Portainer in an apps VM">
-        <div class="map-label"><span>HOST AND GUEST OWNERSHIP</span><span aria-hidden="true">↓</span></div>
+        <div class="map-label"><span>HOMELAB ARCHITECTURE · NOT A LIVE STATUS DISPLAY</span><span aria-hidden="true">● ● ●</span></div>
         <div class="host-box">
           <div class="host-heading"><span class="server-glyph" aria-hidden="true">▤</span><div><strong>THE HOST</strong><span>NixOS · bare metal · no desktop</span></div><span class="small-tag">YOUR NIXOS SERVER</span></div>
           <div class="service-row"><div class="service-symbol" aria-hidden="true">i_</div><div><strong>Incus</strong><span>Containers &amp; virtual machines</span></div><code>:8443</code></div>
-          <div class="service-row"><div class="service-symbol" aria-hidden="true">&gt;_</div><div><strong>Cockpit</strong><span>Host terminal, services &amp; logs</span></div><code>:9090</code></div>
+          <div class="service-row"><div class="service-symbol" aria-hidden="true">&gt;_</div><div><strong>Cockpit</strong><span>Host terminal, services &amp; logs</span></div><code>:9090</code></div><div class="service-row"><div class="service-symbol" aria-hidden="true">[n]</div><div><strong>NixLab console</strong><span>Reviewed host changes &amp; recovery</span></div><code>:9440</code></div>
           <div class="vm-connector"><span aria-hidden="true">└</span><span>apps · NixOS virtual machine</span><span class="vm-isolation">SEPARATE KERNEL</span></div>
           <div class="vm-box"><div class="service-row"><div class="service-symbol" aria-hidden="true">▱</div><div><strong>Portainer + Docker</strong><span>Compose stacks live here</span></div><code>:9443*</code></div><p>* HTTPS through the host proxy. Docker stays in the VM.</p></div>
           <div class="host-bottom"><span><span class="small-square" aria-hidden="true"></span> NIX-OWNED HOST</span><span>INCUS-OWNED GUEST DATA</span></div>
@@ -44,8 +44,8 @@
         <div class="map-caption"><span>Architecture diagram. Not a live status monitor.</span><span class="hand-note">native tools.<br>clear ownership.</span></div>
       </div>
     </section>
-    <div class="spec-strip"><div class="section-wrap"><span><b>01</b> Plain NixOS</span><span><b>02</b> No desktop required</span><span><b>03</b> Password SSH included</span><span><b>04</b> Guest data preserved</span></div></div>
-    <section id="install" class="install-section section-wrap">
+    <div class="spec-strip"><div class="section-wrap"><span><b>01</b> Plain NixOS</span><span><b>02</b> Incus-first guests</span><span><b>03</b> Guarded changes</span><span><b>04</b> Independent backups</span></div></div>
+    <section id="why" class="why-section section-wrap"><p class="eyebrow">WHY NIXLAB</p><div class="why-grid"><div><h2>Clear ownership.<br><span>Less fragile infrastructure.</span></h2></div><p>NixOS owns reproducible host configuration. Incus owns guests, networks and their data. NixLab coordinates reviews, safe activation and recovery—not a duplicate guest-management stack.</p></div></section><section id="install" class="install-section section-wrap">
       <div class="section-heading"><p class="eyebrow">01 / GET IT RUNNING</p><h2>One command.<br><span>On your existing NixOS host.</span></h2><p>Run on an installed Intel/AMD x86_64 NixOS system with Internet access and hardware virtualization enabled. Start with a minimal NixOS installation; Nixlab configures the stack on top.</p></div>
       <div class="install-panel">
         <div class="terminal-bar"><span><span class="terminal-dot" aria-hidden="true"></span> host / terminal</span><button class="copy-button" type="button" data-copy="install-command" aria-label="Copy install command">Copy command <span aria-hidden="true">⧉</span></button></div>
