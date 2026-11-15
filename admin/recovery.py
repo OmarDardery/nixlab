@@ -20,7 +20,9 @@ UNITS = ['incus.service', 'incus-preseed.service', 'nixlab-kvm-check.service', '
 
 
 def health():
+    import diagnostics
     result = {'checkedAt': int(time.time()), 'release': upgrades.metadata(rt.ROOT), 'services': [], 'certificates': {}, 'lastBackupSuccess': None}
+    result['clock'] = diagnostics.clock_status()
     for unit in UNITS:
         process = subprocess.run(['systemctl', 'show', unit, '--property=Id,LoadState,ActiveState,SubState,Result,ExecMainStatus'],
                                  capture_output=True, text=True, timeout=10)

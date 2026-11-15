@@ -302,3 +302,16 @@ The portal tracks the actual service through export, off-host transfer and reten
 keeps cancellation available during transfer, and reports an off-host failure even
 when the local generation completed successfully.
 The default calendar is `*-*-* 03:00:00`; change `backup.schedule` through review.
+
+## Host clock readiness
+
+Doctor and the portal health view report synchronized, plausible but unsynchronized,
+or invalid host time. Plausibility is deliberately coarse (2026 through 2099);
+it cannot establish correct UTC. Unavailable synchronization evidence is a warning,
+not proof of synchronization. Check the host date, native time service, DNS and
+network connectivity before relying on backup ages or qualification timestamps.
+
+Only a grossly invalid clock blocks creation of a new Incus browser certificate.
+A transient NTP outage does not block host boot, existing sessions or ordinary
+Incus operations. Correct the clock and refresh the health view; no additional
+background service is installed.
