@@ -204,3 +204,15 @@ hostname rules, safe method errors, and recovery after 100 stalled TLS clients.
 HTTP timeouts are inactivity bounds, not an absolute request deadline. Management
 firewall policy, TLS trust and private-network deployment remain necessary; these
 tests do not qualify public Internet exposure or complete the broader #74 audit.
+
+## Durable worker observations
+
+Configuration, guest operations and deployments keep separate state machines and
+recovery actions. They share `runtime.job_directory`, `runtime.tail_log` and
+`runtime.worker_active` for validated job IDs, bounded log reads and bounded local
+systemd observation. Worker inspection accepts only the existing NixLab worker
+unit names and times out after ten seconds. Active, inactive/failed and missing
+units are distinguished from a failed inspection. A timeout, missing systemctl or
+permission/transport error reports unavailable state without marking the durable
+job failed or interrupted; raw stderr is never returned. The caller retains its
+own stopped-worker recovery rules and mutation locking.

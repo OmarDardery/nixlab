@@ -116,6 +116,22 @@ def tail_log(path, limit=65536):
         return ''
 
 
+def worker_active(unit: str) -> bool:
+    """Observe only NixLab workers; unknown systemd state is not stopped work."""
+    if not isinstance(unit, str) or not re.fullmatch(r'nixlab-(?:build|apply|operation|deploy)-[0-9a-f]{32}', unit):
+        raise ValueError('Invalid worker unit')
+    try:
+        result = subprocess.run(['systemctl', 'is-active', '--quiet', unit],
+                                capture_output=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        raise ValueError('Worker state unavailable; retry status or inspect systemd from the host console') from None
+    # systemctl's LSB codes distinguish inactive/failed (3) and missing (4)
+    # from an invocation, permission or transport failure. Never publish stderr.
+    if result.returncode not in (0, 3, 4):
+        raise ValueError('Worker state unavailable; retry status or inspect systemd from the host console')
+    return result.returncode == 0
+
+
 def cleanup_terminal_secrets(state):
     """Retry interrupted cleanup; caller holds the existing mutation lock.
 

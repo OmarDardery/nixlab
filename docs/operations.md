@@ -33,6 +33,12 @@ on a command line.
 
 ### Maintenance
 
+If status reports **Worker state unavailable**, retry after checking systemd on
+the host console. This means the observation failed, not that the transaction
+failed. NixLab preserves the job record and recovery intent rather than allowing a
+competing operation based on that unknown result. The rollback guard remains
+independent. Do not delete job or pending-state files to clear this error.
+
 The Backups page coordinates independent backups, repository checks,
 archive restores, recovery downloads and host health. Use Incus for ordinary guest
 lifecycle, consoles and snapshots. Legacy commands below remain for compatibility.

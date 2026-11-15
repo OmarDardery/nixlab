@@ -71,8 +71,7 @@ class Manager:
         job = self.job(active['id']) if active.get('id') else None
         if job and job['status'] in ('building', 'applying') and time.time() - job.get('appliedAt', job['created']) > 30:
             phase = 'build' if job['status'] == 'building' else 'apply'
-            active_unit = subprocess.run(['systemctl', 'is-active', '--quiet', 'nixlab-' + phase + '-' + job['id']], capture_output=True)
-            if active_unit.returncode:
+            if not rt.worker_active('nixlab-' + phase + '-' + job['id']):
                 latest = self.job(job['id'])
                 if latest['status'] == job['status']:
                     latest.pop('log', None)

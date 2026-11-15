@@ -127,8 +127,7 @@ class Deployments:
         directory = self.directory(job_id)
         record = rt.read_json(directory / 'deployment.json')
         if record and record['status'] in ACTIVE and time.time() - record['updatedAt'] > 30:
-            unit = subprocess.run(['systemctl', 'is-active', '--quiet', 'nixlab-deploy-' + job_id], capture_output=True, timeout=10)
-            if unit.returncode:
+            if not rt.worker_active('nixlab-deploy-' + job_id):
                 record['status'] = 'interrupted'
                 record['error'] = 'Worker stopped. Resume rechecks the guest identity and generations before continuing.'
         if record and not private:
