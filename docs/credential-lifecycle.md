@@ -45,11 +45,11 @@ override them. Secret *contents* are never inventory fields.
 
 | Credential | Producer and consumer | Persistence and current disposal | Delivery and assessment |
 |---|---|---|---|
-| Initial portal password | `installer/install.py:setup_password`; `runtime.password_record`, `accounts.matches` | `/var/lib/nixlab-admin/setup-password` plaintext plus salted PBKDF2 `auth.json`; CLI `reset-password` removes setup-password, ordinary `accounts.change_password` does not | `install.summarize` reports the root-only legacy file path; new console-approved browser enrollment sets a supplied password. Complete first-claim/recovery qualification in #63/#64 |
+| Initial portal password | `installer/install.py:ensure_portal_account`; `runtime.password_record`, `accounts.matches` | `/var/lib/nixlab-admin/setup-password` plaintext plus salted PBKDF2 `auth.json`; a committed replacement for the reserved `admin` verifier removes setup-password; failed writes preserve it | `install.summarize` reports existing-account or supplied-password rotation guidance; new console-approved browser enrollment sets a supplied password. Complete first-claim/recovery qualification in #63/#64 |
 | Portal accounts | `admin/accounts.py:update/change_password`; `main.Auth` | `auth.json` and `users.json`, root-owned/group-readable by nixlab-ui; account hash/role changes invalidate existing sessions on lookup | Supplied in authenticated TLS bodies or local getpass; list API returns names/roles; account changes require reauthentication |
 | Portal session/CSRF | `admin/main.py:Auth.login/get`, HTTPS frontend | Bounded in-memory sessions; idle and absolute expiry, logout/password/identity changes revoke; web restart discards memory | Cookie and authenticated CSRF response are private protocol delivery; never support-bundle/log fields; tests must inspect public artifacts separately from Set-Cookie |
-| Linux operator password/hash | `admin/local_access.py:ensure_operator_password/operator_password`; NixOS user configuration | `/var/lib/nixlab-admin/operator-password` plaintext, `/var/lib/nixlab-secrets/cockpit-operator-password` hash; shadow is live account authority; worker recovery preserves old hash | `install.summarize` reports the protected runtime file path and console password-change command; supplied-password/approval recovery belongs to #67; current retained plaintext requires retirement |
-| Apps Portainer bootstrap password | `installer/direct.py:activate`, `modules/apps-onboarding.nix`, `modules/docker-host.nix` | Host `/var/lib/nixlab-secrets/apps-portainer-password`, guest `/var/lib/nixlab-secrets/portainer-admin-password`; mounted into Portainer with admin-password-file; retained after initialization | Host Incus file push uses mode 0600; `portainer.credentials` verifies privately; `summarize` reports status and protected file path only: #62/#65; existing Portainer database must remain authoritative |
+| Linux operator password/hash | `admin/local_access.py:ensure_operator_password`; NixOS user configuration | `/var/lib/nixlab-admin/operator-password` plaintext, `/var/lib/nixlab-secrets/cockpit-operator-password` hash; shadow is live account authority; worker recovery preserves old hash | `install.summarize` directs managed password changes through the portal and unmanaged accounts through console rotation; the plaintext-returning lookup is retired; supplied-password/approval recovery belongs to #67; current retained plaintext requires retirement |
+| Apps Portainer bootstrap password | `installer/direct.py:activate`, `modules/apps-onboarding.nix`, `modules/docker-host.nix` | Host `/var/lib/nixlab-secrets/apps-portainer-password`, guest `/var/lib/nixlab-secrets/portainer-admin-password`; mounted into Portainer with admin-password-file; retained after initialization | Host Incus file push uses mode 0600; `portainer.authentication_ready` verifies privately and returns a boolean; `summarize` reports status and preserves the legacy private delivery path until #65/#66 qualify: #62/#65; existing Portainer database must remain authoritative |
 | Portainer reset result | `admin/portainer.py:reset`; root `main.py` portainer action | Guest data backup under `/var/lib/nixlab/portainer-recovery/TIMESTAMP`; host `portainer-reset-TIMESTAMP.txt` retains helper stdout plus current credential file/account metadata | Helper output is captured, but successful CLI returns only URL, backup and protected credential file path; #66 must accept a supplied password without exposing it; helper image `latest` also requires #58 |
 | Incus browser private key/P12 passphrase | `controller.Manager.browser_certificate`; Incus trust API and browser | Root-only /run temporary directory is removed; owned public trust metadata persists; ECDSA P-384 client identity lasts 90 days, with guarded owned-trust expiry | Supplied import passphrase; metadata-only public JSON plus session-bound, CSRF-protected, one-claim encrypted download for 120 seconds. Reauthenticated issue/revoke, lab restriction by default, explicit acknowledged unrestricted action, owned inventory and renewal; real client import/selection qualification remains #68 evidence |
 | Management CA/server/app TLS keys | `runtime.issue_tls`, `diagnostics.identity`, `main.renew` | `/var/lib/nixlab-admin/{ca,tls,apps-tls}.key`; host CA retained, leaf renewal; worker recovery retains prior host TLS files | Portal uses systemd LoadCredential; Incus bind mounts host leaf files; apps leaf copied into guest; public CA/fingerprint are safe, private CA never distributed to guests |
@@ -63,9 +63,9 @@ override them. Secret *contents* are never inventory fields.
 
 | Finding | Exact code boundary | Required follow-up |
 |---|---|---|
-| Legacy credentials still retained for protected local delivery | `installer/install.py:summarize` | Output now contains URLs, fingerprints, status and protected file paths only; #62 still needs retirement of legacy files after replacement flows qualify |
+| Legacy credentials still retained for protected local delivery | `installer/install.py:summarize` | Installer output has no credential values; the protected Portainer path remains a migration exception until #65/#66 qualify replacement delivery |
 | Generated reset password and helper output retained privately | `admin/main.py` portainer action; `admin/portainer.py:reset` | #66 supplied-password reset; preserve backed-up database/restart recovery and never log helper stdout |
-| Long-lived Linux/setup plaintext | `local_access.ensure_operator_password`; `install.setup_password`; `accounts.change_password` | #64/#67 retirement with compatibility for existing accounts; never delete the last viable recovery credential |
+| Long-lived Linux/setup plaintext | `local_access.ensure_operator_password`; `install.ensure_portal_account`; `accounts.change_password` | #64/#67 retirement with compatibility for existing accounts; never delete the last viable recovery credential |
 | Browser client qualification still required | `browser_certificates.py`, protected binary download, client import stores | #68 implements ownership, scope, reauthentication, renewal and revocation; retain the issue until matching Incus CI and real browser import/selection/expiry/revoke evidence qualify the supported clients |
 | Broader operation/deployment and service-journal qualification remains | `admin/operations.py`, `admin/deployments.py`, generated units | Broker/frontend errors, host command errors, installer failures and transaction worker records now use fixed messages. Other producers and real service journals still require negative captures |
 | Staged credentials/recovery material can outlive useful purpose | `runtime.cleanup_terminal_secrets`; controller/worker terminal transitions | #73 explicit state/lifetime table, expiry and crash/deletion-failure visibility, preserving indispensable recovery material |
@@ -146,3 +146,28 @@ credentials; supplied-password reset and lifecycle deletion remain #66/#65 work.
 A complete #61 acceptance claim remains blocked on the final #62–#68 flows, diagnostics
 bundle #72, and real NixOS/generated-unit/journal evidence. Passing the public-boundary
 regression tests alone must not close the issue.
+
+### Credential retrieval retirement and release gate (#62)
+
+`installer.ensure_portal_account` returns no credential. `direct.activate` returns
+only its transaction record. Portainer authentication probes return strict boolean
+status, and the unused Linux plaintext lookup is removed. Installer summaries no
+longer accept a credential argument or advertise setup/operator retrieval paths.
+The sign-in page directs users to available enrollment or authorized password
+rotation rather than an installer transcript. Retry, rollback and update errors
+do not replay arbitrary domain exception text.
+
+Console rotation refuses non-root/non-terminal callers and turns an echoing
+getpass fallback into a fixed failure before reading input. Supplied admin password
+commits retire the legacy setup file and invalidate old account fingerprints; a
+failed verifier write preserves the old verifier and plaintext. Tests exercise a
+real controlling terminal and check echo flags plus captured output. The portal
+VM fixture also checks existing login, absent retrieval endpoints, authenticated
+rotation, setup-file retirement and old-session rejection.
+
+This does **not** certify #62's complete web-first migration gate. #63/#64/#67
+still own verified default enrollment, durable first-claim semantics and approved
+browser recovery. #65/#66 still own transient Portainer first-boot input and
+supplied-password reset. Existing protected private service files, legacy verifiers
+and console recovery remain in place until those replacements are qualified.
+Do not close #62 merely because the output/helper regression tests pass.

@@ -26,14 +26,29 @@ Nixlab qualification remain separate.
 
 ## Credential delivery during installation and recovery
 
-Installer summaries and Portainer reset output show status and protected runtime file
-paths. They do not print passwords. A root operator can use those mode-0600 files for
-private local delivery; keep their contents out of shell arguments, transcripts and
-support bundles. Fresh portal enrollment uses the browser code plus local sudo
-approval. Existing portal accounts retain local `sudo nixlab-admin reset-password`
-recovery. For Linux operator recovery, use a trusted privileged local session and
-`sudo passwd operator`. Do this before ending the installation session if no other
-usable Linux login exists.
+Installer summaries show URLs, public fingerprints, status and recovery steps.
+Until #65/#66 qualify the replacement, a verified private Portainer bootstrap
+input still has its protected path reported; no credential value is returned.
+They do not print credentials or offer a password-retrieval API. Portainer health
+checks consume private service credentials and return only a boolean. Its current
+reset command still reports a protected delivery path for compatibility pending
+the supplied-password workflow; that private lifecycle is not retired here.
+
+Console-approved browser enrollment is explicitly enabled with
+`--wizard --web-enrollment`; the default legacy path is not silently migrated.
+An existing or forgotten portal account can be rotated with
+`sudo nixlab-admin reset-password` from an authorized private host terminal. It
+refuses non-terminal/echoing input, accepts a supplied password and removes the
+old setup plaintext only after committing its replacement verifier. Existing
+sessions fail their next identity check; no UI restart is necessary. Do not put
+passwords in command arguments, transcripts or support bundles.
+
+For a persistent managed Linux operator password, use **Host → Services** and
+review/activate the supplied password through the existing guarded transaction.
+For unmanaged local accounts, use `sudo passwd operator` from a trusted privileged
+terminal. Manual changes do not update a managed hash file and may be overwritten
+by later activation. Ensure a working Linux login before ending installation. Service runtime files and existing verifiers remain
+available until the corresponding enrollment/recovery release gates are qualified.
 
 Portainer reset still uses the backed-up offline helper and retains its generated
 credential privately. It does not replace the database. A supplied-password reset

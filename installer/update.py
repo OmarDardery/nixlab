@@ -180,4 +180,4 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         sys.exit('Disconnected/interrupted: rerun the same #update command to resume. Unconfirmed activation retains automatic rollback.')
     except (ValueError, OSError, EOFError, subprocess.SubprocessError) as error:
-        sys.exit('Update stopped: ' + str(error))
+        sys.exit('Update stopped; inspect host status before retrying. Unconfirmed activation retains automatic rollback.')

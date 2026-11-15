@@ -341,18 +341,18 @@ class Repair:
         errors = []
         if DROPIN.exists():
             try: self.native_identity()
-            except (OSError, ValueError, subprocess.SubprocessError) as error: errors.append(str(error))
+            except (OSError, ValueError, subprocess.SubprocessError): errors.append('Runtime identity restoration failed')
         if success:
             try: self.validate_live()
-            except (OSError, ValueError, subprocess.SubprocessError) as error: errors.append(str(error))
+            except (OSError, ValueError, subprocess.SubprocessError): errors.append('Live management validation failed')
         else:
             try:
                 check_profiles(self.record['profiles'], profiles())
-            except (OSError, ValueError, subprocess.SubprocessError) as error: errors.append(str(error))
+            except (OSError, ValueError, subprocess.SubprocessError): errors.append('Saved network profiles need review')
             else:
                 for p in self.record['profiles']:
                     try: run(['nmcli', 'connection', 'modify', 'uuid', p['uuid'], 'connection.autoconnect', p['auto']])
-                    except (OSError, ValueError, subprocess.SubprocessError) as error: errors.append(str(error))
+                    except (OSError, ValueError, subprocess.SubprocessError): errors.append('Saved connection policy could not be restored')
         self.save('completed' if success and not errors else 'needs-attention' if errors else 'cancelled')
         if errors:
             message = 'Recovery needs attention: ' + '; '.join(errors) + '; checkpoint: ' + str(self.path)

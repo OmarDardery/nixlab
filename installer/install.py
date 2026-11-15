@@ -145,10 +145,16 @@ def installed_host():
     return os.geteuid() == 0 and Path('/etc/NIXOS').exists()
 
 
-def setup_password():
+def ensure_portal_account():
+    """Keep legacy private provisioning compatible without returning plaintext.
+
+    Console-approved enrollment is still an explicit release-gated option. A
+    legacy credential may be loaded privately to establish its existing verifier;
+    summaries and callers never receive that credential.
+    """
     with rt.locked():
         if (rt.STATE / 'web-enrollment').is_file():
-            return None
+            return
         path = rt.STATE / 'setup-password'
         auth = rt.STATE / 'auth.json'
         record = rt.read_json(auth)
@@ -157,11 +163,6 @@ def setup_password():
                 rt.atomic(path, secrets.token_urlsafe(24) + '\n')
             record = rt.password_record(path.read_text().strip())
             rt.write_json(auth, record, mode=0o640)
-        if path.is_file() and record:
-            password = path.read_text().strip()
-            if rt.password_matches(password, record):
-                return password
-        return None
 
 
 def publish_etc():
@@ -176,7 +177,9 @@ def publish_etc():
     ORIGINAL.symlink_to(TARGET)
 
 
-def summarize(settings, password=None, record=None):
+def summarize(settings, record=None):
+    if record is not None and not isinstance(record, dict):
+        raise ValueError('Installer summaries accept transaction metadata only')
     import diagnostics
     address = diagnostics.management_address(settings)
     if not settings['management']['configure']:
@@ -184,22 +187,24 @@ def summarize(settings, password=None, record=None):
     print('Nixlab: https://' + address + ':' + str(settings['setup']['port']) + ' (username: admin)')
     if (rt.STATE / 'web-enrollment').is_file() and not (rt.STATE / 'auth.json').exists():
         print('Open the portal, then approve its browser code with sudo nixlab-admin approve-enrollment.')
-    elif password:
-        print('Legacy setup credential is available in the root-only runtime file: ' + str(rt.STATE / 'setup-password'))
     else:
-        print('Use your existing setup password; recover with sudo nixlab-admin reset-password.')
+        print('Use your existing portal account. Choose a replacement password from an authorized host terminal: sudo nixlab-admin reset-password.')
     if settings['ready']:
         print('Incus: https://' + address + ':8443 (create/import a browser certificate from the Nixlab portal)')
         if settings['cockpit']['enable']:
             print('Cockpit: https://' + address + ':' + str(settings['cockpit']['port']) + ' (existing non-root Linux account/password)')
-            print('Managed operator credential, if provisioned, is in the root-only runtime file: ' + str(rt.STATE / 'operator-password'))
-            print('Linux operator recovery: use the local console and sudo passwd operator.')
+            if settings['cockpit']['managePassword']:
+                print('Set a persistent managed Linux operator password in the portal under Host > Services, then review and activate it.')
+            else:
+                print('Linux operator recovery: use an authorized host terminal and sudo passwd operator.')
         if settings['apps']['enable']:
             import portainer
             print('Portainer: https://' + address + ':' + str(settings['apps']['portainerPort']))
-            credential = portainer.credentials(settings)
-            if credential:
-                print('Portainer authentication verified. Credential is available in the root-only runtime file: ' + str(rt.SECRET_PATHS['portainerPassword']))
+            if portainer.authentication_ready(settings):
+                print('Portainer bootstrap authentication verified. Use your existing Portainer account.')
+                # Retain the last compatible private delivery route until the
+                # supplied-password reset/first-boot flows are qualified.
+                print('Legacy protected Portainer bootstrap input: ' + str(rt.SECRET_PATHS['portainerPassword']))
             else:
                 print('Portainer has an existing account. The bootstrap file is not a verified current password.')
                 print('Recover access: sudo nixlab portainer reset-password')
@@ -265,7 +270,8 @@ def main():
             if resumed['status'] != 'rolled-back':
                 settings = manager.effective_settings()
                 publish_etc()
-                summarize(settings, setup_password(), resumed)
+                ensure_portal_account()
+                summarize(settings, resumed)
                 return
         if not args.switch and (status.get('setupComplete') or (status.get('effectiveSettings') or {}).get('ready')):
             parser.error('--wizard is for initial onboarding only; this host is already configured. '
@@ -469,7 +475,7 @@ def main():
     if args.web_enrollment:
         import accounts
         accounts.enable_enrollment()
-    password = setup_password()
+    ensure_portal_account()
     pin = rt.STATE / 'original-system'
     if not pin.exists() and installation.get('originalSystem'):
         run(['nix-store', '--add-root', str(pin), '--indirect', '--realise', installation['originalSystem']])
@@ -478,12 +484,12 @@ def main():
         import diagnostics
         diagnostics.wait_ready(Manager().effective_settings())
         publish_etc()
-        summarize(Manager().effective_settings(), password, prior)
+        summarize(Manager().effective_settings(), prior)
         return
     if not (rt.STATE / 'tls.key').exists():
         rt.issue_tls(address, default['hostName'])
     if args.switch:
-        _, record = direct.activate(candidate, effective=effective_candidate,
+        record = direct.activate(candidate, effective=effective_candidate,
                                     staged_source=stage if existing else None,
                                     expected_base_digest=source_digest if existing else None)
     else:
@@ -492,7 +498,7 @@ def main():
     settings = Manager().effective_settings()
     rt.prepare_state_access()
     publish_etc()
-    summarize(settings, password, record)
+    summarize(settings, record)
     if proposal:
         for task in proposal['pending']:
             print('Pending commissioning: ' + task)

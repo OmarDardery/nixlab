@@ -793,6 +793,22 @@ def reset_portainer(settings):
     print('Backup in applications VM: ' + result['backup'])
 
 
+def reset_portal_password():
+    """Supplied-password console recovery; never accept an echoing fallback."""
+    import getpass
+    import warnings
+    if os.geteuid() != 0 or not sys.stdin.isatty():
+        raise SystemExit('Run sudo nixlab-admin reset-password from a private host terminal')
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', getpass.GetPassWarning)
+            value = getpass.getpass('New NixLab administrator password (16–256 characters): ')
+        access_accounts.change_password('admin', value)
+    except (getpass.GetPassWarning, EOFError, ValueError, OSError):
+        raise SystemExit('Password change did not complete; check host account state from a private terminal before retrying') from None
+    print('Password changed. Existing sessions will be rejected; sign in with the new password.')
+
+
 if __name__ == '__main__':
     os.umask(0o027)
     action = sys.argv[1] if len(sys.argv) > 1 else ''
@@ -902,11 +918,7 @@ if __name__ == '__main__':
             sys.exit('Command failed; check inputs and host status before retrying')
         print('Browser approved for ten minutes. Return to the portal to create its password.')
     elif action == 'reset-password' and os.geteuid() == 0:
-        import getpass
-        value = getpass.getpass('New Nixlab administrator password: ')
-        import accounts
-        accounts.change_password('admin', value, clear_setup_password=True)
-        print('Password changed. Restart nixlab-ui to revoke existing sessions.')
+        reset_portal_password()
     else:
         sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|portainer reset-password|backend|web|guard|renew|approve-enrollment|reset-password|config|deploy|guests|recovery|commissioning|install-plan|prune-jobs|disk prepare}')
 

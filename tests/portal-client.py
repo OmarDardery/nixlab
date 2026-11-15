@@ -2,6 +2,7 @@
 import base64
 import io
 import json
+import os
 from pathlib import Path
 import ssl
 import subprocess
@@ -38,6 +39,15 @@ assert request('/api/status')[0] == 401
 assert request('/api/guest-network')[0] == 401
 assert request('/api/main-revision')[0] == 401
 admin = login('admin', 'vm-integration-password')
+# Disposable legacy input: the authenticated replacement must commit before
+# this private file is removed. Never echo the value through an API/console.
+legacy = Path('/var/lib/nixlab-admin/setup-password')
+descriptor = os.open(legacy, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+with os.fdopen(descriptor, 'w') as stream:
+    os.fchmod(stream.fileno(), 0o600)
+    stream.write('vm-integration-password')
+for endpoint in ('/api/credentials', '/api/portainer/credentials', '/api/setup-password', '/api/operator-password'):
+    assert request(endpoint, session=admin)[0] == 404
 assert request('/api/status', session=admin)[0] == 200
 status, guide, _ = request('/docs/setup.md', session=admin)
 assert status == 200 and b'Install on an existing NixOS system' in guide
@@ -69,5 +79,12 @@ subprocess.run(['age', '-d', '-i', '/tmp/recovery-test.key', '-o', '/tmp/recover
 with tarfile.open('/tmp/recovery-test-secrets.tar.gz', 'r:gz') as stream:
     assert 'admin/auth.json' in stream.getnames()
     assert 'admin/ca.key' in stream.getnames()
-print('Actual NixOS HTTPS, UNIX broker, role enforcement, session revocation and encrypted recovery passed.')
+status, response, _ = request('/api/password', {'current': 'vm-integration-password', 'password': 'vm-rotated-portal-password'}, admin)
+assert status == 200 and response == {'ok': True}
+assert not legacy.exists()
+assert request('/api/status', session=admin)[0] == 401
+assert request('/api/login', {'password': 'vm-integration-password'})[0] == 400
+rotated = login('admin', 'vm-rotated-portal-password')
+assert request('/api/status', session=rotated)[0] == 200
+print('Actual NixOS HTTPS, UNIX broker, role enforcement, password rotation, legacy retirement and encrypted recovery passed.')
 

@@ -179,6 +179,10 @@ def doctor(settings):
     if active.get('id'):
         job = rt.read_json(rt.STATE / 'jobs' / active['id'] / 'job.json', {})
         report['transaction'] = {key: job[key] for key in ('id', 'status', 'error', 'rollbackError') if key in job}
+        # Historical workers may have copied secret-bearing exceptions here.
+        for field in ('error', 'rollbackError'):
+            if report['transaction'].get(field):
+                report['transaction'][field] = 'Transaction did not complete; inspect the host recovery state'
         report['log'] = str(rt.STATE / 'jobs' / active['id'] / 'build.log')
     rt.write_json(rt.STATE / 'last-health.json', report)
     return report

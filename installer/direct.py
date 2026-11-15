@@ -78,9 +78,7 @@ def wait_for(manager, job_id, statuses, timeout=10800):
         if record['status'] in statuses:
             return record
         if record['status'] in ('failed', 'rolled-back', 'cancelled'):
-            raise ValueError('Direct conversion failed: ' + record.get('error', record['status']) +
-                             ('; rollback also failed: ' + record['rollbackError'] if record.get('rollbackError') else '') +
-                             '; log: ' + str(log_path))
+            raise ValueError('Direct conversion failed; inspect transaction status and log: ' + str(log_path))
         time.sleep(1)
     raise ValueError('Conversion timed out; inspect ' + str(log_path) + ' and the transaction status before retrying')
 
@@ -92,12 +90,10 @@ def activate(candidate, manager=None, effective=None, staged_source=None, expect
     if effective['cockpit']['enable'] and effective['cockpit']['managePassword']:
         import local_access
         local_access.ensure_operator_password()
-    initial = None
     if effective['apps']['enable'] and not rt.SECRET_PATHS['portainerPassword'].exists():
-        initial = secrets.token_urlsafe(24)
         # Created once outside the rollback manifest: failed activation must not
         # rotate the credential after Portainer has initialized its database.
-        rt.atomic(rt.SECRET_PATHS['portainerPassword'], initial + '\n')
+        rt.atomic(rt.SECRET_PATHS['portainerPassword'], secrets.token_urlsafe(24) + '\n')
     job_id = manager.review(candidate, secret_values={}, principal=PRINCIPAL,
                             staged_source=staged_source, expected_base_digest=expected_base_digest)['id']
     print('Building hypervisor; transaction ' + job_id, flush=True)
@@ -106,7 +102,7 @@ def activate(candidate, manager=None, effective=None, staged_source=None, expect
     manager.apply(job_id)
     record = wait_for(manager, job_id, {'awaiting-confirmation'})
     pending_access(job_id, record)
-    return initial, record
+    return record
 
 
 pending_access = rt.pending_access

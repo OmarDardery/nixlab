@@ -86,7 +86,8 @@ connection, or explicitly acknowledge it at the host console, before completing
 setup. Rerun with `--wizard` to resume the same initial transaction after a
 disconnect; `--resume` is optional. An existing
 checkout/configuration is never blindly overwritten. Lost portal passwords can be reset locally
-with `sudo nixlab-admin reset-password`, followed by restarting `nixlab-ui` to revoke sessions.
+with `sudo nixlab-admin reset-password` from a private host terminal. Existing
+sessions are rejected after the replacement verifier commits; no UI restart is needed.
 The installer does not overwrite a pre-existing Incus database.
 
 ## First-run wizard

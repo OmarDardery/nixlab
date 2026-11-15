@@ -66,8 +66,7 @@ class CredentialContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, patch.object(rt, 'STATE', Path(folder)), \
                 patch.object(installer, 'run', return_value=Mock(stdout='SHA256 Fingerprint=public')), \
                 patch('diagnostics.management_address', return_value='192.0.2.20'), \
-                patch.object(portainer, 'credentials', return_value={
-                    'username': SECRETS['operator'], 'password': SECRETS['portainer']}):
+                patch.object(portainer, 'authentication_ready', return_value=True):
             for enrollment in (True, False):
                 if enrollment:
                     rt.atomic(rt.STATE / 'web-enrollment', '{}')
@@ -75,7 +74,7 @@ class CredentialContractTests(unittest.TestCase):
                     (rt.STATE / 'web-enrollment').unlink()
                 output = io.StringIO()
                 with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
-                    installer.summarize(settings, SECRETS['setup'])
+                    installer.summarize(settings, {'error': SECRETS['setup']})
                 assert_public_clean(self, output.getvalue())
                 self.assertIn('https://192.0.2.20:', output.getvalue())
 
@@ -119,7 +118,7 @@ class CredentialContractTests(unittest.TestCase):
                 patch.object(portainer, 'guest', side_effect=lambda *a, **kw: helper if a[:2] == ('docker', 'run') else ''), \
                 patch.object(portainer, 'incus'), patch('diagnostics.wait_ready'), \
                 patch('diagnostics.management_address', return_value='192.0.2.20'), \
-                patch.object(portainer, 'credentials', return_value={'username': SECRETS['operator'], 'password': SECRETS['portainer']}):
+                patch.object(portainer, 'authentication_ready', return_value=True):
             result = portainer.reset(settings)
             assert_public_clean(self, result)
             self.assertEqual(set(result), {'url', 'backup'})
