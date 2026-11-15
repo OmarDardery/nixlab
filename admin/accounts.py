@@ -56,13 +56,14 @@ def update(username, role=None, password=None, delete=False):
     return {'users': list_users()}
 
 
-def change_password(username, password, *, clear_setup_password=False):
+def change_password(username, password):
     if username == 'admin':
         verifier = rt.password_record(password)
         with rt.locked(blocking=False):
             rt.write_json(rt.STATE / 'auth.json', verifier, mode=0o640, group='nixlab-ui')
-            if clear_setup_password:
-                rt.durable_unlink(rt.STATE / 'setup-password')
+            # Retire the old private bootstrap value only AFTER the supplied
+            # replacement verifier is committed. Failed writes preserve access.
+            rt.durable_unlink(rt.STATE / 'setup-password')
     else:
         current = record(username)
         if not current: raise ValueError('Unknown account')

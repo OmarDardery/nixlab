@@ -33,18 +33,18 @@ class BootstrapCredentialTests(unittest.TestCase):
                 patch.object(installer.secrets, 'token_urlsafe', wraps=installer.secrets.token_urlsafe) as token:
             with ThreadPoolExecutor(max_workers=2) as pool:
                 first, second = [future.result() for future in (
-                    pool.submit(installer.setup_password), pool.submit(installer.setup_password))]
-            self.assertTrue(first)
-            self.assertTrue(first == second)
+                    pool.submit(installer.ensure_portal_account), pool.submit(installer.ensure_portal_account))]
+            self.assertIsNone(first)
+            self.assertIsNone(second)
             self.assertEqual(token.call_count, 1)
-            self.assertTrue(rt.password_matches(first, rt.read_json(rt.STATE / 'auth.json')))
+            self.assertTrue(rt.password_matches((rt.STATE / 'setup-password').read_text().strip(), rt.read_json(rt.STATE / 'auth.json')))
 
     def test_legacy_retry_preserves_existing_authenticator(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(rt, 'STATE', Path(folder)):
             auth = rt.STATE / 'auth.json'
             rt.write_json(auth, rt.password_record('synthetic-existing-admin-password'))
             original = auth.read_bytes()
-            self.assertIsNone(installer.setup_password())
+            self.assertIsNone(installer.ensure_portal_account())
             self.assertFalse((rt.STATE / 'setup-password').exists())
             self.assertEqual(auth.read_bytes(), original)
 
@@ -66,7 +66,7 @@ class SourceTests(unittest.TestCase):
                      patch('controller.Manager', return_value=manager), \
                      patch.object(installer, 'choose_network') as network, \
                      patch.object(installer, 'run') as command, \
-                     patch.object(installer, 'setup_password') as credentials, \
+                     patch.object(installer, 'ensure_portal_account') as credentials, \
                      patch.object(sys, 'argv', ['nixlab-install', '--wizard']), \
                      contextlib.redirect_stderr(io.StringIO()) as error:
                     with self.assertRaises(SystemExit) as caught:
@@ -142,7 +142,7 @@ class SourceTests(unittest.TestCase):
                     if staged_inventory.is_file():
                         rt.atomic(rt.machine_path(target, 'installation'), staged_inventory.read_bytes())
                 rt.write_json(rt.machine_path(target, 'settings'), candidate)
-                return None, {}
+                return {}
             evaluated_retry = None
             def read_evaluated(config):
                 # Fixed evaluated fixture; migration policy is qualified by the
@@ -157,14 +157,14 @@ class SourceTests(unittest.TestCase):
                  patch('model.inventory', return_value=inventory()), patch('workflow.remote_session', return_value=False),
                  patch.object(installer, 'evaluate', side_effect=evaluate), patch.object(installer, 'run', side_effect=run),
                  patch.object(installer, 'read_settings', reader),
-                 patch.object(installer, 'validate_kvm'), patch.object(installer, 'setup_password'),
+                 patch.object(installer, 'validate_kvm'), patch.object(installer, 'ensure_portal_account'),
                  patch.object(installer, 'publish_etc'), patch.object(installer, 'summarize'),
                  patch.object(rt, 'issue_tls'), patch.object(rt, 'prepare_state_access'),
                  patch('local_access.cockpit_accounts', return_value=['existing']),
                  patch('controller.Manager.status', return_value={'job': None}),
                  patch('controller.read_settings', side_effect=lambda root: rt.read_json(rt.machine_path(root, 'settings'), {})),
                  patch('direct.activate', side_effect=activate), patch('builtins.print'),
-                 patch('bootstrap.activate', side_effect=lambda **kw: activate(rt.read_json(rt.machine_path(target, 'settings')), **kw)[1]),
+                 patch('bootstrap.activate', side_effect=lambda **kw: activate(rt.read_json(rt.machine_path(target, 'settings')), **kw)),
                  patch.object(sys, 'argv', ['nixlab-install', '--checkout', str(source)] + (['--wizard'] if wizard else []))
             ]
             with contextlib.ExitStack() as stack:
@@ -338,7 +338,7 @@ class ReadinessTests(unittest.TestCase):
             with patch.dict(rt.SECRET_PATHS, portainerPassword=password), patch.object(rt, 'STATE', Path(folder)), \
                  patch('diagnostics.management_address', return_value='192.0.2.20'), \
                  patch('diagnostics.request', return_value=(422, b'{}')):
-                self.assertIsNone(portainer.credentials(initial()))
+                self.assertIs(portainer.authentication_ready(initial()), False)
 
     def test_recovery_restarts_portainer_after_helper_failure(self):
         cfg = initial(); cfg['ready'] = True; cfg['apps']['enable'] = True
@@ -361,7 +361,7 @@ class ReadinessTests(unittest.TestCase):
             with patch.object(rt, 'STATE', Path(folder)), patch.dict(rt.SECRET_PATHS, portainerPassword=Path(folder) / 'secret'), \
                  patch('portainer.guest', side_effect=command), patch('portainer.incus'), \
                  patch('diagnostics.wait_ready') as healthy, patch('diagnostics.management_address', return_value='192.0.2.20'), \
-                 patch('portainer.credentials', return_value={'username': 'admin', 'password': 'new-random-password'}):
+                 patch('portainer.authentication_ready', return_value=True):
                 result = portainer.reset(cfg)
                 self.assertEqual(rt.SECRET_PATHS['portainerPassword'].read_text().strip(), 'new-random-password')
                 self.assertEqual((Path(folder) / 'secret').stat().st_mode & 0o777, 0o600)

@@ -55,11 +55,37 @@ on the server does not authorize the laptop. A remote SSH installation using key
 for an sshd process ancestor because sudo can remove SSH environment variables.
 
 Cockpit uses an existing non-root administrator's Linux password. If no usable
-local administrator password exists, the installer provisions a stable operator
-password outside the Nix store and shows it only after checking the active hash. This password works for SSH too
-when password login is enabled. Existing account passwords are preserved.
+local administrator password exists, the installer still provisions a stable
+private operator credential for compatibility. It never displays or returns that
+password. For a persistent managed password, use **Host → Services → Local operator
+password for Cockpit** in the portal, then review/activate the guarded change.
+For unmanaged accounts (`cockpit.managePassword = false`), an authorized host
+terminal can use `sudo passwd operator`. A manual password change does not update
+a managed password file and may be overwritten by later activation. Existing
+account passwords are preserved.
 The portal, Linux account, Incus browser certificate and Portainer account are
 separate identities. Enroll the Incus browser certificate through the portal.
+
+## Portal access without printed passwords
+
+The install, retry, resume and update commands report status, service URLs,
+fingerprints and recovery steps. They do not return or print generated credentials.
+On a host explicitly installed with `--wizard --web-enrollment`, open the HTTPS
+portal, verify the CA, approve the displayed browser code with
+`sudo nixlab-admin approve-enrollment`, then choose the portal password in that
+browser. Existing portal accounts keep their current login.
+
+For the default legacy path or forgotten portal access, an authorized administrator
+can run `sudo nixlab-admin reset-password` from a private local/SSH/Cockpit terminal
+and choose a new password. This is rotation, not retrieval. The command refuses
+non-terminal input or an echoing password prompt. A successful verifier commit
+retires the old setup plaintext, and old sessions are rejected. Portainer and
+Linux passwords remain independent.
+
+Private legacy service files are preserved while secure enrollment/recovery
+release gates are completed. Do not delete them simply to remove output. Default
+web-first enrollment and browser recovery remain gated on #63/#64/#67; transient
+Portainer bootstrap and supplied-password reset remain #65/#66 work.
 
 ## Retry and source updates
 
@@ -128,15 +154,16 @@ and demo applications remain optional.
 `doctor` returns a nonzero status on failed endpoint checks and saves a bounded
 report at `/var/lib/nixlab-admin/last-health.json`, without tokens or passwords.
 Transaction logs stay under `/var/lib/nixlab-admin/jobs/<id>/build.log`.
-The installer prints the original error and saves `installation-failure.json`;
-rollback errors are recorded separately. Recovery skips absent services and
+The installer prints a fixed failure message and saves a non-secret
+`installation-failure.json`; transaction and rollback status remain separate. Recovery skips absent services and
 NetworkManager connections that no longer exist.
 
 Portainer recovery downloads the official helper before stopping Portainer,
 backs up `/srv/portainer` inside the apps VM, resets the database credential,
 synchronizes the host/guest credential files and restarts Portainer even if the
-helper fails. It verifies readiness and authenticates before showing the new
-username/password. The backup path is printed. The official helper currently uses
+helper fails. It verifies readiness and authentication, then reports status, service URL,
+backup path and protected private-delivery path only. No username/password is
+returned by the authentication probe or printed by the command. The official helper currently uses
 its upstream `latest` image; the helper output is retained in a root-only file if
 its output format changes. This command does not delete stacks or guest disks.
 
@@ -160,7 +187,7 @@ sudo nixlab portainer reset-password
 | Cockpit address unavailable at boot; stale `.240` links | Address-independent listeners, runtime TLS identity, observed URLs; DHCP/reboot VM fixture |
 | Success despite broken interfaces | TLS endpoint and Portainer administrator readiness gate before confirmation |
 | Password login disappeared unexpectedly | Password login enabled by default, printed policy and explicit key-only option |
-| Portainer bootstrap secret disagreed with database | Stable credential files and authentication before displaying stored credentials |
+| Portainer bootstrap secret disagreed with database | Private credential loading and a boolean authentication check; no plaintext retrieval helper |
 | Manual Portainer recovery left it stopped | Backed-up reset command with restart in cleanup and authenticated verification |
 | TLS deprecation and confusing shutdown logs | Current `--tlscert`/`--tlskey` flags; readiness/exit status drives diagnostics |
 

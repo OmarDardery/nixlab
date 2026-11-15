@@ -43,7 +43,10 @@ does not require an SSH key. Follow [plain NixOS installation](plain-nixos.md)
 for adoption, key enrollment, credential recovery and diagnostics.
 
 SSH password login works for non-root Linux accounts. Use your existing Linux
-password, or the verified operator password printed by the installer. The host
+password. For managed operator access, choose its persistent password under
+**Host → Services** in the portal and review/activate the change. For unmanaged
+accounts, use `sudo passwd operator` from an authorized host terminal. The installer
+never prints a password. The host
 disables desktop startup and suspend/hibernation. After reboot, run
 `sudo nixlab doctor` to check the management stack.
 

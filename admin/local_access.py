@@ -42,14 +42,3 @@ def ensure_operator_password():
         result = subprocess.run(['openssl', 'passwd', '-6', '-stdin'], input=password + '\n',
                                 capture_output=True, text=True, check=True, timeout=30)
         rt.atomic(encoded, result.stdout)
-
-
-def operator_password():
-    plain = rt.STATE / 'operator-password'
-    actual = shadow('operator')
-    if not plain.is_file() or not actual or not actual.startswith('$6$'):
-        return None
-    salt = actual.split('$')[2]
-    result = subprocess.run(['openssl', 'passwd', '-6', '-salt', salt, '-stdin'],
-                            input=plain.read_text(), capture_output=True, text=True, check=True, timeout=30)
-    return plain.read_text().strip() if secrets.compare_digest(actual, result.stdout.strip()) else None

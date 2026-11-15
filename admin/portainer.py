@@ -24,21 +24,24 @@ def guest(*args, timeout=120):
     return incus('exec', 'apps', '--project', 'lab', '--', *args, timeout=timeout)
 
 
-def credentials(settings):
+def authentication_ready(settings):
+    """Private credential consumption for health checks; return status only."""
     path = rt.SECRET_PATHS['portainerPassword']
     if not path.is_file():
-        return None
+        return False
     saved = rt.read_json(rt.STATE / 'portainer-account.json', {})
     username = saved.get('username', 'admin')
     password = path.read_text().strip()
     try:
         code, data = diagnostics.request(diagnostics.management_address(settings), settings['apps']['portainerPort'],
                                          '/api/auth', {'Username': username, 'Password': password})
-        if code == 200 and json.loads(data).get('jwt'):
-            return {'username': username, 'password': password}
+        if code == 200:
+            response = json.loads(data)
+            if isinstance(response, dict) and isinstance(response.get('jwt'), str) and response['jwt']:
+                return True
     except (OSError, ValueError, http.client.HTTPException):
         pass
-    return None
+    return False
 
 
 def reset(settings, helper=HELPER_IMAGE):
@@ -75,7 +78,6 @@ def reset(settings, helper=HELPER_IMAGE):
     if failure:
         raise ValueError('Portainer recovery failed; Portainer restarted; backup: ' + backup) from None
     diagnostics.wait_ready(settings)
-    result = credentials(settings)
-    if not result:
+    if not authentication_ready(settings):
         raise ValueError('Portainer restarted but authentication failed; backup: ' + backup)
     return {'backup': backup, 'url': 'https://' + diagnostics.management_address(settings) + ':' + str(settings['apps']['portainerPort'])}

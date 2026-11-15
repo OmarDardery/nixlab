@@ -87,6 +87,8 @@ def main():
             page.route('**/api/**', api)
             page.goto('http://127.0.0.1:' + str(server.server_port))
             page.get_by_role('heading', name='Sign in to your host.', exact=True).wait_for()
+            assert page.get_by_text('sudo nixlab-admin reset-password', exact=True).is_visible()
+            assert 'setup password printed' not in page.locator('.login-card').text_content()
             assert page.get_by_text('HOST CONSOLE', exact=True).count() == 1
             page.set_viewport_size({'width': 390, 'height': 844})
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')

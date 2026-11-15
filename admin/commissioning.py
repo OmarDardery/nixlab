@@ -200,7 +200,7 @@ def collect(report, ctx, settings):
     def apps_auth():
         import portainer
         # Use existing credentials only; never reset/enroll anything during collection.
-        return portainer.credentials(settings) is not None
+        return portainer.authentication_ready(settings)
 
     probes = {'management': management, 'kvm': kvm, 'container': container,
               'apps-vm': apps_vm, 'apps-auth': apps_auth}

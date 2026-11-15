@@ -116,8 +116,10 @@ class DirectActivationTests(unittest.TestCase):
 
     def test_separate_secret_and_leave_access_confirmation_pending(self):
         with patch('direct.wait_for', side_effect=[{'status': 'ready'}, {'status': 'awaiting-confirmation'}]), patch('builtins.print'):
-            password, _ = direct.activate(self.candidate, self.manager)
+            record = direct.activate(self.candidate, self.manager)
+        password = rt.SECRET_PATHS['portainerPassword'].read_text().strip()
         self.assertGreaterEqual(len(password), 24)
+        self.assertNotIn(password, json.dumps(record))
         args, kwargs = self.manager.review.call_args
         self.assertNotIn(password, json.dumps(args[0]))
         self.assertEqual(kwargs['secret_values'], {})
@@ -149,21 +151,23 @@ class DirectActivationTests(unittest.TestCase):
     def test_resume_preserves_existing_portainer_credential(self):
         rt.SECRET_PATHS['portainerPassword'].write_text('existing-secret')
         with patch('direct.wait_for', return_value={'status': 'awaiting-confirmation'}), patch('builtins.print'):
-            password, _ = direct.activate(self.candidate, self.manager)
-        self.assertIsNone(password)
+            record = direct.activate(self.candidate, self.manager)
+        self.assertEqual(record, {'status': 'awaiting-confirmation'})
+        self.assertEqual(rt.SECRET_PATHS['portainerPassword'].read_text(), 'existing-secret')
         self.assertEqual(self.manager.review.call_args.kwargs['secret_values'], {})
 
     def test_file_owned_apps_receive_credentials_without_overwriting_json(self):
         self.candidate['apps']['enable'] = False
         effective = copy.deepcopy(self.candidate); effective['apps']['enable'] = True
         with patch('direct.wait_for', return_value={'status': 'awaiting-confirmation'}), patch('builtins.print'):
-            password, _ = direct.activate(self.candidate, self.manager, effective=effective)
-        self.assertTrue(password)
+            record = direct.activate(self.candidate, self.manager, effective=effective)
+        self.assertTrue(rt.SECRET_PATHS['portainerPassword'].is_file())
+        self.assertEqual(record, {'status': 'awaiting-confirmation'})
         self.assertFalse(self.manager.review.call_args.args[0]['apps']['enable'])
 
     def test_failed_worker_status_is_reported_with_log_path(self):
         self.manager.job.return_value = {'status': 'failed', 'error': 'fixture build failure'}
-        with self.assertRaisesRegex(ValueError, 'fixture build failure.*build.log'):
+        with self.assertRaisesRegex(ValueError, 'Direct conversion failed.*build.log'):
             direct.wait_for(self.manager, 'a' * 32, {'ready'}, timeout=1)
 
     def test_initial_auth_permissions_are_set_after_user_creation(self):

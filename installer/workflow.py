@@ -46,7 +46,7 @@ def finish_interrupted_recovery(manager, record):
         try:
             rollback(manager.job_path(record['id']), 'installer retry after interrupted activation')
         except Exception as exc:
-            raise ValueError(record.get('error', 'Previous activation failed') + '; recovery also failed: ' + str(exc)) from exc
+            raise ValueError('Previous activation and recovery did not complete; inspect the host recovery state before retrying') from None
     return manager.job(record['id'])
 
 
