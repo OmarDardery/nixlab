@@ -44,7 +44,14 @@ in pkgs.testers.runNixOSTest {
     machine.wait_for_unit("nixlab-ui.service")
     machine.wait_for_unit("nginx.service")
     machine.wait_for_unit("nixlab-rollback-guard.timer")
-    machine.succeed("PYTHONPATH=${../admin}:${../scripts} python3 ${./bootstrap-transaction-fixture.py} activate")
+    try:
+        machine.succeed("PYTHONPATH=${../admin}:${../scripts} python3 ${./bootstrap-transaction-fixture.py} activate")
+    except Exception:
+        # Disposable fixture only: retain the actual activation failure instead
+        # of losing the worker's private log when the failed VM is destroyed.
+        print(machine.execute("cat /var/lib/nixlab-admin/jobs/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/build.log")[1])
+        print(machine.execute("systemctl --failed --no-pager")[1])
+        raise
     machine.shutdown()
     machine.start()
     machine.wait_for_unit("nixlab-ui.service")
