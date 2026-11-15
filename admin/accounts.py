@@ -1,9 +1,6 @@
 """Portal identities. Configuration authority stays with administrators."""
-import hashlib
-from pathlib import Path
 import re
-import secrets
-import time
+import os
 import runtime as rt
 
 ROLES = {'admin', 'operator', 'viewer'}
@@ -15,17 +12,27 @@ class AuthorizationError(PermissionError):
 
 
 def record(username):
-    if username == 'admin':
-        password = rt.read_json(rt.STATE / 'auth.json')
-        return {'role': 'admin', 'password': password} if password else None
-    return rt.read_json(rt.STATE / 'users.json', {}).get(username)
+    from enrollment import valid_verifier
+    try:
+        if username == 'admin':
+            path = rt.STATE / 'auth.json'
+            password = rt.read_json(path)
+            return {'role': 'admin', 'password': password} if not path.is_symlink() and valid_verifier(password) else None
+        users = rt.read_json(rt.STATE / 'users.json', {})
+        item = users.get(username) if isinstance(users, dict) else None
+        if (isinstance(item, dict) and item.get('role') in ROLES
+                and valid_verifier(item.get('password'))):
+            return item
+    except (OSError, ValueError, TypeError):
+        pass
+    return None
 
 
 def matches(username, password):
     item = record(username)
-    # Use the same expensive hash check for unknown identities.
-    baseline = item['password'] if item else rt.read_json(rt.STATE / 'auth.json')
-    valid = baseline is not None and rt.password_matches(password, baseline)
+    # Keep unknown-name work comparable to a known identity when admin is valid.
+    baseline = item or record('admin')
+    valid = baseline is not None and rt.password_matches(password, baseline['password'])
     return bool(item and valid)
 
 
@@ -60,7 +67,11 @@ def change_password(username, password):
     if username == 'admin':
         verifier = rt.password_record(password)
         with rt.locked(blocking=False):
+            import enrollment
+            enrollment.reconcile()
             rt.write_json(rt.STATE / 'auth.json', verifier, mode=0o640, group='nixlab-ui')
+            enrollment.save('migrated')
+            enrollment.retire_legacy_capabilities()
             # Retire the old private bootstrap value only AFTER the supplied
             # replacement verifier is committed. Failed writes preserve access.
             rt.durable_unlink(rt.STATE / 'setup-password')
@@ -71,56 +82,49 @@ def change_password(username, password):
     return {'ok': True}
 
 
+def enrollment_status():
+    import enrollment
+    return enrollment.status()
+
+
 def enrollment_open():
-    return ((rt.STATE / 'web-enrollment').is_file()
-            and not any((rt.STATE / name).exists() or (rt.STATE / name).is_symlink()
-                        for name in ('auth.json', 'users.json', 'setup-password')))
+    return enrollment_status()['available']
 
 
 def enable_enrollment():
-    with rt.locked():
-        marker = rt.STATE / 'web-enrollment'
-        if any((rt.STATE / name).exists() or (rt.STATE / name).is_symlink()
-               for name in ('auth.json', 'users.json', 'setup-password')):
-            raise ValueError('This host already has portal account state')
-        rt.atomic(marker, '1\n')
-
-
-def proof_digest(code):
-    if not isinstance(code, str) or not re.fullmatch(r'[0-9a-f]{32}', code):
-        raise ValueError('Use the approval code displayed in your browser')
-    return hashlib.sha256(code.encode('ascii')).hexdigest()
-
-
-def boot_id():
-    return Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+    import enrollment
+    return enrollment.enable()
 
 
 def approve_enrollment(code):
-    digest = proof_digest(code)
-    with rt.locked(blocking=False):
-        if not enrollment_open():
-            raise ValueError('First administrator enrollment is unavailable')
-        rt.write_json(rt.STATE / 'web-enrollment-approval.json', {
-            'digest': digest, 'boot': boot_id(), 'expires': time.monotonic() + 600,
-        })
+    import enrollment
+    return enrollment.approve(code)
 
 
 def claim_enrollment(code, password):
-    digest = proof_digest(code)
+    import enrollment
+    return enrollment.claim(code, password)
+
+
+def local_root():
+    return os.geteuid() == 0
+
+
+def recover_password(password):
+    """Explicit local-root recovery; never reachable from anonymous web claiming."""
+    import enrollment
+    if not local_root():
+        raise AuthorizationError('Local root approval is required for account recovery')
+    verifier = rt.password_record(password)
     with rt.locked(blocking=False):
-        if not enrollment_open():
-            raise ValueError('First administrator enrollment is unavailable')
-        path = rt.STATE / 'web-enrollment-approval.json'
-        approval = rt.read_json(path, {})
-        if (approval.get('boot') != boot_id() or time.monotonic() >= approval.get('expires', 0)
-                or not secrets.compare_digest(approval.get('digest', ''), digest)):
-            raise ValueError('Approve this browser from the host console before enrolling')
-        rt.write_json(rt.STATE / 'auth.json', rt.password_record(password), mode=0o640, group='nixlab-ui')
-        rt.durable_unlink(path)
-        rt.durable_unlink(rt.STATE / 'web-enrollment')
-        rt.audit('first-admin-enrolled')
-        return {'ok': True}
+        enrollment.load()  # Future/corrupt authority requires supported-state restoration.
+        enrollment.save('recovery-authorized')
+        enrollment.retire_legacy_capabilities()
+        rt.write_json(rt.STATE / 'auth.json', verifier, mode=0o640, group='nixlab-ui')
+        enrollment.save('migrated')
+        rt.durable_unlink(rt.STATE / 'setup-password')
+    rt.audit('portal-account-recovered')
+    return {'ok': True}
 
 
 def authorize(session, path, body):

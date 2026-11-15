@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 BASE = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(BASE / name) for name in ('admin', 'scripts')]
 import accounts
+import enrollment
 from credential_fixtures import SECRETS, assert_public_clean
 import runtime as rt
 
@@ -23,14 +24,13 @@ class EnrollmentTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Approve this browser'):
                 accounts.claim_enrollment(code, SECRETS['setup'])
             accounts.approve_enrollment(code)
-            self.assertNotIn(code, (rt.STATE / 'web-enrollment-approval.json').read_text())
+            self.assertNotIn(code, (rt.STATE / enrollment.STATE_FILE).read_text())
             with self.assertRaisesRegex(ValueError, 'Approve this browser'):
                 accounts.claim_enrollment('b' * 32, SECRETS['operator'])
 
             def claim(password):
                 try:
-                    accounts.claim_enrollment(code, password)
-                    return True
+                    return accounts.claim_enrollment(code, password) == {'ok': True}
                 except ValueError:
                     return False
 
@@ -42,19 +42,19 @@ class EnrollmentTests(unittest.TestCase):
             self.assertFalse(accounts.enrollment_open())
             self.assertFalse((rt.STATE / 'web-enrollment-approval.json').exists())
             self.assertFalse((rt.STATE / 'setup-password').exists())
-            with self.assertRaisesRegex(ValueError, 'unavailable'):
-                accounts.claim_enrollment(code, SECRETS['staged'])
+            self.assertEqual(accounts.claim_enrollment(code, SECRETS['staged']), {'ok': True, 'alreadyComplete': True})
+            self.assertTrue(accounts.matches('admin', winner))
             assert_public_clean(self, [(rt.STATE / 'auth.json').read_text(), (rt.STATE / 'audit.jsonl').read_text()])
 
     def test_enrollment_rejects_expired_or_previous_boot_approval_and_existing_accounts(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(rt, 'STATE', Path(folder)):
             code = 'a' * 32
             accounts.enable_enrollment()
-            with patch.object(accounts.time, 'monotonic', return_value=100), patch.object(accounts, 'boot_id', return_value='boot-1'):
+            with patch.object(enrollment.time, 'monotonic', return_value=100), patch.object(enrollment, 'boot_id', return_value='boot-1'):
                 accounts.approve_enrollment(code)
             for boot, now in [('boot-1', 701), ('boot-2', 120)]:
-                with self.subTest(boot=boot), patch.object(accounts, 'boot_id', return_value=boot), \
-                        patch.object(accounts.time, 'monotonic', return_value=now), self.assertRaisesRegex(ValueError, 'Approve this browser'):
+                with self.subTest(boot=boot), patch.object(enrollment, 'boot_id', return_value=boot), \
+                        patch.object(enrollment.time, 'monotonic', return_value=now), self.assertRaisesRegex(ValueError, 'Approve this browser'):
                     accounts.claim_enrollment(code, SECRETS['setup'])
             self.assertFalse((rt.STATE / 'auth.json').exists())
             rt.write_json(rt.STATE / 'auth.json', rt.password_record(SECRETS['operator']))

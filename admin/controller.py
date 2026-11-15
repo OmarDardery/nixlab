@@ -368,9 +368,10 @@ class Manager:
             return {'ok': True}
 
     def change_password(self, password):
-        rt.write_json(self.state / 'auth.json', rt.password_record(password), mode=0o640, group='nixlab-ui')
-        rt.audit('password-changed')
-        return {'ok': True}
+        import accounts
+        if self.state != rt.STATE:
+            raise ValueError('Use the active portal account authority')
+        return accounts.change_password('admin', password)
 
     def browser_certificate(self, device=None, password=None, owner='root', full_admin=False, renew=None):
         import browser_certificates

@@ -344,7 +344,7 @@ def apply(directory):
             system = str((directory / 'system').resolve())
             run(['nix-env', '--profile', '/nix/var/nix/profiles/system', '--set', system], log, timeout=120)
             run([system + '/bin/switch-to-configuration', 'switch'], log, timeout=900)
-            rt.prepare_state_access()
+            rt.prepare_state_access(locked=True)
             if role == 'hypervisor':
                 run(['systemctl', 'is-active', 'incus.service', 'nixlab-instances.service'], log, timeout=30)
             if role == 'hypervisor' and effective['cockpit']['enable']:

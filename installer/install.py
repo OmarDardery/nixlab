@@ -152,17 +152,8 @@ def ensure_portal_account():
     legacy credential may be loaded privately to establish its existing verifier;
     summaries and callers never receive that credential.
     """
-    with rt.locked():
-        if (rt.STATE / 'web-enrollment').is_file():
-            return
-        path = rt.STATE / 'setup-password'
-        auth = rt.STATE / 'auth.json'
-        record = rt.read_json(auth)
-        if not auth.exists() and not auth.is_symlink():
-            if not path.exists():
-                rt.atomic(path, secrets.token_urlsafe(24) + '\n')
-            record = rt.password_record(path.read_text().strip())
-            rt.write_json(auth, record, mode=0o640)
+    import enrollment
+    enrollment.ensure_legacy_account()
 
 
 def publish_etc():

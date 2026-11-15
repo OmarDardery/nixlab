@@ -315,3 +315,19 @@ upgrade, run `sudo nixlab doctor` and check the HTTP-entry redirect
 result; the recovery guard still protects unconfirmed configuration
 switches. Do not expose management ports through Cloudflare tunnels.
 
+
+
+### First-administrator claim state and interrupted enrollment
+
+The root broker owns version 1 of `/var/lib/nixlab-admin/bootstrap-state.json` (mode 0600). The portal cannot read or edit it. `auth.json` and named account verifiers keep their existing formats; account state lives outside configuration snapshots and transaction rollback does not replace it.
+
+- `unclaimed`: enrollment was explicitly enabled by the root installer; no browser can claim without a separate host approval.
+- `host-verified`: a SHA-256 digest of the approved browser code, boot identity and ten-minute monotonic deadline permit one claim. A broker/web restart preserves the deadline; reboot or expiry invalidates approval.
+- `committing`: durable claim intent exists. The broker removes legacy enrollment markers before atomically publishing the verifier. If publication is interrupted before a valid verifier exists, the portal stays closed and needs a new `sudo nixlab-admin approve-enrollment` approval. If the verifier committed, the broker completes the receipt on retry/restart. A repeated completed request returns `alreadyComplete` and cannot replace the password.
+- `account-committed`: first claim is closed permanently. Missing or corrupt account files require authorized recovery, never another anonymous claim.
+- `legacy-provisioning` / `migrated`: private legacy installer provisioning and existing accounts retain their working verifier. Authenticated password replacement commits the new verifier before retiring `setup-password`; the account fingerprint rejects old sessions.
+- `recovery-authorized`: the local-root, terminal-only `sudo nixlab-admin reset-password` command has authorized a supplied replacement. It returns to `migrated` after publication; it never opens first-claim enrollment.
+
+A preexisting opt-in `web-enrollment` marker without the new authority needs fresh console approval; an old approval file alone is insufficient. Existing valid accounts remain usable. Unknown future versions, malformed authority, and symlinks fail closed. Preserve the files and restore a supported version from the encrypted recovery kit rather than deleting account state to force enrollment. Unsupported authority also blocks automatic password/state rewrites; a compatible runtime or deliberate operator repair is required.
+
+The encrypted secrets recovery kit includes the claim authority with account verifiers. It excludes reusable browser approval material; any in-flight proof within the authority remains bound to its original boot and expiry. The PAM/bootstrap experience remains tracked in #63 and browser recovery approval in #67; this state authority does not enable opt-in web enrollment by default.

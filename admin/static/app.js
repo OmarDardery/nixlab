@@ -465,8 +465,10 @@ function login(message = "") {
     }
   };
   const form = document.querySelector("#login-form");
-  api("enrollment").then(({available}) => {
-    if (available && form.isConnected) showEnrollment();
+  api("enrollment").then(({available, recoveryRequired}) => {
+    if (!form.isConnected) return;
+    if (available) showEnrollment();
+    else if (recoveryRequired) document.querySelector("#login-error").textContent = "First-admin enrollment is locked. Use sudo nixlab-admin reset-password from a private host terminal or restore supported account state.";
   }).catch(() => {});
 }
 
