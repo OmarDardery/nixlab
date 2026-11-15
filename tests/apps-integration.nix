@@ -42,6 +42,7 @@ in pkgs.testers.runNixOSTest {
       requiredBy = [ "nixlab-management-identity.service" "nixlab-admin-backend.service" ];
       after = [ "systemd-tmpfiles-setup.service" ];
       path = [ pkgs.openssl ];
+      environment.NIXLAB_TEST_SITE_SOURCE = toString (import ./site-source.nix { inherit pkgs; });
       serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
       script = ''
         PYTHONPATH=${../admin}:${../scripts} ${pkgs.python3}/bin/python ${./portal-fixture.py}
