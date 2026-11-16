@@ -16,6 +16,7 @@ let
 in pkgs.testers.runNixOSTest {
   name = "nixlab-arcane-runtime";
   globalTimeout = 600;
+  node.pkgsReadOnly = false;
   nodes.machine = { ... }: {
     imports = [ ../modules/docker-host.nix ];
     _module.args.site = site;
