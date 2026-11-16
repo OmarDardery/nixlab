@@ -6,9 +6,9 @@
     defaultSopsFile = ../. + "/${site.secrets.guestFile}";
     age.keyFile = site.secrets.ageKeyFile;
     secrets = {
-      portainer-admin-password = {
-        path = "/var/lib/nixlab-secrets/portainer-admin-password";
-        restartUnits = [ "docker-portainer.service" ];
+      arcane-admin-password = {
+        path = "/var/lib/nixlab-secrets/arcane-admin-password";
+        restartUnits = [ "docker-arcane.service" ];
       };
     } // lib.optionalAttrs site.apps.enableDemo {
       demo-db-password = {

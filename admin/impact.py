@@ -21,7 +21,7 @@ MAX_BYTES = 2 * 1024 * 1024
 BLOCKING = {'migration-required', 'ownership-conflict'}
 RECOVERY_BOUNDARIES = [
     'OS rollback restores host code/settings, not guest disks, databases or Incus schema.',
-    'Incus owns native guests, consoles, networks and volumes; Portainer or declared source owns stacks.',
+    'Incus owns native guests, consoles, networks and volumes; Arcane or declared source owns stacks.',
     'Router routes, external DNS, Cloudflare accounts and physical switches require separate review.',
     'Unit changes may reload or restart services; exact activation behavior remains in dry-activation output.',
     'The plan covers modeled declarations and observed consumers; arbitrary Nix code can have additional effects.',
@@ -349,7 +349,7 @@ def make_plan(before, after, snapshot, unit_changes=None, opaque=False, transiti
     if opaque:
         add('source', 'Nix-modules/platform', 'unknown', 'Arbitrary Nix code and package effects are not completely modeled. Review code and dry-activation output.')
     ownership += [
-        {'identity': 'applications', 'owner': 'Portainer or declared Compose source', 'fields': [], 'consumers': []},
+        {'identity': 'applications', 'owner': 'Arcane or declared Compose source', 'fields': [], 'consumers': []},
         {'identity': 'external-network-and-data', 'owner': 'Router, DNS, Cloudflare and application administrators', 'fields': [], 'consumers': []},
     ]
     return {'format': VERSION, 'generatedAt': int(time.time()), 'runtimeDigest': fingerprint(snapshot),

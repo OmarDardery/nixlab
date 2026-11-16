@@ -74,7 +74,7 @@ in pkgs.testers.runNixOSTest {
     dhcp_pid = apps.succeed("systemctl show dhcpcd -p MainPID --value").strip()
     assert dhcp_pid.isdigit() and int(dhcp_pid) > 0, dhcp_pid
     apps.wait_for_unit("docker.service")
-    apps.succeed("systemctl start nixlab-portainer-firewall")
+    apps.succeed("systemctl start nixlab-arcane-firewall")
     apps.succeed("docker load -i ${image}")
     apps.succeed("docker run -d --restart=always --name fixture -p 10.77.0.10:9443:8080 nixlab-firewall-fixture:test")
     proxy.wait_until_succeeds("curl --fail --max-time 3 http://10.77.0.10:9443 | grep NIXLAB_PROXY_ONLY", timeout=60)
@@ -92,7 +92,7 @@ in pkgs.testers.runNixOSTest {
         apps.succeed(f"ip link set test{i}a down")
         apps.succeed(f"ip link delete test{i}a")
     apps.succeed("systemctl restart docker")
-    apps.wait_for_unit("nixlab-portainer-firewall.service")
+    apps.wait_for_unit("nixlab-arcane-firewall.service")
     proxy.wait_until_succeeds("curl --fail --max-time 3 http://10.77.0.10:9443 | grep NIXLAB_PROXY_ONLY", timeout=60)
     peer.fail("curl --fail --max-time 3 http://10.77.0.10:9443")
     # RTR_CARRIER_EXPIRE is 17 seconds in the pinned client. Observe beyond

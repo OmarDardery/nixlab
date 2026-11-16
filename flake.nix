@@ -72,7 +72,7 @@
         validation-management = mkHost (testSite // {
           monitoring = testSite.monitoring // { history = true; };
           cockpit = testSite.cockpit // { enable = true; };
-          apps = testSite.apps // { portainerPort = 9443; };
+          apps = testSite.apps // { arcanePort = 9443; };
           setup = testSite.setup // { enable = true; };
           maintenance = testSite.maintenance // { laptopMode = true; };
         }) testApps [ ./tests/hardware.nix ];
@@ -133,7 +133,7 @@
       nixlabManagementChecks = let
         c = self.nixosConfigurations.validation-management.config;
         legacy = self.nixosConfigurations.validation-setup.config;
-        proxy = c.services.nginx.virtualHosts.nixlab-portainer;
+        proxy = c.services.nginx.virtualHosts.nixlab-arcane;
         lib = nixpkgs.lib;
         inventory = builtins.fromJSON c.environment.etc."nixlab/management-exposure.json".text;
         filtered = builtins.filter (item: item.exposure == "local") inventory.listeners;
@@ -153,7 +153,7 @@
         onlyLoopbackTrusted = c.networking.firewall.trustedInterfaces == [ "lo" ];
         listenerInventory = inventory.firewallManaged && !inventory.ipv6TrustedIngress
           && actualLocalPorts == [ 9091 9100 ]
-          && lib.any (item: item.service == "Portainer proxy" && item.port == 9443) inventory.listeners;
+          && lib.any (item: item.service == "Arcane proxy" && item.port == 9443) inventory.listeners;
         scopedRuleExcludesMetrics = lib.hasInfix "tcp dport { 22, 80, 9440, 9090, 9443, 8443 } accept" c.networking.firewall.extraInputRules
           && !(lib.hasInfix "9091" c.networking.firewall.extraInputRules);
         ipv4Collision = builtins.length (collisions "127.0.0.1") == 1;
@@ -170,7 +170,7 @@
           && c.services.prometheus.port != c.nixlab.settings.cockpit.port;
         hostDockerDisabled = !c.virtualisation.docker.enable;
         selectedPort = (builtins.head proxy.listen).port == 9443;
-        legacyPortPreserved = (builtins.head legacy.services.nginx.virtualHosts.nixlab-portainer.listen).port == 9441;
+        legacyPortPreserved = (builtins.head legacy.services.nginx.virtualHosts.nixlab-arcane.listen).port == 9441;
         proxyPreservesOrigin = nixpkgs.lib.hasInfix "proxy_set_header Host $host:$server_port;" proxy.locations."/".extraConfig;
         lidClosedOperation = c.services.logind.settings.Login.HandleLidSwitch == "ignore";
       };

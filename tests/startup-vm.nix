@@ -4,7 +4,7 @@ let
   settings = defaults // {
     ready = true; hostName = "nixlab-startup"; cpuVendor = "intel";
     setup = defaults.setup // { enable = true; };
-    apps = defaults.apps // { enable = true; portainerPort = 19443; };
+    apps = defaults.apps // { enable = true; arcanePort = 19443; };
     cockpit = defaults.cockpit // { enable = true; };
     management = defaults.management // {
       interface = "eth1"; address = "192.0.2.10"; trustedCIDRs = [ "192.0.2.0/24" ];
@@ -21,19 +21,19 @@ let
             if port == 9443 and self.path == '/api/status':
                 self.send_error(404)
                 return
-            self.send_response(204 if self.path == '/api/users/admin/check' else 200)
+            self.send_response(200)
             if self.path == '/cookie-probe':
                 self.send_header('Set-Cookie', 'nixlab_session=guest-value; Path=/; Secure; HttpOnly')
-                self.send_header('Set-Cookie', 'portainer_auth=native-auth; Path=/; Secure; HttpOnly; SameSite=Strict')
+                self.send_header('Set-Cookie', 'arcane_auth=native-auth; Path=/; Secure; HttpOnly; SameSite=Strict')
             self.end_headers()
             if self.path == '/cookie-probe':
                 self.wfile.write(json.dumps({
                     'portalLeaked': 'nixlab_session=' in self.headers.get('Cookie', ""),
-                    'nativeCookie': 'portainer_auth=native-auth' in self.headers.get('Cookie', ""),
+                    'nativeCookie': 'arcane_auth=native-auth' in self.headers.get('Cookie', ""),
                     'bearerPreserved': self.headers.get('Authorization') == 'Bearer test-native-jwt',
                 }).encode())
                 return
-            if self.path != '/api/users/admin/check': self.wfile.write(b'{"fixture":"NIXLAB_PROXY_READY"}')
+            self.wfile.write(b'{"fixture":"NIXLAB_PROXY_READY"}')
         def log_message(self, *args): pass
     port = int(sys.argv[1])
     server = http.server.HTTPServer(('127.0.0.2' if port == 9443 else '0.0.0.0', port), Handler)
@@ -102,7 +102,7 @@ in pkgs.testers.runNixOSTest {
       serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
       script = "true";
     };
-    systemd.services.fixture-portainer = {
+    systemd.services.fixture-arcane = {
       wantedBy = [ "multi-user.target" ];
       requires = [ "nixlab-management-identity.service" ];
       after = [ "nixlab-management-identity.service" ];
@@ -128,7 +128,7 @@ in pkgs.testers.runNixOSTest {
         machine.wait_for_unit("nixlab-management-identity.service")
         machine.wait_for_unit("cockpit.socket")
         machine.wait_for_unit("nginx.service")
-        machine.wait_for_unit("fixture-portainer.service")
+        machine.wait_for_unit("fixture-arcane.service")
         machine.wait_for_unit("fixture-incus.service")
         addresses = json.loads(machine.succeed("ip -j -4 address show dev eth1"))
         address = next(a["local"] for link in addresses for a in link["addr_info"] if a["scope"] == "global")
@@ -142,12 +142,12 @@ in pkgs.testers.runNixOSTest {
         assert "NixLab" in fetch and address in fetch, fetch
         if boot == 0:
             machine.succeed("python3 /etc/nixlab-console-client.py", timeout=30)
-        machine.wait_until_succeeds(f"curl --fail --silent --show-error --max-time 5 --cacert /var/lib/nixlab-admin/ca.crt https://{address}:19443/api/system/status | grep NIXLAB_PROXY_READY", timeout=90)
-        probe = json.loads(machine.succeed(f"curl --fail --silent --show-error --max-time 5 --cacert /var/lib/nixlab-admin/ca.crt -D /tmp/cookie-headers -H 'Cookie: nixlab_session=host-secret; portainer_auth=native-auth; nixlab_session=second-secret' -H 'Authorization: Bearer test-native-jwt' https://{address}:19443/cookie-probe"))
+        machine.wait_until_succeeds(f"curl --fail --silent --show-error --max-time 5 --cacert /var/lib/nixlab-admin/ca.crt https://{address}:19443/api/health | grep NIXLAB_PROXY_READY", timeout=90)
+        probe = json.loads(machine.succeed(f"curl --fail --silent --show-error --max-time 5 --cacert /var/lib/nixlab-admin/ca.crt -D /tmp/cookie-headers -H 'Cookie: nixlab_session=host-secret; arcane_auth=native-auth; nixlab_session=second-secret' -H 'Authorization: Bearer test-native-jwt' https://{address}:19443/cookie-probe"))
         assert probe == {"portalLeaked": False, "nativeCookie": True, "bearerPreserved": True}, probe
         headers = machine.succeed("cat /tmp/cookie-headers").lower()
         assert "nixlab_session=" not in headers, headers
-        assert "set-cookie: portainer_auth=native-auth; path=/; secure; httponly; samesite=strict" in headers, headers
+        assert "set-cookie: arcane_auth=native-auth; path=/; secure; httponly; samesite=strict" in headers, headers
         lan.wait_until_succeeds(f"curl --fail --silent --show-error --max-time 5 --insecure https://{address}:9090/ping", timeout=90)
         redirect = lan.succeed(f"curl --silent --show-error --max-time 5 -I http://{address}/")
         assert " 308 " in redirect and f"https://{address}:9440/" in redirect, redirect

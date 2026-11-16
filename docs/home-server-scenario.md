@@ -1,7 +1,7 @@
 # Generic homelab acceptance scenario
 
 NixLab provides a managed NixOS host, Incus guests, an optional isolated
-Docker/Portainer applications VM, private management interfaces, change
+Docker/Arcane applications VM, private management interfaces, change
 reviews and recovery workflows. **There are no built-in application-specific
 workloads.** Choose your own guest images, container services and Compose
 stacks independently.
@@ -91,11 +91,11 @@ Restrict control interfaces to trusted LAN or VPN clients.
 
 ## 4. Deploy any Compose stack
 
-If you enabled the apps VM, access Portainer through the NixLab console
+If you enabled the apps VM, access Arcane through the NixLab console
 (or use Docker Compose inside the isolated guest). Choose an image
 version or digest intentionally, provide secrets outside public source,
 and review published ports and origins. Deploy generic Compose YAML
-using Portainer or a protected directory inside the apps VM.
+using Arcane or a protected directory inside the apps VM.
 
 ```console
 sudo incus exec apps --project lab -- docker info
@@ -105,7 +105,7 @@ sudo incus exec apps --project lab -- docker ps
 Back up each stack's persistent Docker volumes separately. Host
 configuration rollback is not application-data rollback. Only selected
 applications should be published through a reviewed external ingress;
-NixLab, Incus, Cockpit, Portainer and SSH remain private.
+NixLab, Incus, Cockpit, Arcane and SSH remain private.
 
 ## 5. Commission and recover
 

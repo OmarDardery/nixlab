@@ -1,4 +1,4 @@
-"""Disposable real apps/Portainer test; never prints passwords, JWTs or bodies."""
+"""Disposable real apps/Arcane test; never prints passwords, JWTs or bodies."""
 import copy
 import json
 from pathlib import Path
@@ -13,7 +13,7 @@ import deployments as d
 import runtime as rt
 from guest_deploy import DeploymentError, Transport
 
-password = secrets.token_hex(24)
+password = secrets.token_hex(24) + 'Aa1!'
 root = Path('/tmp/nixlab-kvm-credentials'); root.mkdir(mode=0o700)
 rt.atomic(root / 'password', password)
 subprocess.run(['openssl', 'req', '-new', '-newkey', 'rsa:2048', '-nodes', '-x509', '-days', '1',
@@ -23,28 +23,28 @@ subprocess.run(['openssl', 'req', '-new', '-newkey', 'rsa:2048', '-nodes', '-x50
 apps = Transport('lab', 'apps')
 assert apps.inspect()['type'] == 'virtual-machine'
 apps.execute('install', '-d', '-m', '0700', '/var/lib/nixlab-secrets')
-for file, destination, mode in [('password', 'portainer-admin-password', '0600'), ('tls.key', 'tls.key', '0600'), ('tls.crt', 'tls.crt', '0644')]:
+for file, destination, mode in [('password', 'arcane-admin-password', '0600'), ('tls.key', 'tls.key', '0600'), ('tls.crt', 'tls.crt', '0644')]:
     subprocess.run(['incus', '--force-local', 'file', 'push', str(root / file), 'apps/var/lib/nixlab-secrets/' + destination,
                     '--project', 'lab', '--mode', mode], check=True, stdout=subprocess.DEVNULL)
-apps.execute('systemctl', 'restart', 'docker-portainer.service', timeout=120)
+apps.execute('systemctl', 'restart', 'docker-arcane.service', timeout=120)
 context = ssl.create_default_context(cafile=str(root / 'tls.crt'))
 
 
 def authenticated():
-    request = urllib.request.Request('https://10.77.0.10:9443/api/auth',
-        data=json.dumps({'Username': 'admin', 'Password': password}).encode(), headers={'Content-Type': 'application/json'})
+    request = urllib.request.Request('https://10.77.0.10:9443/api/auth/login',
+        data=json.dumps({'username': 'admin', 'password': password}).encode(), headers={'Content-Type': 'application/json'})
     deadline = time.monotonic() + 90
     failure = 'not ready'
     while True:
         try:
             with urllib.request.urlopen(request, context=context, timeout=5) as response:
                 assert response.status == 200
-                token = json.load(response)['jwt']
+                token = json.load(response)['data']['token']
             request_user = urllib.request.Request('https://10.77.0.10:9443/api/users',
                 headers={'Authorization': 'Bearer ' + token})
             with urllib.request.urlopen(request_user, context=context, timeout=5) as response:
                 users = json.load(response)
-                return next(user['Id'] for user in users if user['Username'] == 'admin')
+                return next(user['id'] for user in users['data'] if user['username'] == 'admin')
         except urllib.error.HTTPError as exc:
             failure = 'HTTP ' + str(exc.code)
         except urllib.error.URLError as exc:
@@ -56,23 +56,23 @@ def authenticated():
         if time.monotonic() >= deadline:
             # Fixed metadata only: no API bodies, environment, secrets or JWTs.
             for label, args in (
-                ('Portainer unit', ('systemctl', 'show', 'docker-portainer.service', '--property=ActiveState,SubState,Result,ExecMainStatus')),
-                ('Container state', ('docker', 'inspect', '--format', '{{.State.Status}} {{.State.ExitCode}}', 'portainer')),
-                ('Published ports', ('docker', 'port', 'portainer')),
-                ('Firewall unit', ('systemctl', 'is-active', 'nixlab-portainer-firewall.service')),
+                ('Arcane unit', ('systemctl', 'show', 'docker-arcane.service', '--property=ActiveState,SubState,Result,ExecMainStatus')),
+                ('Container state', ('docker', 'inspect', '--format', '{{.State.Status}} {{.State.ExitCode}}', 'arcane')),
+                ('Published ports', ('docker', 'port', 'arcane')),
+                ('Firewall unit', ('systemctl', 'is-active', 'nixlab-arcane-firewall.service')),
                 ('Guest IPv4', ('ip', '-o', '-4', 'addr', 'show')),
             ):
                 result = apps.execute(*args, check=False, timeout=15)
                 print(label + ':', result.stdout.strip()[:1000], flush=True)
-            result = apps.execute('journalctl', '--no-pager', '-n', '25', '-o', 'cat', '-u', 'docker-portainer.service', check=False, timeout=15)
+            result = apps.execute('journalctl', '--no-pager', '-n', '25', '-o', 'cat', '-u', 'docker-arcane.service', check=False, timeout=15)
             for line in result.stdout.splitlines():
                 if not any(word in line.lower() for word in ('password', 'token', 'secret', 'private key', 'jwt')):
-                    print('Portainer startup:', line.replace(password, '[redacted]')[:1000], flush=True)
-            raise AssertionError('Real Portainer authentication did not become ready: ' + failure) from None
+                    print('Arcane startup:', line.replace(password, '[redacted]')[:1000], flush=True)
+            raise AssertionError('Real Arcane authentication did not become ready: ' + failure) from None
         time.sleep(2)
 
 
-portainer_user = authenticated()
+arcane_user = authenticated()
 # Preserve safe switch diagnostics from this disposable guest. Production errors
 # intentionally omit command output; this fixture contains only generated secrets.
 original_execute = Transport.execute
@@ -117,7 +117,7 @@ def preserved(expected):
         assert current['active'] == expected[name]
         assert transport.execute('cat', '/var/lib/nixlab/preserved-data').stdout.strip() == 'original-data'
     assert apps.execute('cat', volume + '/record').stdout.strip() == 'docker-volume-data'
-    assert authenticated() == portainer_user
+    assert authenticated() == arcane_user
 
 
 def deploy(job_id, targets):
@@ -154,11 +154,11 @@ deadline = time.monotonic() + 120
 while True:
     try:
         assert apps.execute('cat', '/proc/sys/kernel/random/boot_id', timeout=10).stdout.strip() != previous_boot
-        apps.execute('systemctl', 'is-active', 'docker-portainer.service', timeout=10)
+        apps.execute('systemctl', 'is-active', 'docker-arcane.service', timeout=10)
         break
     except (DeploymentError, AssertionError):
         if time.monotonic() >= deadline:
             raise AssertionError('Apps VM did not recover after deliberate reboot') from None
         time.sleep(2)
 preserved({name: spec['system'] for name, spec in manifest.items()})
-print('Real apps VM update, failed-update recovery and reboot verified; UUIDs, disk topology, Docker volume records and Portainer identity preserved.')
+print('Real apps VM update, failed-update recovery and reboot verified; UUIDs, disk topology, Docker volume records and Arcane identity preserved.')

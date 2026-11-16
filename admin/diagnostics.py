@@ -93,16 +93,11 @@ def probe(settings):
     if settings['ready'] and settings['cockpit']['enable']:
         targets.append(('Cockpit', settings['cockpit']['port'], '/ping', {200}))
     if settings['ready'] and settings['apps']['enable']:
-        targets += [('Portainer', settings['apps']['portainerPort'], '/api/system/status', {200}),
-                    ('Portainer administrator', settings['apps']['portainerPort'], '/api/users/admin/check', {204})]
+        targets += [('Arcane', settings['apps']['arcanePort'], '/api/health', {200})]
     checks = []
     for name, port, path, expected in targets:
         try:
             status, _ = request(address, port, path)
-            # Older user-selected images predate /system/status. Do not mask
-            # authentication, TLS or server failures with a legacy retry.
-            if name == 'Portainer' and status == 404:
-                status, _ = request(address, port, '/api/status')
             checks.append({'name': name, 'url': f'https://{address}:{port}', 'ok': status in expected,
                            'detail': 'HTTP ' + str(status)})
         except (OSError, ValueError, http.client.HTTPException) as exc:

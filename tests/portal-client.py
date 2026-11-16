@@ -46,7 +46,7 @@ descriptor = os.open(legacy, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLL
 with os.fdopen(descriptor, 'w') as stream:
     os.fchmod(stream.fileno(), 0o600)
     stream.write('vm-integration-password')
-for endpoint in ('/api/credentials', '/api/portainer/credentials', '/api/setup-password', '/api/operator-password'):
+for endpoint in ('/api/credentials', '/api/arcane/credentials', '/api/setup-password', '/api/operator-password'):
     assert request(endpoint, session=admin)[0] == 404
 assert request('/api/status', session=admin)[0] == 200
 status, guide, _ = request('/docs/setup.md', session=admin)

@@ -832,12 +832,10 @@ def enroll_key(manager, public_key_file, settings):
     return record
 
 
-def reset_portainer(settings):
-    import portainer
-    with rt.locked(blocking=False): result = portainer.reset(settings)
-    print('Portainer recovered: ' + result['url'])
-    print('Credential is available in the root-only runtime file: ' + str(rt.SECRET_PATHS['portainerPassword']))
-    print('Backup in applications VM: ' + result['backup'])
+def reset_arcane(settings):
+    import arcane
+    with rt.locked(blocking=False): result = arcane.reset(settings)
+    print('Arcane recovered: ' + result['url'])
 
 
 def approve_browser_console():
@@ -874,7 +872,7 @@ def reset_portal_password():
 if __name__ == '__main__':
     os.umask(0o027)
     action = sys.argv[1] if len(sys.argv) > 1 else ''
-    if action in ('doctor', 'identity', 'enroll-key', 'portainer') and os.geteuid() == 0:
+    if action in ('doctor', 'identity', 'enroll-key', 'arcane') and os.geteuid() == 0:
         from controller import Manager
         import diagnostics
         try:
@@ -900,8 +898,10 @@ if __name__ == '__main__':
                 if len(sys.argv) != 3: raise rt.PublicError('Usage: sudo nixlab enroll-key laptop.pub')
                 enroll_key(manager, sys.argv[2], settings)
             else:
-                if sys.argv[2:] != ['reset-password']: raise rt.PublicError('Usage: sudo nixlab portainer reset-password')
-                reset_portainer(settings)
+                if sys.argv[2:] == ['reset-password']:
+                    reset_arcane(settings)
+                else:
+                    raise rt.PublicError('Usage: sudo nixlab arcane reset-password')
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
             sys.exit('Command failed; check inputs and host status before retrying')
     elif action == 'backend':
@@ -976,5 +976,5 @@ if __name__ == '__main__':
     elif action == 'reset-password' and os.geteuid() == 0:
         reset_portal_password()
     else:
-        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|portainer reset-password|backend|web|guard|renew|approve-enrollment|reset-password|config|deploy|guests|recovery|commissioning|install-plan|prune-jobs|disk prepare}')
+        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|arcane reset-password|backend|web|guard|renew|approve-enrollment|reset-password|config|deploy|guests|recovery|commissioning|install-plan|prune-jobs|disk prepare}')
 

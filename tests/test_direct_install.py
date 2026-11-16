@@ -50,7 +50,7 @@ class DirectPlanningTests(unittest.TestCase):
         self.assertTrue(value['ready'])
         self.assertTrue(value['cockpit']['enable'])
         self.assertTrue(value['apps']['enable'])
-        self.assertEqual(value['apps']['portainerPort'], 9443)
+        self.assertEqual(value['apps']['arcanePort'], 9443)
         self.assertEqual(value['management'], current['management'])
         self.assertEqual(value['mounts'], [])
         self.assertEqual(value['adminKeys'], [KEY])
@@ -68,12 +68,12 @@ class DirectPlanningTests(unittest.TestCase):
         current['ready'] = True
         current['management']['configure'] = True
         current['management']['dns'] = ['192.0.2.1']
-        current['apps'].update(enable=True, portainerPort=19443)
+        current['apps'].update(enable=True, arcanePort=19443)
         current['cockpit']['enable'] = True
         current['guests'].update(direct.guest_network([]))
         value = direct.prepare(current, {'adminKeys': [KEY]}, inventory(), previous_guests=current['guests'])
         self.assertTrue(value['management']['configure'])
-        self.assertEqual(value['apps']['portainerPort'], 19443)
+        self.assertEqual(value['apps']['arcanePort'], 19443)
 
     def test_password_ssh_is_default_with_explicit_key_only_policy(self):
         self.assertEqual(direct.prepare(initial(), {}, inventory())['adminKeys'], [])
@@ -110,20 +110,20 @@ class DirectActivationTests(unittest.TestCase):
         self.manager.job_path.return_value = self.root
         self.candidate = initial()
         self.candidate['apps']['enable'] = True
-        self.secret_patch = patch.dict(rt.SECRET_PATHS, portainerPassword=self.root / 'portainer-password')
+        self.secret_patch = patch.dict(rt.SECRET_PATHS, arcanePassword=self.root / 'arcane-password')
         self.secret_patch.start()
         self.addCleanup(self.secret_patch.stop)
 
     def test_separate_secret_and_leave_access_confirmation_pending(self):
         with patch('direct.wait_for', side_effect=[{'status': 'ready'}, {'status': 'awaiting-confirmation'}]), patch('builtins.print'):
             record = direct.activate(self.candidate, self.manager)
-        password = rt.SECRET_PATHS['portainerPassword'].read_text().strip()
+        password = rt.SECRET_PATHS['arcanePassword'].read_text().strip()
         self.assertGreaterEqual(len(password), 24)
         self.assertNotIn(password, json.dumps(record))
         args, kwargs = self.manager.review.call_args
         self.assertNotIn(password, json.dumps(args[0]))
         self.assertEqual(kwargs['secret_values'], {})
-        self.assertEqual(rt.SECRET_PATHS['portainerPassword'].read_text().strip(), password)
+        self.assertEqual(rt.SECRET_PATHS['arcanePassword'].read_text().strip(), password)
         self.assertEqual([call[0] for call in self.manager.method_calls], ['review', 'apply'])
         self.manager.confirm.assert_not_called()
 
@@ -148,12 +148,12 @@ class DirectActivationTests(unittest.TestCase):
         self.manager.apply.assert_called_once()
         self.manager.confirm.assert_not_called()
 
-    def test_resume_preserves_existing_portainer_credential(self):
-        rt.SECRET_PATHS['portainerPassword'].write_text('existing-secret')
+    def test_resume_preserves_existing_arcane_credential(self):
+        rt.SECRET_PATHS['arcanePassword'].write_text('existing-secret')
         with patch('direct.wait_for', return_value={'status': 'awaiting-confirmation'}), patch('builtins.print'):
             record = direct.activate(self.candidate, self.manager)
         self.assertEqual(record, {'status': 'awaiting-confirmation'})
-        self.assertEqual(rt.SECRET_PATHS['portainerPassword'].read_text(), 'existing-secret')
+        self.assertEqual(rt.SECRET_PATHS['arcanePassword'].read_text(), 'existing-secret')
         self.assertEqual(self.manager.review.call_args.kwargs['secret_values'], {})
 
     def test_file_owned_apps_receive_credentials_without_overwriting_json(self):
@@ -161,7 +161,7 @@ class DirectActivationTests(unittest.TestCase):
         effective = copy.deepcopy(self.candidate); effective['apps']['enable'] = True
         with patch('direct.wait_for', return_value={'status': 'awaiting-confirmation'}), patch('builtins.print'):
             record = direct.activate(self.candidate, self.manager, effective=effective)
-        self.assertTrue(rt.SECRET_PATHS['portainerPassword'].is_file())
+        self.assertTrue(rt.SECRET_PATHS['arcanePassword'].is_file())
         self.assertEqual(record, {'status': 'awaiting-confirmation'})
         self.assertFalse(self.manager.review.call_args.args[0]['apps']['enable'])
 

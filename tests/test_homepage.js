@@ -13,7 +13,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, '../admin/static/commands.j
 vm.runInContext(source.slice(0,bootstrap), context);
 vm.runInContext(`
 state.status = {setupComplete:true, settings:{
-  management:{address:'192.0.2.10'}, apps:{enable:true,portainerPort:9443}, cockpit:{enable:true,port:9090}, monitoring:{history:false},
+  management:{address:'192.0.2.10'}, apps:{enable:true,arcanePort:9443}, cockpit:{enable:true,port:9090}, monitoring:{history:false},
   tunnel:{enable:true,ingress:{'photos.example.com':'http://10.77.0.10:8080','*.example.com':'http://10.77.0.10:8080'}}
 }};
 state.draft = {management:{address:'198.51.100.20'}, apps:{enable:false}};
@@ -45,7 +45,7 @@ assert.ok(!tools.includes(':8443"'));
 assert.ok(tools.includes('Finish setup'));
 assert.equal(vm.runInContext('quickManagementLinks(state.status.settings)', context), '', 'No unverified management shortcuts before setup');
 let resources = vm.runInContext('homepageResources()', context);
-for (const destination of ['https://github.com/community-scripts/Incus','https://community-scripts.org/','https://github.com/docker/awesome-compose','https://github.com/lissy93/portainer-templates','https://photos.example.com','roadmap.md','recovery.md']) {
+for (const destination of ['https://github.com/community-scripts/Incus','https://community-scripts.org/','https://github.com/docker/awesome-compose','https://github.com/lissy93/arcane-templates','https://photos.example.com','roadmap.md','recovery.md']) {
   assert.ok(resources.includes(destination), 'Missing destination: '+destination);
 }
 assert.ok(!resources.includes('https://*.example.com'), 'Wildcard DNS records are not browsable endpoints');

@@ -28,7 +28,7 @@ Append options after `--` to the command:
 |---|---|
 | `--ssh-key /path/to/laptop.pub` | Enroll a client public key for the `operator` account |
 | `--no-ssh-password-login` | Choose key-only SSH; remote installs then require a client key |
-| `--no-apps` | Omit the Docker/Portainer VM on first installation |
+| `--no-apps` | Omit the Docker/Arcane VM on first installation |
 | `--adopt-incus` | Explicitly select the backup-and-adopt workflow described below |
 | `--no-update` | Keep the installed platform source on retry |
 | `--wizard` | Bootstrap the web setup instead of installing the full stack |
@@ -63,7 +63,7 @@ For unmanaged accounts (`cockpit.managePassword = false`), an authorized host
 terminal can use `sudo passwd operator`. A manual password change does not update
 a managed password file and may be overwritten by later activation. Existing
 account passwords are preserved.
-The portal, Linux account, Incus browser certificate and Portainer account are
+The portal, Linux account, Incus browser certificate and Arcane account are
 separate identities. Enroll the Incus browser certificate through the portal.
 
 ## Portal access without printed passwords
@@ -79,13 +79,13 @@ For the default legacy path or forgotten portal access, an authorized administra
 can run `sudo nixlab-admin reset-password` from a private local/SSH/Cockpit terminal
 and choose a new password. This is rotation, not retrieval. The command refuses
 non-terminal input or an echoing password prompt. A successful verifier commit
-retires the old setup plaintext, and old sessions are rejected. Portainer and
+retires the old setup plaintext, and old sessions are rejected. Arcane and
 Linux passwords remain independent.
 
 Private legacy service files are preserved while secure enrollment/recovery
 release gates are completed. Do not delete them simply to remove output. Default
 web-first enrollment and browser recovery remain gated on #63/#64/#67; transient
-Portainer bootstrap and supplied-password reset remain #65/#66 work.
+Arcane bootstrap and supplied-password reset remain #65/#66 work.
 
 ## Retry and source updates
 
@@ -108,8 +108,8 @@ build leaves its log and candidate for inspection, rather than erasing evidence.
 Credentials are generated once outside the activation rollback manifest, so a
 failure after database initialization does not cause password rotation on retry.
 The setup password is available again only while it matches the active account.
-Stored Portainer credentials are printed only after an authenticated API login.
-If that password has changed in Portainer, use the existing account or explicitly
+Stored Arcane credentials are printed only after an authenticated API login.
+If that password has changed in Arcane, use the existing account or explicitly
 run recovery; a bootstrap file is never asserted to be the current password.
 
 ## Adopt an existing Incus host
@@ -140,7 +140,7 @@ sudo nixlab doctor
 ```
 
 Installation confirms only after checking the Incus API/UI, Nixlab portal,
-Cockpit and enabled Portainer proxy/status/administrator initialization over TLS.
+Cockpit and enabled Arcane proxy/status/administrator initialization over TLS.
 Tests of local endpoints cannot prove connectivity from every LAN/VPN client.
 The startup identity service uses the assigned management address before TLS
 services start. Cockpit socket activation listens independently of DHCP readiness
@@ -158,19 +158,10 @@ The installer prints a fixed failure message and saves a non-secret
 `installation-failure.json`; transaction and rollback status remain separate. Recovery skips absent services and
 NetworkManager connections that no longer exist.
 
-Portainer recovery downloads the official helper before stopping Portainer,
-backs up `/srv/portainer` inside the apps VM, resets the database credential,
-synchronizes the host/guest credential files and restarts Portainer even if the
-helper fails. It verifies readiness and authentication, then reports status, service URL,
-backup path and protected private-delivery path only. No username/password is
-returned by the authentication probe or printed by the command. The official helper currently uses
-its upstream `latest` image; the helper output is retained in a root-only file if
-its output format changes. This command does not delete stacks or guest disks.
-
-To explicitly reset Portainer's account after backing up its data, run:
+Arcane recovery uses its installed upstream `admin reset-password` command in a private interactive guest terminal. It asks for a supplied password, leaves Docker workloads and persistent application data in place, and prints no generated credential. Back up `/srv/arcane` (including its independent encryption key) before recovery.
 
 ```sh
-sudo nixlab portainer reset-password
+sudo nixlab-admin arcane reset-password
 ```
 
 ## Installation regression checklist
@@ -185,17 +176,17 @@ sudo nixlab portainer reset-password
 | Duplicate image fingerprint on retry | Existing idempotent import/alias implementation and `test_app_image_import.py` retained |
 | Rollback masked original error or restarted missing units/connections | Separate error fields, loaded-unit checks and existing-UUID checks |
 | Cockpit address unavailable at boot; stale `.240` links | Address-independent listeners, runtime TLS identity, observed URLs; DHCP/reboot VM fixture |
-| Success despite broken interfaces | TLS endpoint and Portainer administrator readiness gate before confirmation |
+| Success despite broken interfaces | TLS endpoint and Arcane administrator readiness gate before confirmation |
 | Password login disappeared unexpectedly | Password login enabled by default, printed policy and explicit key-only option |
-| Portainer bootstrap secret disagreed with database | Private credential loading and a boolean authentication check; no plaintext retrieval helper |
-| Manual Portainer recovery left it stopped | Backed-up reset command with restart in cleanup and authenticated verification |
-| TLS deprecation and confusing shutdown logs | Current `--tlscert`/`--tlskey` flags; readiness/exit status drives diagnostics |
+| Arcane bootstrap secret disagreed with database | Private credential loading and a boolean authentication check; no plaintext retrieval helper |
+| Manual Arcane recovery left it stopped | Upstream interactive supplied-password recovery without service interruption |
+| TLS deprecation and confusing shutdown logs | Arcane TLS environment variables; readiness/exit status drives diagnostics |
 
-VM tests use controlled Portainer/Incus TLS backends for the proxy/reboot boundary
+VM tests use controlled Arcane/Incus TLS backends for the proxy/reboot boundary
 and real Cockpit PAM/WebSocket and SSH password sessions before and after reboot.
 Actual registry pulls, nested KVM deployment and physical-host commissioning still
 need host testing.
 
 Upstream recovery/flag references:
-[password reset helper](https://github.com/portainer/helper-reset-password),
-[deprecated flags](https://docs.portainer.io/advanced/deprecated).
+[Arcane recovery](https://getarcane.app/docs/users/account-recovery),
+[deprecated flags](https://getarcane.app/docs/reference/environment-variables).

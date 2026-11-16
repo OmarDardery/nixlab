@@ -102,10 +102,10 @@ class CoverageTests(unittest.TestCase):
                 (root / name).write_text('fixture')
             configured = {'setup': {'enable': True}, 'apps': {'enable': True}}
             with patch.object(recovery, 'settings', return_value=configured), patch.object(rt, 'STATE', root), \
-                    patch.object(rt, 'SECRET_PATHS', {'portainerPassword': root / 'bootstrap'}):
+                    patch.object(rt, 'SECRET_PATHS', {'arcanePassword': root / 'bootstrap'}):
                 self.assertTrue(recovery.coverage()['complete'])
-                self.assertFalse((root / 'portainer-account.json').exists())
-                account = root / 'portainer-account.json'; account.write_text('{}')
+                self.assertFalse((root / 'arcane-account.json').exists())
+                account = root / 'arcane-account.json'; account.write_text('{}')
                 self.assertTrue(recovery.coverage()['complete'])
                 account.chmod(0o666)
                 self.assertIn('apps-account', recovery.coverage()['missing'])

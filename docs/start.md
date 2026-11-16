@@ -9,7 +9,7 @@ never served over HTTP.** Keep using the NixLab-generated TLS identity and
 verify its fingerprint on initial enrollment.
 
 The portal Overview and sidebar link to enabled Incus UI (:8443),
-Cockpit (configured port, normally :9090), and Portainer (configured
+Cockpit (configured port, normally :9090), and Arcane (configured
 port, normally :9443 on fresh installs or :9441 on older installs).
 Disabled or unconfigured services are not advertised as live. The
 **Help** page includes a copy-only homelab cheatsheet.

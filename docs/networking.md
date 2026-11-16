@@ -43,7 +43,7 @@ pool cannot promise enforced system-container disk quotas.
 - The demo's Docker port is published in the VM. Docker DNAT can bypass the VM input firewall;
   the outer host forward policy is the security boundary for LAN traffic. Do not attach the
   VM directly to the LAN without adding a guest Docker-aware forwarding policy.
-- In manual mode Portainer binds VM loopback. With setup enabled, its private VM TLS listener is reached through the verified host proxy at 9441. It is not a public application origin.
+- In manual mode Arcane binds VM loopback. With setup enabled, its private VM TLS listener is reached through the verified host proxy at 9441. It is not a public application origin.
 
 If guests need a LAN DNS/NTP/server, add a narrowly scoped allow rule before the private-range
 drop. Do not broadly trust `incusbr0` as a connectivity workaround. Verify new rules with nft
@@ -195,5 +195,5 @@ The JSON describes the NixLab policy. Check custom firewall rules and actual
 socket state with `sudo nft list ruleset` and `sudo ss -ltn`.
 
 Bootstrap retains the installed firewall and interface-scoped portal ports.
-The applications VM continues to restrict its native Portainer listener to
+The applications VM continues to restrict its native Arcane listener to
 the hypervisor proxy at the Docker forwarding boundary.

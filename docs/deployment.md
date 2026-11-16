@@ -100,7 +100,7 @@ Expected encrypted YAML keys:
 | Host | `cloudflared` | Tunnel credentials JSON as a YAML multiline string |
 | Host | `restic-password` | Restic repository password |
 | Host | `restic-environment` | Runtime restic environment, e.g. repository access credentials; can be empty for credential-free targets |
-| VM | `portainer-admin-password` | Strong plaintext bootstrap password, encrypted by sops in Git |
+| VM | `arcane-admin-password` | Strong plaintext bootstrap password, encrypted by sops in Git |
 | VM | `demo-db-password` | Strong database password; only required when demo enabled |
 
 Without sops-nix, provision the same root-owned files under `/var/lib/nixlab-secrets` using
@@ -109,10 +109,10 @@ The demo password file must be 0444 inside that protected directory so the unpri
 web/PG containers can read its bind-mounted secret. File-based Compose secrets are mounts,
 not a Docker Swarm encrypted secret store. Do not use `builtins.readFile` on plaintext secrets.
 
-Portainer stays stopped while its bootstrap file is absent. Supplying the file then requires
-`systemctl start docker-portainer` in the VM, or a rebuild/reboot. The bootstrap password flag
+Arcane stays stopped while its bootstrap file is absent. Supplying the file then requires
+`systemctl start docker-arcane` in the VM, or a rebuild/reboot. The bootstrap password flag
 only creates the initial admin; it does not rotate an existing account. Set up account changes
-through Portainer and retain its persistent data. The secret mount still needs to exist on restarts.
+through Arcane and retain its persistent data. The secret mount still needs to exist on restarts.
 
 Encrypted guest files are part of the VM image closure; a decryption key is never baked into it.
 Do not enable the demo until the guest can materialize its database secret.
@@ -179,7 +179,7 @@ user, boot startup and restart-on-failure; a ten-second retry delay is configure
 No incoming firewall ports are opened for the tunnel. Default NixOS outbound policy permits
 Cloudflare connectivity; restrictive egress gateways must allow its documented endpoints on
 UDP/TCP 7844 and DNS. Protect application identities with application auth/Cloudflare Access
-as appropriate. Never add Incus, Portainer, SSH, Prometheus or Cockpit hostnames to public ingress.
+as appropriate. Never add Incus, Arcane, SSH, Prometheus or Cockpit hostnames to public ingress.
 
 Sources: [NixOS module](https://github.com/NixOS/nixpkgs/blob/718f670e845328e9c2cecdd832835712b2cbd065/nixos/modules/services/networking/cloudflared.nix),
 [locally managed tunnels](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/local-management/),

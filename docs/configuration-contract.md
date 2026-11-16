@@ -25,7 +25,7 @@ The installer imports a conventional `/etc/nixos` installation, copies `.nix` fi
 
 ## Runtime and data
 
-Incus preseed configures reserved infrastructure. A drift guard refuses native edits to source-owned infrastructure; ordinary Incus objects remain native-owned. The instance reconciler refuses unowned instances and does not delete a guest whose declaration is removed. Last-applied tracking removes previously managed config/device keys only without conflicting runtime drift; unowned keys survive. Whole-device removal/backing changes require migration, and profiles are assigned from the declaration. Apps VM, Docker and Portainer are optional. Guest disks, databases, runtime Incus state and Portainer-only changes are mutable data, not recoverable from Nix configuration alone.
+Incus preseed configures reserved infrastructure. A drift guard refuses native edits to source-owned infrastructure; ordinary Incus objects remain native-owned. The instance reconciler refuses unowned instances and does not delete a guest whose declaration is removed. Last-applied tracking removes previously managed config/device keys only without conflicting runtime drift; unowned keys survive. Whole-device removal/backing changes require migration, and profiles are assigned from the declaration. Apps VM, Docker and Arcane are optional. Guest disks, databases, runtime Incus state and Arcane-only changes are mutable data, not recoverable from Nix configuration alone.
 
 Mounts use existing filesystem UUIDs; automatic formatting is unsupported. An Incus backing mount must exist before dependent services start. Storage and guest network changes require an explicit migration. A rebuild must not erase data.
 

@@ -25,7 +25,7 @@ assert.equal(vm.runInContext("commandGroups().find(group => group.id === 'health
 const html = vm.runInContext('commandsPage()', context);
 assert.ok(!/data-action=|data-guest-action=|data-install-script=/.test(html), 'Command reference must have no execution or mutation controls');
 assert.equal((html.match(/data-copy-command=/g) || []).length, items.length);
-for (const target of ['community-scripts/Incus', 'cockpit-project.org/applications', 'docker/awesome-compose', 'lissy93/portainer-templates', 'restic/others', 'Mic92/sops-nix']) {
+for (const target of ['community-scripts/Incus', 'cockpit-project.org/applications', 'docker/awesome-compose', 'lissy93/arcane-templates', 'restic/others', 'Mic92/sops-nix']) {
   assert.ok(html.includes(target), 'Missing project resource: ' + target);
 }
 for (const link of html.matchAll(/<a [^>]+>/g)) {

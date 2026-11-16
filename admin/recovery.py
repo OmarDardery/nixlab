@@ -105,8 +105,8 @@ def coverage():
             # A fresh bootstrap uses admin and legitimately has no such file.
             for name in ('apps-tls.key', 'apps-tls.crt'):
                 required['apps-' + name] = rt.STATE / name
-            required['apps-bootstrap'] = rt.SECRET_PATHS['portainerPassword']
-            account = rt.STATE / 'portainer-account.json'
+            required['apps-bootstrap'] = rt.SECRET_PATHS['arcanePassword']
+            account = rt.STATE / 'arcane-account.json'
             if account.exists() or account.is_symlink():
                 required['apps-account'] = account
     files = secret_files()
@@ -118,7 +118,7 @@ def coverage():
 
 def secret_files():
     files = {}
-    for name in ('auth.json', 'users.json', 'bootstrap-state.json', 'setup-password', 'operator-password', 'portainer-account.json', 'browser-certificates.json',
+    for name in ('auth.json', 'users.json', 'bootstrap-state.json', 'setup-password', 'operator-password', 'arcane-account.json', 'browser-certificates.json',
                  'ca.key', 'ca.crt', 'tls.key', 'tls.crt', 'apps-tls.key', 'apps-tls.crt'):
         files['admin/' + name] = rt.STATE / name
     for name, path in rt.SECRET_PATHS.items(): files['runtime/' + name] = path

@@ -191,8 +191,8 @@ class Manager:
             if candidate['radios']['wifi']['manageProfile'] and candidate['radios']['wifi']['enable']:
                 if 'wifiPassword' not in encoded and not rt.SECRET_PATHS['wifiPassword'].exists():
                     raise ValueError('Provide the WPA password for the managed Wi-Fi profile')
-            if candidate['apps']['enable'] and not candidate['secrets']['enable'] and 'portainerPassword' not in encoded and not rt.SECRET_PATHS['portainerPassword'].exists():
-                raise ValueError('Set the initial Portainer administrator password')
+            if candidate['apps']['enable'] and not candidate['secrets']['enable'] and 'arcanePassword' not in encoded and not rt.SECRET_PATHS['arcanePassword'].exists():
+                raise ValueError('Set the initial Arcane administrator password')
             if candidate['apps']['enableDemo'] and 'demoPassword' not in encoded and not rt.SECRET_PATHS['demoPassword'].exists():
                 raise ValueError('Set the demo database password')
             if candidate['backup']['enable'] and not candidate['secrets']['enable']:

@@ -33,14 +33,13 @@
   };
   cockpit = { enable = false; port = 9090; managePassword = false; };
   apps = {
-    enable = false; # opt in to Docker/Portainer; no idle VM on a hypervisor-only host
+    enable = false; # opt in to Docker/Arcane; no idle VM on a hypervisor-only host
     cpu = "2";
     memory = "2GiB";
     disk = "64GiB";
-    # Version verified against upstream LTS releases 2026-10-27.
-    # For immutable registry content replace with image@sha256:digest.
-    portainerImage = "portainer/portainer-ce:2.45.3";
-    portainerPort = 9441; # retained for existing hosts; homelab recipe selects 9443
+    # Official Arcane v3.0.1 multi-architecture OCI index, resolved 2026-11-16.
+    arcaneImage = "ghcr.io/getarcaneapp/manager@sha256:80a2f71c60bc1bff3e618e6e71efec98ad365ba4f0395aa76e234d8ba75e5a99";
+    arcanePort = 9441; # retained for existing hosts; homelab recipe selects 9443
     enableDemo = false; # requires /var/lib/nixlab-secrets/demo-db-password in the VM
   };
   # Additional instances: { name; project = "lab"; image = "images:<fingerprint>";

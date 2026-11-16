@@ -9,9 +9,9 @@ mode, CPU, NICs, disks, exact source revision, results and relevant redacted log
 Routine collection runs fixed, bounded read-only probes; it never installs an app,
 reboots, stops a guest, exports data or runs a disruptive test. It checks local
 management, the KVM ioctl, a running unprivileged container and (when enabled) the
-real apps VM agent/Docker plus authentication using existing Portainer credentials.
+real apps VM agent/Docker plus authentication using existing Arcane credentials.
 It writes only its own report/lock under `/var/lib/nixlab-admin/commissioning`.
-No raw command output or credentials enter that report. Changed Portainer passwords
+No raw command output or credentials enter that report. Changed Arcane passwords
 must be supplied through the existing supported credential mechanism, not a report.
 
 ```sh
@@ -70,7 +70,7 @@ See the [qualification matrix](qualification.md) for publication and limits.
 - Interrupt an installation and rerun the same command. Verify automatic resume
   and unchanged credentials. Confirm completed installs do not duplicate resources.
 - Test password SSH from a trusted laptop, Cockpit login and host terminal, Incus
-  browser enrollment and Portainer authentication. Verify URLs match the assigned
+  browser enrollment and Arcane authentication. Verify URLs match the assigned
   address and the console CA fingerprint before trusting the management CA.
 - Reboot twice with delayed DHCP if applicable, without manual service restarts.
   Run `sudo nixlab doctor`; check `nixlab-management-health.service`, Cockpit
@@ -97,7 +97,7 @@ See the [qualification matrix](qualification.md) for publication and limits.
 
 - Enable the management stack and enroll the Linux operator password separately
   from portal accounts. Test Cockpit host terminal/sudo, Incus guest consoles and
-  Portainer stack consoles. Verify private source restrictions, custom ports, TLS
+  Arcane stack consoles. Verify private source restrictions, custom ports, TLS
   renewal and access after Docker restart. Exercise guarded password rollback
   with console access available. See [homelab management](homelab.md).
 

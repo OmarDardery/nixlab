@@ -2,11 +2,11 @@
 
 ## Native service sessions
 
-NixLab, Incus, Cockpit and Portainer authenticate separately. The optional Portainer
+NixLab, Incus, Cockpit and Arcane authenticate separately. The optional Arcane
 TLS proxy uses the upstream [Nginx njs module](https://nginx.org/en/docs/njs/) to
 remove `nixlab_session` from requests to the guest and from guest responses.
 Browsers share cookies across ports, so the proxy must enforce this boundary.
-Portainer's own cookies, cookie security attributes and JWT headers are preserved.
+Arcane's own cookies, cookie security attributes and JWT headers are preserved.
 This module runs inside Nginx; it adds no background service. A custom replacement
 proxy must preserve the same isolation.
 
@@ -19,7 +19,7 @@ creates a guest from the browser. Application wizards run interactively in the h
 terminal; Docker examples target the apps VM.
 
 The same section groups Nixlab guides, upstream documentation and community resources
-by project. Incus helpers, Cockpit plugins, Docker Compose examples and Portainer
+by project. Incus helpers, Cockpit plugins, Docker Compose examples and Arcane
 templates are labeled separately. Optional backup, secret, ingress and monitoring
 references are under the expanded resources list. Community compatibility and
 Nixlab qualification remain separate.
@@ -27,12 +27,10 @@ Nixlab qualification remain separate.
 ## Credential delivery during installation and recovery
 
 Installer summaries show URLs, public fingerprints, status and recovery steps.
-Until #65/#66 qualify the replacement, a verified private Portainer bootstrap
+Until #65/#66 qualify the replacement, a verified private Arcane bootstrap
 input still has its protected path reported; no credential value is returned.
-They do not print credentials or offer a password-retrieval API. Portainer health
-checks consume private service credentials and return only a boolean. Its current
-reset command still reports a protected delivery path for compatibility pending
-the supplied-password workflow; that private lifecycle is not retired here.
+They do not print credentials or offer a password-retrieval API. Arcane health
+checks consume private service credentials and return only a boolean. Its reset command invokes upstream interactive recovery at a private terminal; it does not generate a replacement password or retain reset output. Bootstrap-file lifetime remains tracked separately.
 
 Console-approved browser enrollment is explicitly enabled with
 `--wizard --web-enrollment`; the default legacy path is not silently migrated.
@@ -50,7 +48,7 @@ terminal. Manual changes do not update a managed hash file and may be overwritte
 by later activation. Ensure a working Linux login before ending installation. Service runtime files and existing verifiers remain
 available until the corresponding enrollment/recovery release gates are qualified.
 
-Portainer reset still uses the backed-up offline helper and retains its generated
+Arcane reset still uses the backed-up offline helper and retains its generated
 credential privately. It does not replace the database. A supplied-password reset
 and removal of retained bootstrap credentials remain separate lifecycle work.
 
@@ -219,7 +217,7 @@ Full VMs need a bootable VM image and KVM. Resizing disks upward and changing li
 shrinking disks requires a separate migration/recovery procedure. Deleting a declaration never
 means deleting data. Explicit deletion uses authenticated `incus delete` after a reviewed backup.
 
-## Portainer and Compose
+## Arcane and Compose
 
 The UI is HTTPS on **apps VM loopback**, not host loopback. Forward it from a client:
 
@@ -227,9 +225,9 @@ The UI is HTTPS on **apps VM loopback**, not host loopback. Forward it from a cl
 ssh -N -J operator@HOST_IP -L 9443:127.0.0.1:9443 root@APPS_IP
 ```
 
-Open `https://localhost:9443`, independently verify the VM's Portainer self-signed certificate,
+Open `http://localhost:9443` through the encrypted SSH tunnel when setup TLS is disabled,
 and log in as the bootstrapped admin. HTTPS is protected inside SSH; no public admin hostname
-is configured. Portainer's Docker socket gives it root-equivalent control of the VM, not of the
+is configured. Arcane's Docker socket gives it root-equivalent control of the VM, not of the
 hypervisor. Compromise of a VM can still expose its applications/secrets; it is not a safe place
 for mutually hostile tenants.
 
@@ -250,7 +248,7 @@ Deploy validates Compose and waits for health. The image itself defines the demo
 PostgreSQL/Redis have Compose healthchecks. Update explicitly pulls registry-backed services and
 keeps the locally Nix-built app image. Teardown retains volumes. The helper lock action writes
 image-only digest overrides without resolved environment secrets. Review and commit overrides;
-copy/deploy them into the corresponding `/srv/compose/<project>` directory. Replace the Portainer
+copy/deploy them into the corresponding `/srv/compose/<project>` directory. Replace the Arcane
 image reference with a reviewed immutable digest in `site.nix` too.
 
 The web app stores a visit count in PostgreSQL and uses Redis as a disposable cache. `/health`
@@ -261,9 +259,9 @@ Changing a database password file alone does not rotate the password in an exist
 Perform coordinated SQL/application rotation, take a backup and test reconnects.
 
 Additional CLI-owned projects live under `/srv/compose/NAME/compose.yaml`, preferably from a
-reviewed Git revision with runtime file secrets. UI-owned projects should instead use Portainer's
+reviewed Git revision with runtime file secrets. UI-owned projects should instead use Arcane's
 Stacks > Git Repository or editor workflow. Keep one writer per project. CLI-owned external
-stacks have limited Portainer lifecycle/editing support; use the packaged helper for them.
+stacks have limited Arcane lifecycle/editing support; use the packaged helper for them.
 No additional Dockge/Komodo dashboard competes for control.
 
 ## Logs and monitoring
@@ -302,7 +300,7 @@ never served over HTTP.** Keep using the NixLab-generated TLS identity and
 verify its fingerprint on initial enrollment.
 
 The portal Overview and sidebar link to enabled Incus UI (:8443),
-Cockpit (configured port, normally :9090), and Portainer (configured
+Cockpit (configured port, normally :9090), and Arcane (configured
 port, normally :9443 on fresh installs or :9441 on older installs).
 Disabled or unconfigured services are not advertised as live. The
 **Help** page includes a copy-only homelab cheatsheet.
@@ -345,4 +343,4 @@ For SSH-key-only administrators, open a private host terminal and run `sudo nixl
 
 After approval, choose a unique lower-case NixLab username and a new 16–256 character portal password. The existing single-claim authority commits one verifier and invalidates every bootstrap browser. The winning browser receives an ordinary NixLab session; host proof is not ordinary portal authentication. Named first administrators use the existing `users.json` format; selecting `admin` uses the existing reserved `auth.json` format. Previously installed accounts retain their login and no new first-claim path opens for them. Local `reset-password` still resets the reserved recovery administrator `admin`, preserving other named accounts.
 
-This adds no password synchronization with Linux, Cockpit, Incus or Portainer. Default installer enrollment remains release-gated; do not remove a working legacy path or switch an established host without fresh-install/upgrade qualification. Browser bootstrap session metadata (`bootstrap-sessions.json`, root-only mode 0600) is bounded and contains hashes, scope, deadlines and rate counters, not reusable cookie values or host credentials. It is intentionally excluded from recovery kits; portable account verifiers and the existing claim authority remain included.
+This adds no password synchronization with Linux, Cockpit, Incus or Arcane. Default installer enrollment remains release-gated; do not remove a working legacy path or switch an established host without fresh-install/upgrade qualification. Browser bootstrap session metadata (`bootstrap-sessions.json`, root-only mode 0600) is bounded and contains hashes, scope, deadlines and rate counters, not reusable cookie values or host credentials. It is intentionally excluded from recovery kits; portable account verifiers and the existing claim authority remain included.

@@ -19,7 +19,7 @@ The workflow runs these checks on every pull request:
 - `checks.x86_64-linux.startup`: NetworkManager/DHCP startup and reboot with the real
   apps-enabled nginx proxy. Verify trusted TLS, actual-address URLs, Cockpit login
   and terminal, password SSH and the automatic management health service on each boot.
-  Incus/Portainer HTTPS backends are controlled fixtures in this test.
+  Incus/Arcane HTTPS backends are controlled fixtures in this test.
 - `checks.x86_64-linux.management`: Docker forwarding boundaries, including restart.
 - `checks.x86_64-linux.foundation`: real Incus containers, guest preservation,
   network access, shared-profile impact/ETag observation and drift refusal,
@@ -52,8 +52,8 @@ source revision, installed hardware, reboot results and redacted failure reports
 The installer is not run against a production machine from this development workspace.
 
 The optional **Real apps commissioning** workflow runs a separate nested-KVM test
-with an actual Incus applications VM, Docker and Portainer. It resolves the configured
-Portainer tag to a digest, stages an OCI archive before building, and checks real
+with an actual Incus applications VM, Docker and Arcane. It resolves the configured
+Arcane tag to a digest, stages an OCI archive before building, and checks real
 authentication on three boots (two deliberate reboots). The test requires usable
 nested KVM; an unavailable prerequisite fails the job rather than passing a mock.
 This test path is not itself evidence of a successful run. Its report is labeled
@@ -67,11 +67,11 @@ OS rollback does not roll back guest data or the Incus database schema.
 The `guest-deployments` check boots two real NixOS Incus containers and tests
 ordered in-place OS updates, preserved data, health rollback, dependency failure,
 a killed export/import worker, and resume after rebooting the controller. It does
-not establish apps-VM/KVM or authenticated Portainer qualification.
+not establish apps-VM/KVM or authenticated Arcane qualification.
 
 The separate **Real apps guest deployment** workflow checks nested KVM on the
 runner that executes the test. When supported, it resolves and archives an actual
-Portainer image, deploys a new OS to the existing apps VM and a second NixOS
+Arcane image, deploys a new OS to the existing apps VM and a second NixOS
 guest, verifies preserved data/identities, and authenticates against real
-Portainer before and after. An unsupported runner skips the integration step;
+Arcane before and after. An unsupported runner skips the integration step;
 that is not a successful apps-VM qualification.

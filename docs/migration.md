@@ -56,8 +56,8 @@ cold volume copy. Copy upload/media/library directories with ownership preserved
 files through the secret mechanism. Redis data is disposable only when the real application's
 semantics say so; this repository's demo cache policy must not be assumed for every workload.
 
-Choose one control plane per stack: Nix/CLI-owned files or Portainer Git/UI-owned state. Back up
-Portainer's own state separately from application data; its own backup excludes Docker volumes.
+Choose one control plane per stack: Nix/CLI-owned files or Arcane Git/UI-owned state. Back up
+Arcane's own state separately from application data; its own backup excludes Docker volumes.
 Do not blindly copy a Docker graph directory across different storage drivers/Engine versions.
 
 ## Cutover and rollback

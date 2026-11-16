@@ -25,7 +25,7 @@ The vendored patch is in `modules/patches/`; remove it when the pinned package
 includes that exact fix and the DHCP/Docker interface-churn test still passes.
 This source fix does not establish successful recovery of an already failed
 guest update. Inspect guest service logs and verify the guarded update, lease,
-Portainer and persistent data on the actual host before recording qualification.
+Arcane and persistent data on the actual host before recording qualification.
 
 Start with the symptom. Keep the original error. Resist the traditional homelab
 ritual of changing six things and discovering none of them was the problem.
@@ -38,10 +38,10 @@ systemctl --failed
 ```
 
 `doctor` checks the actual management address and enabled HTTPS interfaces,
-including Portainer administrator readiness. Its concise report is saved at
+including Arcane administrator readiness. Its concise report is saved at
 `/var/lib/nixlab-admin/last-health.json`.
 
-Portainer status probes use `/api/system/status` to avoid deprecated-endpoint
+Arcane status probes use `/api/health` to avoid deprecated-endpoint
 warnings. Older custom images fall back to `/api/status` only on HTTP 404;
 authentication, TLS and server failures still fail the health check.
 
@@ -120,13 +120,13 @@ in the router, or make a reviewed static-network change in Nixlab with console
 access available. Do not copy example NIC names or guest addresses into your host.
 
 Default interfaces use `https://HOST_IP:9440` (Nixlab), `:8443` (Incus), `:9090`
-(Cockpit) and `:9443` (Portainer). Older installations can retain Portainer on
+(Cockpit) and `:9443` (Arcane). Older installations can retain Arcane on
 `:9441`; use the reported/configured port.
 
 ## SSH or Cockpit rejects my password
 
 SSH and Cockpit use **Linux accounts**, not the Nixlab portal password and not the
-Portainer password. Root SSH and root Cockpit login are disabled. Try your existing
+Arcane password. Root SSH and root Cockpit login are disabled. Try your existing
 non-root administrator account or the verified `operator` credential printed by
 the installer.
 
@@ -151,30 +151,30 @@ A key generated on the server does not authorize your laptop. Check **Access**
 for the password-login policy. A locked Linux account still needs a usable password;
 enabling password authentication alone does not create one.
 
-## Portainer's saved password does not work
+## Arcane's saved password does not work
 
 An initialization password file cannot override an account already stored in the
-Portainer database. Nixlab only presents stored credentials as current after an
+Arcane database. Nixlab only presents stored credentials as current after an
 authenticated API login. If you changed the password, use that account or run:
 
 ```sh
-sudo nixlab portainer reset-password
+sudo nixlab arcane reset-password
 ```
 
-The recovery command downloads the official helper before stopping Portainer,
+The recovery command downloads the official helper before stopping Arcane,
 backs up its data, resets credentials, synchronizes the runtime files, restarts
-Portainer and verifies authentication before printing the result. It reports the
+Arcane and verifies authentication before printing the result. It reports the
 backup path. This is an explicit recovery operation; it does not delete stacks.
 
 If recovery fails, keep its error and backup path and check:
 
 ```sh
-sudo homelab exec apps -- systemctl status docker-portainer.service
-sudo homelab exec apps -- journalctl -b -u docker-portainer.service --no-pager
+sudo homelab exec apps -- systemctl status docker-arcane.service
+sudo homelab exec apps -- journalctl -b -u docker-arcane.service --no-pager
 sudo nixlab doctor
 ```
 
-Do not delete `/srv/portainer` to make a login screen look new again.
+Do not delete `/srv/arcane` to make a login screen look new again.
 
 ## Installation stopped halfway through
 
@@ -206,14 +206,14 @@ plan. Never delete the Incus database to get past this check. It is not a cache.
 
 ## Incus works, but another interface is broken
 
-Incus being reachable does not prove Cockpit, Nixlab or Portainer is ready.
+Incus being reachable does not prove Cockpit, Nixlab or Arcane is ready.
 
 ```sh
 sudo nixlab doctor
 sudo systemctl status nixlab-ui.service nginx.service nixlab-apps-onboarding.service
 ```
 
-For Portainer, check the apps VM and its agent:
+For Arcane, check the apps VM and its agent:
 
 ```sh
 sudo incus list --all-projects

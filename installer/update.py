@@ -125,7 +125,7 @@ def run(manager, interface=None, repair=None):
         if repair: repair.native_identity()
         report = diagnostics.wait_ready(record.get('effectiveSettings') or manager.effective_settings())
         for check in report['checks']:
-            if check['name'] in ('Nixlab', 'Incus UI', 'Cockpit', 'Portainer') and check['ok']:
+            if check['name'] in ('Nixlab', 'Incus UI', 'Cockpit', 'Arcane') and check['ok']:
                 print(check['name'] + ': ' + check['url'], flush=True)
         # The initiating SSH connection may survive while new logins and
         # portal access are broken. It cannot prove independent reachability.

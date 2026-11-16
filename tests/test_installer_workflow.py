@@ -16,7 +16,7 @@ BASE = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(BASE / name) for name in ('installer', 'admin', 'scripts')]
 import diagnostics
 import direct
-import portainer
+import arcane
 import runtime as rt
 import worker
 import workflow
@@ -288,34 +288,23 @@ class ReadinessTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'no usable address'):
                 diagnostics.management_address(cfg)
 
-    def test_portainer_missing_admin_fails_health_even_with_live_proxy(self):
-        cfg = initial(); cfg['ready'] = True; cfg['apps']['enable'] = True; cfg['cockpit']['enable'] = True
-        def response(address, port, path):
-            return (404 if path == '/api/users/admin/check' else 200), b'{}'
-        with patch('diagnostics.management_address', return_value='192.0.2.20'), \
-             patch('diagnostics.request', side_effect=response), \
-             patch('diagnostics.http_entry', return_value=(308, True)):
+    def test_arcane_unhealthy_backend_fails_health_even_with_live_proxy(self):
+        cfg = initial(); cfg['ready'] = True; cfg['apps']['enable'] = True
+        with patch('diagnostics.management_address', return_value='192.0.2.20'), patch('diagnostics.request', side_effect=lambda address, port, path: (503 if path == '/api/health' else 200, b'{}')), patch('diagnostics.http_entry', return_value=(308, True)):
             report = diagnostics.probe(cfg)
         self.assertFalse(report['ok'])
-        self.assertEqual([c['name'] for c in report['checks'] if not c['ok']], ['Portainer administrator'])
+        self.assertEqual([c['name'] for c in report['checks'] if not c['ok']], ['Arcane'])
 
-    def test_portainer_status_prefers_current_api_and_only_falls_back_for_old_images(self):
+    def test_arcane_health_never_falls_back_to_retired_provider_apis(self):
         cfg = initial(); cfg['ready'] = True; cfg['apps']['enable'] = True
         for status in (200, 404, 401, 500):
             calls = []
             def response(address, port, path):
-                calls.append(path)
-                if port != cfg['apps']['portainerPort']: return 200, b'{}'
-                return ({'/api/system/status': status, '/api/status': 200,
-                         '/api/users/admin/check': 204}[path]), b'{}'
-            with self.subTest(status=status), \
-                 patch('diagnostics.management_address', return_value='192.0.2.20'), \
-                 patch('diagnostics.request', side_effect=response), \
-                 patch('diagnostics.http_entry', return_value=(308, True)):
-                report = diagnostics.probe(cfg)
-                self.assertEqual(report['ok'], status in (200, 404))
-                self.assertIn('/api/system/status', calls)
-                self.assertEqual('/api/status' in calls, status == 404)
+                if port == cfg['apps']['arcanePort']: calls.append(path); return status, b'{}'
+                return 200, b'{}'
+            with patch('diagnostics.management_address', return_value='192.0.2.20'), patch('diagnostics.request', side_effect=response), patch('diagnostics.http_entry', return_value=(308, True)):
+                self.assertEqual(diagnostics.probe(cfg)['ok'], status == 200)
+            self.assertEqual(calls, ['/api/health'])
 
     def test_resume_checks_health_but_cannot_confirm_remote_access(self):
         manager = Mock()
@@ -335,40 +324,25 @@ class ReadinessTests(unittest.TestCase):
     def test_stored_password_is_never_presented_without_authentication(self):
         with tempfile.TemporaryDirectory() as folder:
             password = Path(folder) / 'password'; password.write_text('bootstrap-only')
-            with patch.dict(rt.SECRET_PATHS, portainerPassword=password), patch.object(rt, 'STATE', Path(folder)), \
+            with patch.dict(rt.SECRET_PATHS, arcanePassword=password), patch.object(rt, 'STATE', Path(folder)), \
                  patch('diagnostics.management_address', return_value='192.0.2.20'), \
                  patch('diagnostics.request', return_value=(422, b'{}')):
-                self.assertIs(portainer.authentication_ready(initial()), False)
+                self.assertIs(arcane.authentication_ready(initial()), False)
 
-    def test_recovery_restarts_portainer_after_helper_failure(self):
-        cfg = initial(); cfg['ready'] = True; cfg['apps']['enable'] = True
-        def command(*args, **kwargs):
-            if args[:2] == ('docker', 'run'): raise ValueError('helper failed')
-            return ''
-        with patch('portainer.guest', side_effect=command) as guest:
-            with self.assertRaisesRegex(ValueError, 'Portainer restarted'):
-                portainer.reset(cfg)
-        self.assertIn(('systemctl', 'start', 'docker-portainer.service'), [c.args for c in guest.call_args_list])
+    def test_arcane_recovery_refuses_nonterminal_before_guest_mutation(self):
+        cfg = initial(); cfg['apps']['enable'] = True
+        with patch.object(arcane.sys.stdin, 'isatty', return_value=False), patch.object(arcane.subprocess, 'run') as run:
+            with self.assertRaises(ValueError): arcane.reset(cfg)
+            run.assert_not_called()
 
-    def test_recovery_backs_up_then_resets_restarts_and_verifies(self):
-        cfg = initial(); cfg['ready'] = True; cfg['apps']['enable'] = True
-        output = 'Password successfully updated for user: admin\nUse the following password to login: new-random-password\n'
-        events = []
-        def command(*args, **kwargs):
-            events.append(args)
-            return output if args[:2] == ('docker', 'run') else ''
-        with tempfile.TemporaryDirectory() as folder:
-            with patch.object(rt, 'STATE', Path(folder)), patch.dict(rt.SECRET_PATHS, portainerPassword=Path(folder) / 'secret'), \
-                 patch('portainer.guest', side_effect=command), patch('portainer.incus'), \
-                 patch('diagnostics.wait_ready') as healthy, patch('diagnostics.management_address', return_value='192.0.2.20'), \
-                 patch('portainer.authentication_ready', return_value=True):
-                result = portainer.reset(cfg)
-                self.assertEqual(rt.SECRET_PATHS['portainerPassword'].read_text().strip(), 'new-random-password')
-                self.assertEqual((Path(folder) / 'secret').stat().st_mode & 0o777, 0o600)
-        self.assertLess(next(i for i, e in enumerate(events) if e[0] == 'tar'), next(i for i, e in enumerate(events) if e[:2] == ('docker', 'run')))
-        self.assertEqual(events[-1], ('systemctl', 'start', 'docker-portainer.service'))
-        healthy.assert_called_once()
-        self.assertEqual(set(result), {'url', 'backup'})
+    def test_arcane_recovery_uses_upstream_command_without_reset_container_or_service_stop(self):
+        cfg = initial(); cfg['apps']['enable'] = True
+        with patch.object(arcane.sys.stdin, 'isatty', return_value=True), patch.object(arcane.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as run, patch('diagnostics.management_address', return_value='192.0.2.20'):
+            result = arcane.reset(cfg)
+        self.assertEqual(set(result), {'url'})
+        args = run.call_args.args[0]
+        self.assertIn('/app/arcane', args); self.assertIn('admin', args)
+        self.assertNotIn('stop', args); self.assertNotIn('helper-reset-password', ' '.join(args))
 
     def test_rollback_restarts_only_loaded_units(self):
         results = [subprocess.CompletedProcess([], 0, 'not-found\n'), subprocess.CompletedProcess([], 0, 'loaded\n')]

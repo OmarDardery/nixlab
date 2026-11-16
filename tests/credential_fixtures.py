@@ -10,7 +10,7 @@ from urllib.parse import quote, quote_plus
 SECRETS = {
     'setup': 'sentinel-setup-password-01+/=',
     'operator': 'sentinel-linux-password-02+/=',
-    'portainer': 'sentinel-portainer-password-03+/=',
+    'arcane': 'sentinel-arcane-password-03+/=',
     'p12': 'sentinel-p12-passphrase-04+/=',
     'cookie': 'sentinel-session-cookie-05+/=',
     'staged': 'sentinel-staged-secret-06+/=',

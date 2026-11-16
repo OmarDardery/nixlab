@@ -65,7 +65,7 @@ class VerificationTests(unittest.TestCase):
         self.check()
         previous = self.status()['lastSuccess']
         errors = [OSError(SECRETS['staged']),
-                  subprocess.TimeoutExpired(SECRETS['private-key'], 1, output=SECRETS['portainer'])]
+                  subprocess.TimeoutExpired(SECRETS['private-key'], 1, output=SECRETS['arcane'])]
         for error in errors:
             with self.subTest(kind=type(error)), contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(self.check('full', error=error)[0], 1)

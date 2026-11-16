@@ -12,7 +12,7 @@ changing them. Planned changes are not claims that a feature already exists.
 | Host network and management exposure | `modules/networking.nix` and individual service modules; firewall, binding and application checks are currently separate | `tests/management-vm.nix`, `tests/test_management.py` |
 | Management identity and TLS | `admin/runtime.py` and the management identity service in `modules/admin-ui.nix` | `tests/management-vm.nix`, `tests/test_installer_workflow.py` |
 | Reserved Incus infrastructure and explicitly managed instances | `scripts/infrastructure.py`, `scripts/reconcile.py`; native objects remain Incus-owned | `tests/test_platform.py`, `tests/test_impact.py` |
-| Docker applications | Portainer or the operator's declared Compose source in the apps VM | `tests/apps-integration.nix`, `tests/guest-deployments-kvm.nix` |
+| Docker applications | Arcane or the operator's declared Compose source in the apps VM | `tests/apps-integration.nix`, `tests/guest-deployments-kvm.nix` |
 | Independent backup and restore evidence | `scripts/backup.py`, `admin/operations.py`, `admin/recovery.py` | `tests/test_backup_plan.py`, `tests/test_platform.py` |
 | Dependencies and qualification | `flake.lock` pins Nix inputs; `scripts/release.py` validates release evidence | `tests/test_release.py`, `.github/workflows/release.yml` |
 
@@ -30,9 +30,9 @@ not replace the evaluated NixOS/Incus and rollback integration tests.
 | Host mutation | `admin/controller.py` `Manager` + `admin/worker.py` | Review, build, impact plan, apply, confirm, rollback, cancel; `active.json`, `pending.json`, `last-confirmed.json`, `jobs/` | #50/#52; preserved previous generation, live access check, interrupt and stopped-worker tests |
 | Entry points and HTTPS API | `installer/package.nix`, `admin/package.nix`, `admin/main.py` | `nix run .#install`, `nix run .#update`, `nixlab-admin` and authenticated `/api/*` paths/response fields | #50/#55/#62; public alias/route/shape regression before renaming; sensitive output is **not** protected compatibility |
 | Listener/exposure policy | `modules/settings.nix`, `modules/networking.nix`, `modules/admin-ui.nix`, service-owned listeners | Management HTTPS, Cockpit, Incus, optional app proxy and explicit trusted CIDRs | #51; collision/bind/scope tests, management access/rollback. Present fragmented policy is a gap |
-| Identity and certificate lifecycle | `modules/admin-ui.nix` management identity; `admin/runtime.py` certificate and password primitives; Linux PAM for Cockpit, Incus trust for UI, Portainer DB for apps | Existing portal session and separate Cockpit/Incus/Portainer identity; `nixlab-management-identity.service` | #57/#61–#68; never freeze credential printing, blanket trust or weak onboarding |
+| Identity and certificate lifecycle | `modules/admin-ui.nix` management identity; `admin/runtime.py` certificate and password primitives; Linux PAM for Cockpit, Incus trust for UI, Arcane DB for apps | Existing portal session and separate Cockpit/Incus/Arcane identity; `nixlab-management-identity.service` | #57/#61–#68; never freeze credential printing, blanket trust or weak onboarding |
 | Incus declared infrastructure | Native Incus preseed + `scripts/infrastructure.py`; reconciled instance fields via `scripts/reconcile.py` | Reserved project/profile/network/pool, last-applied state, ETag/ownership; **native** guests survive source changes | #47/#9; drift and changed-precondition refusal, no deletion of unowned guest state |
-| Apps VM and Compose | Incus owns apps VM/disk; Docker/Portainer or user's Compose repository owns containers/stacks and Portainer DB | Persistent guest disks, volumes and specialist UI | #10/#16/#58; updates cannot claim data rollback or overwrite existing specialist identity |
+| Apps VM and Compose | Incus owns apps VM/disk; Docker/Arcane or user's Compose repository owns containers/stacks and Arcane DB | Persistent guest disks, volumes and specialist UI | #10/#16/#58; updates cannot claim data rollback or overwrite existing specialist identity |
 | Backup and restore evidence | `scripts/backup.py`, `admin/operations.py`, `admin/recovery.py` and restic | Staged manifest, independent archive, integrity result and **actual restore proof** are distinct | #11/#12/#53; incomplete stage, exclusions and interruption never count as verified restore |
 | Monitoring and alerts | `modules/monitoring.nix`, `modules/notifications.nix` | Prometheus/optional historical metrics, failure notification | #53; Alertmanager is the planned normal router, **not currently assumed implemented** |
 | Nix/OCI dependencies | Single `flake.lock`; OCI image/template references currently live in their owning services | `nixosModules`, `nixosConfigurations`, `packages`, `apps`, `checks` | #54/#58; one lock and planned reviewed OCI manifest, no second dependency authority |
@@ -95,7 +95,7 @@ Incus backend through a local CLI, with no portal script execution.
 The [installer/portal architecture](setup.md) adds a preserved-installation bootstrap, typed JSON
 Nix input, separate unprivileged HTTPS process/local root broker, reviewed rebuild transactions,
 UUID-backed mounts, modular radios and a persistent rollback guard. In installer mode the
-existing apps VM is also deployed through Incus, and a TLS-verified Portainer proxy provides
+existing apps VM is also deployed through Incus, and a TLS-verified Arcane proxy provides
 a LAN portal without guest SSH setup. Manual mode retains the original direct/SSH workflow.
  The lock file pins Nixpkgs to
 `718f670e845328e9c2cecdd832835712b2cbd065` on `nixos-26.05`.
@@ -158,20 +158,20 @@ Sources: [packaged UI](https://github.com/zabbly/incus-ui-canonical),
 
 | Candidate | Strengths | Limits | Decision |
 |---|---|---|---|
-| Portainer CE | Compose stacks, Git source, UI editor, logs/console, per-container stats, local authentication | Database is mutable; some access/automation features are Business Edition; external CLI stacks have limited editing | Primary UI, verified 2.45.3 LTS release 2026-10-21 |
-| Dockge | Simple on-disk Compose projects and responsive editor/logs | Latest release 1.5.0 dated 2025-03-30; narrower Git/permissions/monitoring surface, console disabled by default for security | Good smaller alternative; not installed alongside Portainer |
+| Arcane | Compose stacks, Git source, UI editor, logs/console, per-container stats, local authentication | Persistent database and encryption key require protected backups; Nix-owned projects remain owned by Git/Nix | Primary UI, immutable Arcane v3.0.1 manager image |
+| Dockge | Simple on-disk Compose projects and responsive editor/logs | Latest release 1.5.0 dated 2025-03-30; narrower Git/permissions/monitoring surface, console disabled by default for security | Good smaller alternative; not installed alongside Arcane |
 | Komodo | Active repository (pushed 2026-10-23), Git-backed deployments, procedures, resource management | Core + periphery + database add components and privileged credentials | Consider when multi-host build/deploy workflows justify it |
 
 One Compose project groups the web app, PostgreSQL and Redis. Named volumes survive
 `down`; helpers never pass `--volumes`. UI-created stacks support editing and deployment.
-The included `demo` is owned by Nix/CLI; it appears as an external stack in Portainer and
+The included `demo` is owned by Nix/CLI; it appears as an external stack in Arcane and
 must be edited in Git. Do not let two reconcilers manage the same stack. For a UI-owned
-stack use Portainer's Git stack workflow with a different project name, then back up its
-Portainer state and application data. Portainer backups alone exclude application volumes.
+stack use Arcane's Git stack workflow with a different project name, then back up its
+Arcane state and application data. Arcane backups alone exclude application volumes.
 
-Sources: [Portainer release](https://github.com/portainer/portainer/releases/tag/2.45.3),
-[Git/Compose stack creation](https://docs.portainer.io/user/docker/stacks/add),
-[Portainer backup scope](https://docs.portainer.io/faqs/getting-started/what-does-portainers-backup-include),
+Sources: [Arcane release](https://github.com/getarcaneapp/arcane/releases/tag/v3.0.1),
+[Git/Compose stack creation](https://getarcane.app/docs/docker/projects),
+[Arcane backup scope](https://getarcane.app/docs/get-started/installation),
 [Dockge](https://github.com/louislam/dockge), [Dockge releases](https://github.com/louislam/dockge/releases),
 [Komodo](https://github.com/moghtech/komodo).
 
@@ -184,7 +184,7 @@ Sources: [Portainer release](https://github.com/portainer/portainer/releases/tag
   not the reliability/isolation default.
 - The dedicated VM has a memory/disk overhead and requires its own OS rebuilds. It gives
   Docker a separate kernel and firewall. This is the default. VM management is through
-  Incus; Docker management is through Portainer/Compose inside that VM.
+  Incus; Docker management is through Arcane/Compose inside that VM.
 
 [Incus firewall/Docker guidance](https://linuxcontainers.org/incus/docs/main/howto/network_bridge_firewalld/)
 and [Docker firewall behavior](https://docs.docker.com/engine/network/packet-filtering-firewalls/)
@@ -201,7 +201,7 @@ explicitly describe the FORWARD-policy conflict. Neither firewall nor Docker's r
 | Config/device overlays | Three-way last-applied tracking removes previously managed keys when runtime has not diverged; unowned keys survive. Whole-device removal/backing changes require migration |
 | Profiles on owned instances | Authoritative ordered list; changes may affect live guests |
 | Guest processes, disks, snapshots, custom volumes, UI-created instances | Mutable Incus runtime state; exports/backup required |
-| Portainer users, endpoints, stacks, Git credentials | Mutable `/srv/portainer` state; bootstrap admin secret is used only on first creation |
+| Arcane users, endpoints, stacks, Git credentials | Mutable `/srv/arcane` state; bootstrap admin secret is used only on first creation |
 | Compose definitions | Demo file is immutable Nix source; additional CLI projects can be checked-out Git files under `/srv/compose` |
 | Cloudflare tunnel/account/DNS creation | External control-plane initialization; locally managed ingress is Nix-authoritative afterward |
 | Passwords, tunnel JSON, age private keys, restic credentials | Runtime secret files/sops-nix; never Nix string secrets |
@@ -220,7 +220,7 @@ single points of failure. No automatic disk formatting, disk replacement, router
 certificate enrollment or cloud-account creation is hidden in a rebuild. Directory-backed
 container storage cannot promise hard per-container quotas; use ZFS for that requirement.
 Offline scheduled backups impose downtime and need staging space. Registry-provided
-PostgreSQL, Redis and Portainer require reviewed digest pinning for byte-level reproducibility.
+PostgreSQL, Redis and Arcane require reviewed digest pinning for byte-level reproducibility.
 Default guest IPv6 is disabled until a real routed prefix/firewall plan exists.
 
 Generic USB/serial prerequisites and stable aliases are provided; assignment stays in Incus.
@@ -232,7 +232,7 @@ configuration deployment. Update an existing NixOS VM through `nixos-rebuild` ov
 
 The default deployment is an Incus host without an idle Docker VM or Prometheus history database.
 Both are opt-in through declared settings. The setup portal serves its own static assets using
-its existing authenticated Python HTTP service. Only the optional Portainer portal needs Nginx,
+its existing authenticated Python HTTP service. Only the optional Arcane portal needs Nginx,
 limited to one worker and providing verified TLS/WebSocket proxying. See [setup](setup.md#lightweight-defaults-and-declarative-ownership)
 for service ownership, monitoring trade-offs and state that must be backed up separately.
 

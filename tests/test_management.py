@@ -42,10 +42,10 @@ class ManagementTests(unittest.TestCase):
 
     def test_listener_collisions_and_custom_private_ports(self):
         cfg = settings(); cfg['cockpit']['enable'] = True; cfg['apps']['enable'] = True
-        cfg['apps']['portainerPort'] = 9443
+        cfg['apps']['arcanePort'] = 9443
         model.validate_settings(copy.deepcopy(cfg), cfg, HOST, require_devices=False)
         for port in (9440, 8443, 9090, 9100, True, 65536):
-            candidate = copy.deepcopy(cfg); candidate['apps']['portainerPort'] = port
+            candidate = copy.deepcopy(cfg); candidate['apps']['arcanePort'] = port
             with self.assertRaises(ValueError): model.validate_settings(candidate, cfg, HOST, require_devices=False)
 
     def test_custom_management_ports_are_not_public_tunnel_origins(self):

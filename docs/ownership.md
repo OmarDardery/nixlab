@@ -8,7 +8,7 @@ Nixlab is the NixOS host foundation for Incus, not a second virtualization UI.
 | Ordinary guests, lifecycle, consoles, limits, device attachment, snapshots | Incus UI/API/CLI |
 | Additional managed guest networks, DHCP, reservations, forwards, ACLs, pools/volumes | Incus |
 | Community Scripts application installation/updates | Upstream Incus wizard/application tooling |
-| Optional Docker stacks and their consoles/logs | Portainer or existing declared Compose source |
+| Optional Docker stacks and their consoles/logs | Arcane or existing declared Compose source |
 | Independent backup scheduling, coverage and whole-host recovery | Nixlab |
 
 ## Control and data boundaries for maintainers
@@ -20,9 +20,9 @@ read-only status from several systems:
 |---|---|---|
 | What host configuration should exist? | Typed Nix settings and locally approved Nix modules, evaluated by Nix | Validate input, review impact and use the existing Manager/worker transaction and rollback guard |
 | Which host endpoints are exposed? | NixOS service listeners and firewall policy | Show evaluated exposure and guard access; one consolidated policy is tracked by #51 |
-| Who may administer the host or specialist UI? | Linux/PAM for Cockpit, NixLab portal accounts, Incus trust, Portainer identity (independent) | Set up/recover each by its documented owner; **no implicit SSO** or plaintext password recovery |
+| Who may administer the host or specialist UI? | Linux/PAM for Cockpit, NixLab portal accounts, Incus trust, Arcane identity (independent) | Set up/recover each by its documented owner; **no implicit SSO** or plaintext password recovery |
 | What guests and devices exist? | Incus; source owns only explicitly declared resources | Read/preview native changes; reconcile source-owned fields using last-applied/ETags and refuse drift; never delete an undeclared guest |
-| What containers and Compose stacks exist? | Portainer/Docker or the operator's source checkout, within the apps VM | Link to Portainer and provide reviewed handoff templates, not a competing stack editor |
+| What containers and Compose stacks exist? | Arcane/Docker or the operator's source checkout, within the apps VM | Link to Arcane and provide reviewed handoff templates, not a competing stack editor |
 | Is an application or host recoverable? | Backup staging, restic repository and recorded isolated restore results | Present independently sourced evidence, exclusions and freshness rather than claiming a green backup means a working restore |
 | Which upstream versions and release checks are required? | `flake.lock`, reviewed OCI inputs (planned #58), CI/release checks (planned #56) | Use a single published evidence contract; absence of physical proof cannot be auto-qualified |
 
@@ -40,7 +40,7 @@ owners and migration conditions.
 
 A host generation rollback restores supported NixOS configuration and the
 recorded source/settings; it is **not** a rollback of arbitrary Incus guest
-filesystems, databases, Docker volumes or Portainer state. Native Incus changes
+filesystems, databases, Docker volumes or Arcane state. Native Incus changes
 must remain native unless a specific field was explicitly declared and reviewed.
 An inaccessible or partial inventory is **unknown**, not proof that no guests,
 volumes or conflicts exist. Reboots, worker loss and network changes must leave

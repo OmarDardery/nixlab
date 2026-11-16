@@ -31,7 +31,7 @@ CHECKS = {
     'kvm': 'Usable KVM API',
     'container': 'Running unprivileged Incus container',
     'apps-vm': 'Real applications VM with agent and Docker',
-    'apps-auth': 'Authenticated Portainer access',
+    'apps-auth': 'Authenticated Arcane access',
     'install-resume': 'Installation or upgrade and interrupted retry',
     'management-auth': 'Authenticated remote SSH, Cockpit and Incus access',
     'reboots': 'Healthy management across two deliberate reboots',
@@ -198,9 +198,9 @@ def collect(report, ctx, settings):
                         'systemctl', 'is-active', 'docker.service']) == 'active'
 
     def apps_auth():
-        import portainer
+        import arcane
         # Use existing credentials only; never reset/enroll anything during collection.
-        return portainer.authentication_ready(settings)
+        return arcane.authentication_ready(settings)
 
     probes = {'management': management, 'kvm': kvm, 'container': container,
               'apps-vm': apps_vm, 'apps-auth': apps_auth}

@@ -7,7 +7,7 @@ mode, disks and results below.
 1. Run the canonical install command; interrupt and rerun it once. Verify existing
    users, disk data and guests are preserved. Reboot twice without restarting any
    service manually. Check `sudo nixlab doctor`, SSH password login, Cockpit login
-   and terminal, Incus UI and Portainer sign-in using the printed credentials.
+   and terminal, Incus UI and Arcane sign-in using the printed credentials.
 2. Enroll an Incus browser certificate. Create and reboot a Linux container and VM;
    verify their data survives and native Incus edits survive a host rebuild.
 3. Create a LAN bridge or private network as appropriate. Run `sudo nixlab-helpers
