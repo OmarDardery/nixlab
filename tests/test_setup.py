@@ -616,7 +616,7 @@ class HttpsTests(unittest.TestCase):
         with socket.socket() as sock:sock.bind(('127.0.0.1',0));cls.port=sock.getsockname()[1]
         cls.origin=f'https://localhost:{cls.port}'
         env=os.environ|{'NIXLAB_ROOT':str(cls.root),'NIXLAB_STATE':str(cls.state),'NIXLAB_SOCKET':str(cls.folder/'broker.sock'),
-                        'NIXLAB_PORT':str(cls.port),'PYTHONPATH':str(BASE/'scripts')}
+                        'NIXLAB_PORT':str(cls.port),'NIXLAB_TEST':'1','PYTHONPATH':str(BASE/'scripts')}
         cls.addClassCleanup(cls.temp.cleanup)
         # This workspace denies filesystem UNIX socket connections. Test the exact
         # broker/HTTPS handlers through a loopback-only transport adapter; production
@@ -641,6 +641,12 @@ def review(self, changes, secret_values=None, update_inputs=False, modules=None,
  runtime.write_json(directory/'job.json', {'settings':changes,'modules':modules,'revision':revision,'principal':principal})
  return {'id':'d'*32}
 controller.Manager.review=review
+import host_proof, hashlib
+HOST_PROOF_HASH='9d18b304b9c3f86edae7aef9f88a395b88cc8c5a9c10f931d22fdaa261701fcf'
+def verify_host(username,password):
+ if username!='fixture-admin' or not isinstance(password,str) or hashlib.sha256(password.encode()).hexdigest()!=HOST_PROOF_HASH: raise ValueError('denied')
+ return username
+host_proof.verify=verify_host
 controller.Manager.browser_certificate=certificate
 controller.Manager.revoke_browser_certificate=lambda *a: {'ok':True}
 controller.Manager.browser_certificates=lambda self: {'certificates':[]}
@@ -677,12 +683,13 @@ main.web()""")
     def tearDownClass(cls):
         pass
     @classmethod
-    def request(cls,path,body=None,origin=None,auth=True,csrf=True,host=None):
+    def request(cls,path,body=None,origin=None,auth=True,csrf=True,host=None,extra=None):
         headers={}
         if auth and hasattr(cls,'cookie'):headers['Cookie']=cls.cookie
         if csrf and hasattr(cls,'csrf'):headers['X-Nixlab-CSRF']=cls.csrf
         if origin:headers['Origin']=origin
         if host:headers['Host']=host
+        if extra:headers.update(extra)
         data=None
         if body is not None:data=json.dumps(body).encode();headers['Content-Type']='application/json'
         request=urllib.request.Request(cls.origin+path,data=data,headers=headers)
@@ -692,6 +699,60 @@ main.web()""")
         raw=response.read();ctype=response.headers.get('Content-Type','')
         result=json.loads(raw) if 'application/json' in ctype else raw
         return result,response.headers,response.status
+    def test_bootstrap_https_binding_claim_session_and_replay(self):
+        import enrollment
+        import browser_bootstrap as bootstrap
+        names = ('auth.json', 'users.json', enrollment.STATE_FILE, bootstrap.FILE, 'web-enrollment', 'web-enrollment-approval.json')
+        saved = {name: ((self.state/name).read_bytes(), (self.state/name).stat().st_mode & 0o777)
+                 for name in names if (self.state/name).exists()}
+        try:
+            for name in names: (self.state/name).unlink(missing_ok=True)
+            with patch.object(rt, 'STATE', self.state): accounts = __import__('accounts'); accounts.enable_enrollment()
+            first, headers, code = self.request('/api/bootstrap', auth=False, csrf=False)
+            self.assertEqual(code, 200)
+            self.assertNotIn('token', first)
+            cookie = headers['Set-Cookie'].split(';')[0]
+            for flag in ('__Host-nixlab_bootstrap=', 'HttpOnly', 'Secure', 'SameSite=Strict', 'Path=/'):
+                self.assertIn(flag, headers['Set-Cookie'])
+            second, headers, code = self.request('/api/bootstrap', auth=False, csrf=False)
+            other_cookie = headers['Set-Cookie'].split(';')[0]
+            good = {'Cookie': cookie, 'X-Nixlab-CSRF': first['csrf']}
+            host = {'hostUsername': 'fixture-admin', 'hostPassword': 'http-host-admin-test-password'}
+            for extra, origin in (({}, self.origin), ({'Cookie': cookie}, self.origin),
+                    ({'Cookie': other_cookie, 'X-Nixlab-CSRF': first['csrf']}, self.origin),
+                    (good, 'https://attacker.invalid')):
+                _, _, code = self.request('/api/bootstrap/verify', host, origin=origin, auth=False, csrf=False, extra=extra)
+                self.assertIn(code, (400, 401))
+            _, _, code = self.request('/api/bootstrap/verify', host | {'hostPassword': 'wrong'}, origin=self.origin, auth=False, csrf=False, extra=good)
+            self.assertEqual(code, 400)
+            _, _, code = self.request('/api/bootstrap/verify', host, origin=self.origin, auth=False, csrf=False, extra=good)
+            self.assertEqual(code, 200)
+            claim = {'username': 'firstowner', 'password': 'https-new-first-admin-password'}
+            _, _, code = self.request('/api/enrollment', claim | {'code': first['approvalCode']}, origin=self.origin, auth=False, csrf=False)
+            self.assertEqual(code, 401)  # copied code cannot bypass the browser cookie
+            _, _, code = self.request('/api/bootstrap/claim', claim, origin=self.origin, auth=False, csrf=False,
+                extra={'Cookie': other_cookie, 'X-Nixlab-CSRF': second['csrf']})
+            self.assertEqual(code, 400)
+            result, headers, code = self.request('/api/bootstrap/claim', claim, origin=self.origin, auth=False, csrf=False, extra=good)
+            self.assertEqual(code, 200)
+            self.assertEqual(result['username'], 'firstowner'); self.assertEqual(result['role'], 'admin')
+            cookies = headers.get_all('Set-Cookie')
+            self.assertTrue(any('__Host-nixlab_bootstrap=' in item and 'Max-Age=0' in item for item in cookies))
+            ordinary = next(item.split(';')[0] for item in cookies if item.startswith('nixlab_session='))
+            _, _, code = self.request('/api/session', auth=False, csrf=False, extra={'Cookie': ordinary})
+            self.assertEqual(code, 200)
+            for endpoint in ('/api/bootstrap/claim', '/api/enrollment'):
+                _, _, code = self.request(endpoint, claim, origin=self.origin, auth=False, csrf=False, extra=good)
+                self.assertEqual(code, 400)
+            _, _, code = self.request('/api/bootstrap', auth=False, csrf=False, extra={'Cookie': cookie})
+            self.assertEqual(code, 400)
+            stored = ''.join((self.state/name).read_text() for name in ('users.json', bootstrap.FILE, enrollment.STATE_FILE))
+            self.assertTrue(all(value not in stored for value in (host['hostPassword'], claim['password'], cookie.split('=',1)[1], first['csrf'], first['approvalCode'])),
+                            'Durable enrollment state disclosed credentials or browser material')
+        finally:
+            for name in names: (self.state/name).unlink(missing_ok=True)
+            for name, (data, mode) in saved.items(): rt.atomic(self.state/name, data, mode=mode)
+
     def test_enrollment_rejects_cross_origin_and_an_existing_administrator(self):
         state, _, status = self.request('/api/enrollment', auth=False)
         self.assertEqual((status, state), (200, {'available': False, 'recoveryRequired': False}))
@@ -699,7 +760,7 @@ main.web()""")
         _, _, status = self.request('/api/enrollment', payload, origin='https://attacker.invalid', auth=False)
         self.assertEqual(status, 401)
         state, _, status = self.request('/api/enrollment', payload, origin=self.origin, auth=False)
-        self.assertEqual(status, 400)
+        self.assertEqual(status, 401)
         self.assertEqual(state['error'], 'Request rejected; check inputs and authentication, then retry')
 
     def test_private_status_requires_authentication(self):

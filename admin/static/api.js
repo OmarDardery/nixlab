@@ -1,19 +1,19 @@
 'use strict';
 
-async function api(path, body) {
+async function api(path, body, csrf = state.csrf) {
   const options = { credentials: "same-origin", headers: {} };
   if (body !== undefined) {
     options.method = "POST";
     options.headers = {
       "Content-Type": "application/json",
-      "X-Nixlab-CSRF": state.csrf,
+      "X-Nixlab-CSRF": csrf,
     };
     options.body = JSON.stringify(body);
   }
   const r = await fetch("/api/" + path, options);
   const result = await r.json();
   if (!r.ok) {
-    if (r.status === 401 && path !== "login")
+    if (r.status === 401 && !["login", "enrollment", "bootstrap", "bootstrap/verify", "bootstrap/claim"].includes(path))
       login("Sign in again to continue.");
     throw Error(result.error || "Request failed");
   }

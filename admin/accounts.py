@@ -42,7 +42,7 @@ def fingerprint(item):
 
 def list_users():
     users = rt.read_json(rt.STATE / 'users.json', {})
-    return [{'username': 'admin', 'role': 'admin'}] + [{'username': name, 'role': item['role']} for name, item in sorted(users.items())]
+    return ([{'username': 'admin', 'role': 'admin'}] if record('admin') else []) + [{'username': name, 'role': item['role']} for name, item in sorted(users.items())]
 
 
 def update(username, role=None, password=None, delete=False):

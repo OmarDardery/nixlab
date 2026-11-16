@@ -72,6 +72,8 @@ jobs:
           test "$(nix eval --json .#nixosConfigurations.validation-minimal.config.nixlab.backupVerification.enable)" = "false"
           nix eval --json .#nixosConfigurations.validation-services.config.systemd.timers.nixlab-backup-check.timerConfig > /tmp/nixlab-verification-timer.json
           python3 -c 'import json; timer=json.load(open("/tmp/nixlab-verification-timer.json")); assert timer["Persistent"] and timer["OnCalendar"] == "Sun *-*-* 05:00:00"'
+      - name: Boot portal and verify real NixOS permissions
+        run: nix build .#checks.x86_64-linux.portal --no-link -L
       - name: Activate bootstrap and verify rollback after reboot
         run: nix build .#checks.x86_64-linux.bootstrap-transaction --no-link -L
       - name: Boot real Incus containers and verify host integration and restore
@@ -112,8 +114,6 @@ jobs:
                (fixture "evaluation-1").drvPath'
       - name: Verify production firewall and DHCP management across reboot
         run: nix build .#checks.x86_64-linux.startup --no-link -L
-      - name: Boot portal and verify real NixOS permissions
-        run: nix build .#checks.x86_64-linux.portal --no-link -L
       - name: Verify management services and Docker forwarding boundary
         run: |
           nix eval .#nixosConfigurations.validation-management.config.system.build.toplevel.drvPath

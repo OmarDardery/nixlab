@@ -362,3 +362,6 @@ same page to set the first portal password, then sign in as `admin`.
 Approval expires in ten minutes or on host reboot. Refreshing the page creates
 a new code. Existing portal or legacy bootstrap credentials keep their
 normal login and recovery flow.
+
+
+With the explicit `--wizard --web-enrollment` option, use **Verify this machine** in the HTTPS portal. An existing local Linux sudo administrator can verify via PAM, or an SSH-key-only administrator can approve the browser code through `sudo nixlab-admin approve-enrollment` at a private terminal. Approval is browser-bound and expires after ten minutes or reboot. Then choose your independent NixLab username/password; successful creation signs that browser in normally. Existing installations keep their current accounts and never reopen anonymous first claiming. See [administrator enrollment](administration.md#verify-this-machine-before-first-admin-creation) for policy, rate limits and recovery details.

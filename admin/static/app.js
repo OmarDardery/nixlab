@@ -472,25 +472,50 @@ function login(message = "") {
   }).catch(() => {});
 }
 
-function showEnrollment() {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  const code = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
-  app.innerHTML = `<main id="main" class="login"><section class="login-card">${brandLogo()}<h1>Create the portal administrator</h1><p>Verify the management CA, then run <code>sudo nixlab-admin approve-enrollment</code> on the host and paste this code into its prompt.</p><label class="field"><span>Browser approval code</span><input value="${code}" readonly autocomplete="off"></label><form id="enrollment-form"><label class="field"><span>New admin password</span><input name="password" type="password" autocomplete="new-password" minlength="16" maxlength="256" required></label><p id="enrollment-error" class="error" aria-live="polite"></p><button class="primary">Create administrator</button></form><p><a href="/ca.crt">Download the management CA</a></p></section></main>`;
+async function showEnrollment() {
+  let bootstrap;
+  try { bootstrap = await api("bootstrap"); }
+  catch { return login("Enrollment is unavailable. Refresh or use authorized console recovery."); }
+  app.innerHTML = `<main id="main" class="login"><section class="login-card">${brandLogo()}<h1>Verify this machine</h1><p>Verify the management CA before entering credentials. Authenticate an existing local Linux administrator whose sudo policy permits a root shell. This does not link Linux and portal passwords.</p><form id="host-proof-form"><label class="field"><span>Linux administrator account</span><input name="hostUsername" autocomplete="username" required maxlength="32"></label><label class="field"><span>Linux administrator password</span><input name="hostPassword" type="password" autocomplete="current-password" required maxlength="1024"></label><button class="primary">Verify host administrator</button></form><details><summary>Use SSH keys or local console approval instead</summary><p>On the host run <code>sudo nixlab-admin approve-enrollment</code> and enter this browser's code at the private prompt. The command prints no password or bearer token.</p><label class="field"><span>Browser approval code</span><input id="bootstrap-code" readonly autocomplete="off"></label></details><p id="bootstrap-status" role="status"></p><form id="enrollment-form"><label class="field"><span>New NixLab administrator username</span><input name="username" autocomplete="username" pattern="[a-z][a-z0-9_-]{0,31}" maxlength="32" required></label><label class="field"><span>New NixLab password</span><input name="password" type="password" autocomplete="new-password" minlength="16" maxlength="256" required></label><p id="enrollment-error" class="error" aria-live="polite"></p><button class="primary" disabled>Create administrator</button></form><p><a href="/ca.crt">Download the management CA</a></p></section></main>`;
   const form = document.querySelector("#enrollment-form");
-  form.onsubmit = async (event) => {
-    event.preventDefault();
-    const button = form.querySelector("button");
-    button.disabled = true;
-    try {
-      await api("enrollment", {code, password: new FormData(form).get("password")});
-      login("Administrator created. Sign in as admin.");
-    } catch (error) {
-      document.querySelector("#enrollment-error").textContent = error.message;
-      button.disabled = false;
-    }
+  const proof = document.querySelector("#host-proof-form");
+  let submitting = false;
+  const update = () => {
+    document.querySelector("#bootstrap-code").value = bootstrap.approvalCode;
+    document.querySelector("#bootstrap-status").textContent = bootstrap.approved
+      ? "This browser is approved. Choose your independent NixLab account."
+      : "Host approval required. Verification expires after ten minutes and cannot be transferred to another browser.";
+    form.querySelector("button").disabled = submitting || !bootstrap.approved;
   };
-
+  update();
+  proof.onsubmit = async event => {
+    event.preventDefault();
+    const button = proof.querySelector("button"); button.disabled = true;
+    const password = proof.elements.hostPassword;
+    try {
+      await api("bootstrap/verify", {hostUsername: proof.elements.hostUsername.value, hostPassword: password.value}, bootstrap.csrf);
+      bootstrap = await api("bootstrap");
+      if (form.isConnected) update();
+    } catch { if (form.isConnected) document.querySelector("#enrollment-error").textContent = "Host verification failed. Check the local sudo administrator password or use console approval; repeated attempts are limited."; }
+    finally { password.value = ""; button.disabled = false; }
+  };
+  form.onsubmit = async event => {
+    event.preventDefault(); submitting = true; const button = form.querySelector("button"); button.disabled = true;
+    try {
+      state.principal = await api("bootstrap/claim", {username: form.elements.username.value, password: form.elements.password.value}, bootstrap.csrf);
+      state.csrf = state.principal.csrf; form.elements.password.value = "";
+      await load();
+    } catch { submitting = false; if (form.isConnected) { document.querySelector("#enrollment-error").textContent = "Enrollment did not complete. Refresh to check account state; if it committed, sign in with your chosen account."; button.disabled = false; } }
+  };
+  const timer = setInterval(async () => {
+    if (!form.isConnected) return clearInterval(timer);
+    try {
+      const current = await api("bootstrap");
+      if (form.isConnected) { bootstrap = current; update(); }
+    } catch { if (form.isConnected) document.querySelector("#bootstrap-status").textContent = "Approval unavailable or enrollment completed. Refresh and sign in, or request fresh host approval."; }
+  }, 3000);
 }
+
 async function load() {
   state.status = await api("status");
   state.host = await api("inventory");
