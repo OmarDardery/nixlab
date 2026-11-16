@@ -34,3 +34,11 @@ class ArcaneRuntimeTests(unittest.TestCase):
         for value in ('onlylowercasepassword!', 'ONLYUPPERCASEPASSWORD1!', 'NoNumbersInPassword!', 'NoSymbolsInPassword1'):
             with self.assertRaises(ValueError): rt.encode_secrets({'arcanePassword':value},initial())
         self.assertIn('arcanePassword',rt.encode_secrets({'arcanePassword':'Strong-service-password1!'},initial()))
+
+    def test_missing_key_with_existing_database_requires_restore(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder)/'encryption-key'
+            (path.parent/'arcane.db').write_bytes(b'existing protected database')
+            with self.assertRaises(ValueError): key.ensure(path)
+            self.assertFalse(path.exists())
+            self.assertEqual(list(path.parent.glob('.arcane-key-*')), [])

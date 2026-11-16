@@ -18,6 +18,8 @@ def ensure(path):
         if path.stat().st_mode & 0o077:
             raise ValueError('Arcane encryption key permissions must be root-only')
         return
+    if any(path.parent.glob('arcane.db*')):
+        raise ValueError('Existing Arcane database requires its protected encryption key backup')
     fd, temporary = tempfile.mkstemp(prefix='.arcane-key-', dir=path.parent)
     try:
         with os.fdopen(fd, 'w') as stream:
