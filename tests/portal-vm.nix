@@ -17,13 +17,17 @@ in pkgs.testers.runNixOSTest {
   nodes.machine = { lib, pkgs, ... }: {
     imports = [ ../configuration-bootstrap.nix ../modules/cockpit.nix ../modules/security.nix ];
     virtualisation.memorySize = 2048;
+    # Disposable fixture only: let the untrusted node reach HTTP so this tests
+    # the application's source-CIDR denial rather than a packet drop.
+    networking.firewall.allowedTCPPorts = [ 9440 ];
     boot.kernelModules = lib.mkForce [ ];
     environment.systemPackages = [ (pkgs.python3.withPackages (ps: [ ps.websocket-client ])) pkgs.age ];
     environment.etc."nixlab-test-settings.json".text = builtins.toJSON settings;
     environment.etc."nixlab-test-client.py".source = ./portal-client.py;
     environment.etc."nixlab-test-cockpit.py".source = ./cockpit-client.py;
     users.users.operator.initialPassword = "vm-cockpit-password"; # disposable test VM only
-    users.users.outsider.isNormalUser = true;
+    users.users.outsider = { isNormalUser = true; initialPassword = "vm-nonadmin-password"; };
+    users.users.lockedadmin = { isNormalUser = true; extraGroups = [ "wheel" ]; hashedPassword = "!"; };
     systemd.services.nixlab-test-fixture = {
       wantedBy = [ "multi-user.target" ]; after = [ "systemd-tmpfiles-setup.service" ];
       before = [ "nixlab-management-identity.service" "nixlab-admin-backend.service" "nixlab-ui.service" ];
@@ -34,13 +38,17 @@ in pkgs.testers.runNixOSTest {
       script = ''PYTHONPATH=${../admin}:${../scripts} ${pkgs.python3}/bin/python3 ${./portal-fixture.py}'';
     };
   };
+  nodes.attacker = { pkgs, ... }: { environment.systemPackages = [ pkgs.python3 ]; virtualisation.memorySize = 384; };
   testScript = ''
     start_all()
     machine.wait_for_unit("nixlab-admin-backend.service")
     machine.wait_for_unit("nixlab-ui.service")
     machine.wait_for_open_port(9440)
+    attacker.succeed("python3 - <<'PY'\nimport ssl, urllib.request, urllib.error\ntry:\n urllib.request.urlopen('https://machine:9440/api/bootstrap',context=ssl._create_unverified_context(),timeout=10)\nexcept urllib.error.HTTPError as e:\n assert e.code == 401, 'Untrusted network was not rejected'\nelse: raise AssertionError('Untrusted network obtained bootstrap access')\nPY")
     assert machine.succeed("systemctl show nixlab-ui -p User --value").strip() == "nixlab-ui"
     assert machine.succeed("stat -c %a /run/nixlab-admin/backend.sock").strip() == "660"
+    pam = machine.succeed("cat /etc/pam.d/nixlab-enrollment")
+    assert "pam_unix.so" in pam and "pam_rootok.so" not in pam and "nullok" not in pam, "Unsafe host-proof PAM profile"
     machine.fail("runuser -u outsider -- python3 -c 'import socket; s=socket.socket(socket.AF_UNIX); s.connect(\"/run/nixlab-admin/backend.sock\")'")
     machine.fail("runuser -u nixlab-ui -- cat /var/lib/nixlab-admin/ca.key")
     machine.succeed("python3 /etc/nixlab-test-client.py")

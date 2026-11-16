@@ -77,7 +77,7 @@ def reply(handler, status, data, content_type='application/json', extra=None):
     handler.send_header('X-Content-Type-Options', 'nosniff')
     handler.send_header('Referrer-Policy', 'no-referrer')
     handler.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'")
-    for key, value in (extra or {}).items():
+    for key, value in (extra.items() if isinstance(extra, dict) else (extra or [])):
         handler.send_header(key, value)
     handler.end_headers()
     handler.wfile.write(body)
@@ -173,7 +173,18 @@ def backend():
                 if not isinstance(actor, str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,31}', actor):
                     raise rt.PublicError('Invalid audit identity')
                 rt.audit('broker-request', principal=actor, operation=self.path)
-                if self.path == '/enrollment':
+                if self.path in ('/bootstrap-start', '/bootstrap-verify', '/bootstrap-claim'):
+                    import browser_bootstrap as bootstrap
+                    shared = (body.get('token'), body.get('csrf'), body.get('address'), body.get('origin'))
+                    if self.path == '/bootstrap-start':
+                        result = bootstrap.start(body.get('token'), body.get('address'), body.get('origin'))
+                    elif self.path == '/bootstrap-verify':
+                        result = bootstrap.verify(*shared, body.get('hostUsername'), body.get('hostPassword'))
+                    else:
+                        result = bootstrap.claim(*shared, body.get('username'), body.get('password'))
+                elif self.path == '/enrollment':
+                    # Local root compatibility only. The HTTPS gateway never
+                    # forwards an unbound browser claim to this legacy route.
                     import accounts
                     result = accounts.claim_enrollment(body.get('code'), body.get('password'))
                 elif self.path == '/review':
@@ -387,6 +398,12 @@ def require_fresh_web_confirmation(session, job, address):
     return True
 
 
+def bootstrap_cookie(header):
+    values = [part.strip().split('=', 1)[1] for part in header.split(';')
+              if part.strip().startswith('__Host-nixlab_bootstrap=')]
+    return values[0] if len(values) == 1 else None
+
+
 def web():
     auth = Auth()
     class Frontend(BaseHTTPRequestHandler):
@@ -457,6 +474,13 @@ def web():
                     return reply(self, 200, broker_request('GET', '/ca')['certificate'].encode(), 'application/x-x509-ca-cert', {'Content-Disposition': 'attachment; filename=nixlab-ca.crt'})
                 if path == '/api/enrollment':
                     return reply(self, 200, broker_request('GET', '/enrollment'))
+                if path == '/api/bootstrap':
+                    host = self.access()
+                    result = broker_request('POST', '/bootstrap-start', {
+                        'token': bootstrap_cookie(self.headers.get('Cookie', '')),
+                        'address': self.client_address[0], 'origin': 'https://' + host})
+                    token = result.pop('token')
+                    return reply(self, 200, result, extra={'Set-Cookie': '__Host-nixlab_bootstrap=' + token + '; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=600'})
                 session = self.session()
                 if path.startswith('/docs/'):
                     import html
@@ -509,10 +533,29 @@ def web():
                 host = self.access()
                 if self.headers.get('Origin') != 'https://' + host:
                     raise PermissionError('Same-origin request required')
-                if self.path == '/api/enrollment':
+                if self.path in ('/api/enrollment', '/api/bootstrap/verify', '/api/bootstrap/claim'):
                     body = json_body(self)
-                    result = broker_request('POST', '/enrollment', body)
-                    return reply(self, 200, result)
+                    token = bootstrap_cookie(self.headers.get('Cookie', ''))
+                    csrf = self.headers.get('X-Nixlab-CSRF', '')
+                    if not token or not csrf:
+                        raise PermissionError('Bootstrap browser session and request token required')
+                    payload = {'token': token, 'csrf': csrf, 'address': self.client_address[0], 'origin': 'https://' + host}
+                    if self.path == '/api/bootstrap/verify':
+                        payload.update(hostUsername=body.get('hostUsername'), hostPassword=body.get('hostPassword'))
+                        return reply(self, 200, broker_request('POST', '/bootstrap-verify', payload))
+                    payload.update(username=body.get('username'), password=body.get('password'))
+                    result = broker_request('POST', '/bootstrap-claim', payload)
+                    username = body.get('username')
+                    # A successfully committed host-approved account must not be
+                    # stranded by pre-enrollment anonymous login failures. Normal
+                    # verifier matching still creates the ordinary session.
+                    with auth.lock:
+                        auth.failures.pop(self.client_address[0], None)
+                    ordinary, session_csrf = auth.login(body.get('password'), self.client_address[0], username)
+                    principal = auth.get('nixlab_session=' + ordinary)
+                    return reply(self, 200, {'csrf': session_csrf, 'username': username, 'role': principal['role']}, extra=[
+                        ('Set-Cookie', 'nixlab_session=' + ordinary + '; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=28800'),
+                        ('Set-Cookie', '__Host-nixlab_bootstrap=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0')])
                 if self.path == '/api/login':
                     body = json_body(self)
                     username = body.get('username', 'admin')
@@ -797,6 +840,21 @@ def reset_portainer(settings):
     print('Backup in applications VM: ' + result['backup'])
 
 
+def approve_browser_console():
+    import getpass
+    import warnings
+    if os.geteuid() != 0 or not sys.stdin.isatty():
+        raise SystemExit('Run sudo nixlab-admin approve-enrollment from a private host terminal')
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', getpass.GetPassWarning)
+            code = getpass.getpass('Code displayed in your browser: ')
+        access_accounts.approve_enrollment(code)
+    except (getpass.GetPassWarning, EOFError, ValueError, OSError):
+        raise SystemExit('Browser approval did not complete; check enrollment state from a private host terminal') from None
+    print('Browser approved for up to ten minutes. Return to that browser to create its independent portal account.')
+
+
 def reset_portal_password():
     """Supplied-password console recovery; never accept an echoing fallback."""
     import getpass
@@ -810,7 +868,7 @@ def reset_portal_password():
         access_accounts.recover_password(value)
     except (getpass.GetPassWarning, EOFError, ValueError, OSError):
         raise SystemExit('Password change did not complete; check host account state from a private terminal before retrying') from None
-    print('Password changed. Existing sessions will be rejected; sign in with the new password.')
+    print('Password changed for the recovery administrator. Its old sessions will be rejected; sign in as admin.')
 
 
 if __name__ == '__main__':
@@ -912,15 +970,9 @@ if __name__ == '__main__':
     elif action == 'renew':
         renew()
     elif action == 'approve-enrollment' and os.geteuid() == 0:
-        import accounts
-        import getpass
-        if len(sys.argv) != 2 or not sys.stdin.isatty():
-            sys.exit('Run sudo nixlab-admin approve-enrollment from a host terminal')
-        try:
-            accounts.approve_enrollment(getpass.getpass('Code displayed in your browser: '))
-        except (ValueError, OSError) as exc:
-            sys.exit('Command failed; check inputs and host status before retrying')
-        print('Browser approved for ten minutes. Return to the portal to create its password.')
+        if len(sys.argv) != 2:
+            sys.exit('Run sudo nixlab-admin approve-enrollment from a private host terminal')
+        approve_browser_console()
     elif action == 'reset-password' and os.geteuid() == 0:
         reset_portal_password()
     else:

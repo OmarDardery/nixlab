@@ -29,7 +29,7 @@ def main():
             'helpers': {'sources': json.loads((BASE / 'helpers/sources.json').read_text()),
                         'applications': list(json.loads((BASE / 'helpers/compatibility.json').read_text()).values())}}
     submitted = []; errors = []; authenticated = [False]; requests = []
-    certificate_records = []; certificate_pending = [False]
+    certificate_records = []; certificate_pending = [False]; bootstrap_approved = [False]
     class Quiet(SimpleHTTPRequestHandler):
         def log_message(self, *_): pass
     server = ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Quiet, directory=str(BASE / 'admin/static')))
@@ -61,6 +61,12 @@ def main():
                     if endpoint == 'revoke-browser-certificate':
                         certificate_records[0]['status'] = 'revoked'
                         route.fulfill(json={'ok': True}); return
+                    if endpoint == 'bootstrap/verify':
+                        bootstrap_approved[0] = True
+                        route.fulfill(json={'approved': True}); return
+                    if endpoint == 'bootstrap/claim':
+                        authenticated[0] = True
+                        route.fulfill(json={'csrf': 'example', 'username': body['username'], 'role': 'admin'}); return
                     if endpoint == 'login': authenticated[0] = True
                     if endpoint == 'review':
                         status['job'] = {'id': 'a'*32, 'status': 'building', 'settings': copy.deepcopy(body['settings']),
@@ -76,6 +82,7 @@ def main():
                 else:
                     response = {'session': {'csrf': 'example', 'username': 'admin', 'role': 'admin'},
                                 'status': status, 'inventory': host,
+                                'bootstrap': {'csrf': 'bootstrap-fixture-csrf', 'approvalCode': 'f' * 32, 'approved': bootstrap_approved[0], 'expiresIn': 600},
                                 'guest-network': {'available': True, 'checkedAt': int(time.time()), 'conflicts': [], 'guests': [
                                     {'name': 'web', 'project': 'lab', 'type': 'container', 'status': 'Running', 'observed': ['10.77.0.20'],
                                      'nics': [{'name': 'eth0', 'network': 'incusbr0', 'observed': ['10.77.0.20'], 'reserved': ['10.77.0.20']}]}]},
@@ -88,6 +95,29 @@ def main():
             page.goto('http://127.0.0.1:' + str(server.server_port))
             page.get_by_role('heading', name='Sign in to your host.', exact=True).wait_for()
             assert page.get_by_text('sudo nixlab-admin reset-password', exact=True).is_visible()
+            # The host credential is transient; a verified browser creates an
+            # independent named portal identity and receives an ordinary session.
+            page.evaluate('showEnrollment()')
+            page.get_by_role('heading', name='Verify this machine', exact=True).wait_for()
+            assert page.locator('#enrollment-form button').is_disabled()
+            page.locator('#host-proof-form [name="hostUsername"]').fill('operator')
+            page.locator('#host-proof-form [name="hostPassword"]').fill('browser-host-proof-password')
+            page.get_by_role('button', name='Verify host administrator', exact=True).click()
+            page.wait_for_function('document.querySelector("#host-proof-form [name=hostPassword]").value === ""')
+            assert page.locator('#enrollment-form button').is_enabled()
+            page.locator('#enrollment-form [name="username"]').fill('portalowner')
+            page.locator('#enrollment-form [name="password"]').fill('browser-independent-portal-password')
+            assert 'browser-host-proof-password' not in page.content()
+            assert 'browser-host-proof-password' not in page.evaluate('JSON.stringify(state)')
+            page.get_by_role('button', name='Create administrator', exact=True).click()
+            page.wait_for_function('state.principal?.username === "portalowner" && state.csrf === "example"')
+            page.get_by_role('heading', name='Overview', exact=True).wait_for()
+            claim = next(body for endpoint, body in submitted if endpoint == 'bootstrap/claim')
+            assert claim['username'] == 'portalowner' and 'hostPassword' not in claim
+            authenticated[0] = False
+            page.reload()
+            page.get_by_role('heading', name='Sign in to your host.', exact=True).wait_for()
+
             assert 'setup password printed' not in page.locator('.login-card').text_content()
             assert page.get_by_text('HOST CONSOLE', exact=True).count() == 1
             page.set_viewport_size({'width': 390, 'height': 844})

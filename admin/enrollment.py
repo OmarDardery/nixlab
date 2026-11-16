@@ -35,6 +35,20 @@ def auth_valid():
         return False
 
 
+def account_valid():
+    if auth_valid():
+        return True
+    try:
+        path = rt.STATE / 'users.json'
+        users = rt.read_json(path, {})
+        return (not path.is_symlink() and isinstance(users, dict)
+                and any(isinstance(name, str) and name != 'admin' and re.fullmatch(r'[a-z][a-z0-9_-]{0,31}', name)
+                        and isinstance(item, dict) and item.get('role') == 'admin'
+                        and valid_verifier(item.get('password')) for name, item in users.items()))
+    except (ValueError, OSError):
+        return False
+
+
 def load():
     if not present(STATE_FILE):
         return None
@@ -78,7 +92,7 @@ def retire_legacy_capabilities():
 def reconcile():
     """Caller holds mutation.lock. Never derive an open claim from missing files."""
     state = load()
-    if auth_valid():
+    if account_valid():
         if state is None or state['phase'] not in {'account-committed', 'migrated'}:
             retire_legacy_capabilities()
             if state and state['phase'] == 'committing':
@@ -103,7 +117,7 @@ def status():
         phase = state['phase'] if state else None
         artifacts = any(present(name) for name in ('auth.json', 'users.json', 'setup-password'))
         available = phase in {'unclaimed', 'host-verified'} and not artifacts
-        recovery = not auth_valid() and (artifacts or phase in {'committing', 'account-committed', 'migrated', 'recovery-authorized'}
+        recovery = not account_valid() and (artifacts or phase in {'committing', 'account-committed', 'migrated', 'recovery-authorized'}
                                         or (phase is None and (present('web-enrollment') or host_history())))
         return {'available': available, 'recoveryRequired': bool(recovery)}
 
@@ -145,27 +159,38 @@ def approve(code):
         save('host-verified', proof={'digest': digest, 'boot': boot_id(), 'expires': time.monotonic() + 600})
 
 
-def claim(code, password):
+def claim(code, password, username='admin'):
     digest = proof_digest(code)
     with rt.locked(blocking=False):
-        state = reconcile()
-        if (state and state['phase'] == 'account-committed' and auth_valid()
-                and secrets.compare_digest(state.get('claimDigest', ''), digest)):
-            return {'ok': True, 'alreadyComplete': True}
-        if (not state or state['phase'] not in {'unclaimed', 'host-verified'}
-                or any(present(name) for name in ('auth.json', 'users.json', 'setup-password'))):
-            raise rt.PublicError('First administrator enrollment is unavailable; use authorized account recovery')
-        proof = state.get('proof', {})
-        if (proof.get('boot') != boot_id() or time.monotonic() >= proof.get('expires', 0)
-                or not secrets.compare_digest(proof.get('digest', ''), digest)):
-            raise rt.PublicError('Approve this browser from the host console before enrolling')
-        verifier = rt.password_record(password)
-        save('committing', proof=proof)
-        retire_legacy_capabilities()
+        return claim_locked(digest, password, username)
+
+
+def claim_locked(digest, password, username='admin'):
+    """Same commit authority for root compatibility and browser-bound enrollment."""
+    state = reconcile()
+    if (state and state['phase'] == 'account-committed' and account_valid()
+            and secrets.compare_digest(state.get('claimDigest', ''), digest)):
+        return {'ok': True, 'alreadyComplete': True}
+    if (not state or state['phase'] not in {'unclaimed', 'host-verified'}
+            or any(present(name) for name in ('auth.json', 'users.json', 'setup-password'))):
+        raise rt.PublicError('First administrator enrollment is unavailable; use authorized account recovery')
+    proof = state.get('proof', {})
+    if (proof.get('boot') != boot_id() or time.monotonic() >= proof.get('expires', 0)
+            or not secrets.compare_digest(proof.get('digest', ''), digest)):
+        raise rt.PublicError('Approve this browser from the host console before enrolling')
+    if not isinstance(username, str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,31}', username):
+        raise rt.PublicError('Choose a portal username starting with a letter, followed by up to 31 lowercase letters, numbers, underscores or hyphens')
+    verifier = rt.password_record(password)
+    save('committing', proof=proof)
+    retire_legacy_capabilities()
+    if username == 'admin':
         rt.write_json(rt.STATE / 'auth.json', verifier, mode=0o640, group='nixlab-ui')
-        save('account-committed', claimDigest=digest)
-        rt.audit('first-admin-enrolled')
-        return {'ok': True}
+    else:
+        rt.write_json(rt.STATE / 'users.json', {username: {'role': 'admin', 'password': verifier}}, mode=0o640, group='nixlab-ui')
+    save('account-committed', claimDigest=digest)
+    rt.audit('first-admin-enrolled')
+    return {'ok': True}
+
 
 
 def ensure_legacy_account():
@@ -174,7 +199,7 @@ def ensure_legacy_account():
         state = reconcile()
         if state and state['phase'] in {'unclaimed', 'host-verified'}:
             return
-        if auth_valid():
+        if account_valid():
             return
         if state and state['phase'] != 'legacy-provisioning':
             raise recovery_error()

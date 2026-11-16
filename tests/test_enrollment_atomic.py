@@ -37,12 +37,12 @@ class PartialWrite:
   self.stream.write(data[:len(data)//2]); self.stream.flush(); kill()
 def opening(fd,*args,**kwargs):
  stream=fdopen(fd,*args,**kwargs)
- if stage=='partial-write' and Path(os.readlink('/proc/self/fd/'+str(fd))).name.startswith('.auth.json'):
+ if stage=='partial-write' and Path(os.readlink('/proc/self/fd/'+str(fd))).name.startswith(('.auth.json','.users.json')):
   return PartialWrite(stream)
  return stream
 def syncing(fd):
  name=Path(os.readlink('/proc/self/fd/'+str(fd))).name
- if stage=='file-fsync' and name.startswith('.auth.json'): kill()
+ if stage=='file-fsync' and name.startswith(('.auth.json','.users.json')): kill()
  return fsync(fd)
 def replacing(source,target):
  target=Path(target)
@@ -50,14 +50,14 @@ def replacing(source,target):
   phase=json.loads(Path(source).read_text())['phase']
   if stage=='intent-rename' and phase=='committing': kill()
   if stage=='receipt-rename' and phase=='account-committed': kill()
- if stage=='auth-rename' and target.name=='auth.json': kill()
+ if stage=='auth-rename' and target.name in ('auth.json','users.json'): kill()
  result=replace(source,target)
- if stage=='after-auth-rename' and target.name=='auth.json': kill()
+ if stage=='after-auth-rename' and target.name in ('auth.json','users.json'): kill()
  if stage=='after-receipt-rename' and target.name=='bootstrap-state.json' and phase=='account-committed': kill()
  return result
 rt.os.fdopen=opening; rt.os.fsync=syncing; rt.os.replace=replacing
 try:
- result=accounts.claim_enrollment(request['code'],request['password'])
+ result=enrollment.claim(request['code'],request['password'],request.get('username','admin'))
  print(json.dumps(result))
 except (ValueError,OSError):
  print(json.dumps({'rejected':True}))
@@ -80,8 +80,8 @@ class AtomicEnrollmentTests(unittest.TestCase):
         return subprocess.Popen([sys.executable, '-c', CHILD, stage], stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=self.env)
 
-    def finish(self, child, password=SECRETS['setup']):
-        out, err = child.communicate(json.dumps({'code': CODE, 'password': password}).encode(), timeout=20)
+    def finish(self, child, password=SECRETS['setup'], username='admin'):
+        out, err = child.communicate(json.dumps({'code': CODE, 'password': password, 'username': username}).encode(), timeout=20)
         assert_public_clean(self, [out, err])
         return child.returncode, json.loads(out) if out else None
 
@@ -245,3 +245,23 @@ class AtomicEnrollmentTests(unittest.TestCase):
             with self.assertRaises(ValueError) as stopped: operation()
             artifacts.append(str(stopped.exception))
         assert_public_clean(self, artifacts)
+
+    def test_named_first_admin_users_publication_survives_sigkill(self):
+        for stage in ('partial-write', 'file-fsync', 'after-auth-rename', 'receipt-rename'):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as folder, patch.object(rt, 'STATE', Path(folder)):
+                previous_env = self.env; self.env = self.env | {'NIXLAB_STATE': folder}
+                try:
+                    self.prepare()
+                    code, _ = self.finish(self.start_child(stage), username='namedowner')
+                    self.assertEqual(code, -signal.SIGKILL)
+                    if enrollment.account_valid():
+                        self.assertFalse(accounts.enrollment_open())
+                        self.assertTrue(accounts.matches('namedowner', SECRETS['setup']))
+                    else:
+                        self.assertEqual(accounts.enrollment_status(), {'available': False, 'recoveryRequired': True})
+                        accounts.approve_enrollment(CODE)
+                        self.assertEqual(self.finish(self.start_child(), username='namedowner')[1], {'ok': True})
+                    self.assertFalse((rt.STATE / 'auth.json').exists())
+                    self.assertEqual(accounts.list_users(), [{'username': 'namedowner', 'role': 'admin'}])
+                finally:
+                    self.env = previous_env

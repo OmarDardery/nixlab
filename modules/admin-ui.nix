@@ -8,6 +8,16 @@ let
 in {
   imports = [ ./management.nix ];
   config = lib.mkIf enabled {
+    # Dedicated password/account verification only; no session or credential
+    # changes and no permissive root/sudo/NOPASSWD PAM shortcuts.
+    security.pam.services.nixlab-enrollment = {
+      # Use NixOS's normal PAM rule generation (including configured additional
+      # authentication policy), but never let a root-run helper skip the password.
+      rootOK = lib.mkForce false;
+      allowNullPassword = lib.mkForce false;
+      unixAuth = true;
+      startSession = false;
+    };
     users.groups.nixlab-ui = { };
     users.users.nixlab-ui = { isSystemUser = true; group = "nixlab-ui"; };
     environment.systemPackages = [ tool ];
