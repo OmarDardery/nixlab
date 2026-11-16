@@ -76,6 +76,7 @@ if sys.argv[1] == 'prepare':
   probe:
     image: nixlab-arcane-probe:1
     pull_policy: never
+    restart: unless-stopped
     volumes:
       - probe-data:/data
 volumes:

@@ -4,8 +4,8 @@ let
   defaults = import ../site-defaults.nix;
   site = defaults // {
     setup = defaults.setup // { enable = true; };
-    apps = defaults.apps // { enable = true; inherit arcaneImage; };
-    management = defaults.management // { address = "127.0.0.1"; };
+    apps = defaults.apps // { enable = true; arcanePort = 9443; inherit arcaneImage; };
+    management = defaults.management // { address = "127.0.0.2"; };
     guests = defaults.guests // { appsAddress = "127.0.0.2"; gatewayCIDR = "127.0.0.1/8"; };
   };
   probeImage = pkgs.dockerTools.buildLayeredImage {
