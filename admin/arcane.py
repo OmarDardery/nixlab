@@ -102,8 +102,8 @@ def retire(path):
 
 def expire_host():
     retire(Path('/var/lib/nixlab-secrets/apps-arcane-password'))
-    path=rt.SECRET_PATHS['arcanePassword']
-    if path.exists() and time.time()-path.stat().st_mtime>=900: rt.durable_unlink(path)
+    path=rt.SECRET_PATHS.get('arcanePassword')
+    if path is not None and path.exists() and time.time()-path.stat().st_mtime>=900: rt.durable_unlink(path)
 
 
 if __name__=='__main__':
