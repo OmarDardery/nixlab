@@ -92,12 +92,16 @@ def onboard(settings):
             raise ValueError('Arcane initial credential expired; resubmit it')
         return supplied_password(settings,path.read_text().rstrip('\r\n'),'enroll')
     finally:
-        rt.durable_unlink(path)
-        rt.durable_unlink(Path('/var/lib/nixlab-secrets/apps-arcane-password'))
+        retire(path)
+        retire(Path('/var/lib/nixlab-secrets/apps-arcane-password'))
+
+
+def retire(path):
+    if path.exists() or path.is_symlink(): rt.durable_unlink(path)
 
 
 def expire_host():
-    rt.durable_unlink(Path('/var/lib/nixlab-secrets/apps-arcane-password'))
+    retire(Path('/var/lib/nixlab-secrets/apps-arcane-password'))
     path=rt.SECRET_PATHS['arcanePassword']
     if path.exists() and time.time()-path.stat().st_mtime>=900: rt.durable_unlink(path)
 

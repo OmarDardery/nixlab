@@ -103,6 +103,16 @@ volumes:
     reset_in_terminal(replacement)
     # Bootstrap input has been consumed; restarting must use the durable DB.
     (ROOT / 'login-password').write_text(replacement)
+elif sys.argv[1] == 'interrupt':
+    # Reproduce the durable state of a crash after the password update, before
+    # clearing its pending checkpoint. The next boot must restore the old DB.
+    reset_in_terminal(password + '-interrupted')
+    marker=Path('/srv/arcane-credential-checkpoint/pending')
+    with marker.open('w') as stream:
+        stream.write('pending\n'); stream.flush(); os.fsync(stream.fileno())
+    directory=os.open(marker.parent,os.O_DIRECTORY)
+    try: os.fsync(directory)
+    finally: os.close(directory)
 elif sys.argv[1] == 'verify':
     evidence = json.loads((ROOT / 'evidence.json').read_text())
     assert key_hash == evidence['keyHash'], 'Encryption key changed across restart or restore'

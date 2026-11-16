@@ -54,6 +54,7 @@ in pkgs.testers.runNixOSTest {
     machine.wait_for_unit("nixlab-arcane-confirm.service")
     machine.wait_for_open_port(9443, "127.0.0.2")
     machine.succeed("python3 ${./arcane-client.py} prepare")
+    machine.succeed("python3 ${./arcane-client.py} interrupt")
     for boot in range(2):
         machine.reboot()
         machine.wait_for_unit("docker-arcane.service")

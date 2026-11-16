@@ -129,3 +129,26 @@ class LifecycleTests(unittest.TestCase):
     def test_password_control_characters_are_rejected(self):
         for value in (PASSWORD+'\0',PASSWORD+'\n',PASSWORD+'\x1b'):
             with self.assertRaises(ValueError): guest.policy(value)
+
+class GatewayTests(unittest.TestCase):
+    def test_reset_requires_admin_role_and_reauthentication_and_returns_no_secrets(self):
+        import main
+        from unittest.mock import Mock
+        with patch.object(main,'BoundedHttpsServer') as server,patch.object(main.ssl,'SSLContext'), \
+                patch.object(main,'reply') as reply,patch.object(main,'broker_request',return_value={'ok':True}) as broker:
+            main.web()
+            handler=object.__new__(server.call_args.args[1])
+            handler.access=Mock(return_value='localhost:9440')
+            handler.headers={'Origin':'https://localhost:9440'}
+            handler.path='/api/arcane/reset'
+            for role,valid,allowed in [('viewer',True,False),('operator',True,False),('admin',False,False),('admin',True,True)]:
+                handler.session=Mock(return_value={'role':role,'username':'owner'})
+                broker.reset_mock()
+                with patch.object(main,'json_body',return_value={'current':PASSWORD,'password':PASSWORD}), \
+                        patch('accounts.matches',return_value=valid):
+                    handler.do_POST()
+                self.assertEqual(broker.called,allowed)
+                assert_public_clean(self,reply.call_args.args[2])
+                if allowed:
+                    self.assertEqual(broker.call_args.args[1],'/arcane/reset')
+                    self.assertEqual(broker.call_args.args[2]['_actor'],'owner')

@@ -282,6 +282,29 @@ def main():
             page.evaluate("state.principal.role='admin';state.page='integrations';shell()")
             page.set_viewport_size({'width': 1440, 'height': 1000})
             page.screenshot(path=str(args.output / 'integrations.png'), full_page=True)
+            # Existing service reset is independent from initial reuse and wipes
+            # both password fields after the protected request completes.
+            page.evaluate("state.host.arcane={state:'initialized'};state.page='integrations';shell()")
+            page.locator('#arcane-reset-form [name=current]').fill('browser-current-portal-password')
+            page.locator('#arcane-reset-form [name=password]').fill('Browser-arcane-replacement1!')
+            page.locator('#arcane-reset-form button').click()
+            page.wait_for_function('document.querySelector("#arcane-reset-form [name=password]").value === ""')
+            reset = next(body for endpoint, body in submitted if endpoint == 'arcane/reset')
+            assert reset == {'current':'browser-current-portal-password','password':'Browser-arcane-replacement1!'}
+            assert 'Browser-arcane-replacement1!' not in page.evaluate('JSON.stringify(state)')
+            # Explicit initial reuse survives navigation but the current password
+            # is entered only on Changes and never becomes persistent UI state.
+            page.evaluate("state.host.arcane={state:'fresh'};state.page='integrations';shell()")
+            assert not page.locator('#arcane-reuse').is_checked()
+            page.locator('#arcane-reuse').check()
+            page.evaluate("state.modules={};state.platformRevision='';state.page='review';shell()")
+            page.locator('#arcane-current').fill('Browser-current-reuse-password1!')
+            page.locator('[data-action=build]').click()
+            page.wait_for_function('state.arcaneReuse === false')
+            reuse = [body for endpoint, body in submitted if endpoint == 'review'][-1]
+            assert reuse['reuseArcanePassword'] is True and reuse['arcaneCurrent'] == 'Browser-current-reuse-password1!'
+            assert 'arcanePassword' not in reuse['secrets']
+            assert 'Browser-current-reuse-password1!' not in page.evaluate('JSON.stringify(state)')
             assert not errors, errors
             assert not [url for url in requests if not url.startswith(('http://127.0.0.1:', 'blob:http://127.0.0.1:'))], 'Private console assets must stay local'
             assert all(action != 'operation' for action, _ in submitted)
