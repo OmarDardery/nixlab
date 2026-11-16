@@ -49,8 +49,9 @@ in pkgs.testers.runNixOSTest {
       script = ''
         PYTHONPATH=${../admin}:${../scripts} ${pkgs.python3}/bin/python ${./portal-fixture.py}
         install -d -m 0700 /var/lib/nixlab-secrets
-        test -s /var/lib/nixlab-secrets/apps-arcane-password || \
-          (umask 077; { openssl rand -hex 24 | tr -d '\n'; printf 'Aa1!\n'; } > /var/lib/nixlab-secrets/apps-arcane-password)
+        install -d -m 0700 /run/nixlab-secrets
+        test -s /run/nixlab-secrets/apps-arcane-password || \
+          (umask 077; { openssl rand -hex 24 | tr -d '\n'; printf 'Aa1!\n'; } > /run/nixlab-secrets/apps-arcane-password)
         cp ${../flake.lock} /var/lib/nixlab/config/flake.lock
         printf '%s\n' '${builtins.toJSON { inherit revision; version = builtins.replaceStrings [ "\n" ] [ "" ] (builtins.readFile ../VERSION); }}' > /var/lib/nixlab/config/platform-release.json
       '';

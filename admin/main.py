@@ -187,8 +187,16 @@ def backend():
                     # forwards an unbound browser claim to this legacy route.
                     import accounts
                     result = accounts.claim_enrollment(body.get('code'), body.get('password'))
+                elif self.path == '/arcane/reset':
+                    import accounts, arcane
+                    if not accounts.matches(actor,body.get('current')):
+                        raise rt.PublicError('Reauthenticate before resetting Arcane')
+                    with rt.locked(blocking=False):
+                        result=arcane.supplied_password(manager.effective_settings(),body.get('password'),'reset')
                 elif self.path == '/review':
-                    result = manager.review(body['settings'], body.get('secrets', {}), body.get('updateInputs', False), body.get('modules', {}), body.get('revision'), principal=actor)
+                    import arcane
+                    secret_values=arcane.review_secrets(body,actor)
+                    result = manager.review(body['settings'], secret_values, body.get('updateInputs', False), body.get('modules', {}), body.get('revision'), principal=actor)
                 elif self.path == '/apply':
                     result = manager.apply(body['id'])
                 elif self.path == '/cancel':
@@ -243,12 +251,12 @@ def backend():
 class UnixConnection(http.client.HTTPConnection):
     def connect(self):
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.settimeout(150)
+        self.sock.settimeout(self.timeout)
         self.sock.connect(str(SOCKET))
 
 
 def broker_request(method, path, value=None):
-    connection = UnixConnection('localhost', timeout=150)
+    connection = UnixConnection('localhost', timeout=360 if path == '/arcane/reset' else 150)
     try:
         body = json.dumps(value).encode() if value is not None else None
         connection.request(method, path, body=body, headers={'Content-Type': 'application/json'})
@@ -606,7 +614,12 @@ def web():
                     return reply(self, 200, result)
                 if self.path == '/api/migrate-layout' and not accounts.matches(session['username'], body.get('current')):
                     raise rt.PublicError('Reauthenticate to migrate the machine layout')
+                if self.path == '/api/arcane/reset':
+                    if not accounts.matches(session['username'],body.get('current')):
+                        raise rt.PublicError('Reauthenticate before resetting Arcane')
                 if self.path == '/api/review':
+                    if body.get('reuseArcanePassword') is True and not accounts.matches(session['username'],body.get('arcaneCurrent')):
+                        raise rt.PublicError('Enter your current portal password to reuse it for initial Arcane setup')
                     password = body.pop('adminPassword', None)
                     if body.get('modules') or body.get('revision'):
                         if body.get('acknowledgePrivilegedModules') is not True:
@@ -623,7 +636,7 @@ def web():
                 if self.path in ('/api/recovery-export', '/api/users'):
                     if not accounts.matches(session['username'], body.pop('current', None)):
                         raise rt.PublicError('Reauthenticate before exporting recovery material or changing accounts')
-                actions = {'/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests'}
+                actions = {'/api/arcane/reset', '/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests'}
                 if self.path not in actions:
                     return reply(self, 404, {'error': 'Unknown action'})
                 body['_actor'] = session['username']

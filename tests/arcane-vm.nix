@@ -26,7 +26,7 @@ in pkgs.testers.runNixOSTest {
     virtualisation.oci-containers.containers.arcane = { imageFile = arcaneArchive; pull = "never"; };
     systemd.services.arcane-test-inputs = {
       requires = [ "docker.service" ]; after = [ "docker.service" "systemd-tmpfiles-setup.service" ];
-      before = [ "docker-arcane.service" ]; requiredBy = [ "docker-arcane.service" ];
+      before = [ "docker-arcane.service" "nixlab-arcane-prepare.service" ]; requiredBy = [ "docker-arcane.service" ];
       serviceConfig = { Type = "oneshot"; RemainAfterExit = true; UMask = "0077"; };
       path = [ pkgs.python3 pkgs.openssl pkgs.docker ];
       script = ''
@@ -35,7 +35,7 @@ in pkgs.testers.runNixOSTest {
         import secrets, subprocess
         root=Path('/var/lib/nixlab-arcane-test');root.mkdir(mode=0o700,exist_ok=True)
         secret=Path('/var/lib/nixlab-secrets');secret.mkdir(mode=0o700,exist_ok=True)
-        if not (secret/'arcane-admin-password').exists():
+        if not (root/'login-password').exists():
             value=secrets.token_hex(24)+'Aa1!'
             (secret/'arcane-admin-password').write_text(value)
             (root/'login-password').write_text(value)
@@ -51,11 +51,14 @@ in pkgs.testers.runNixOSTest {
   testScript = ''
     machine.start(allow_reboot=True)
     machine.wait_for_unit("docker-arcane.service")
+    machine.wait_for_unit("nixlab-arcane-confirm.service")
     machine.wait_for_open_port(9443, "127.0.0.2")
     machine.succeed("python3 ${./arcane-client.py} prepare")
+    machine.succeed("python3 ${./arcane-client.py} interrupt")
     for boot in range(2):
         machine.reboot()
         machine.wait_for_unit("docker-arcane.service")
+        machine.wait_for_unit("nixlab-arcane-confirm.service")
         machine.wait_for_open_port(9443, "127.0.0.2")
         machine.succeed("python3 ${./arcane-client.py} verify")
     machine.succeed("umask 077; systemctl stop docker-arcane.service; tar -C /srv/arcane -czf /var/lib/arcane-protected-backup.tgz .; mv /srv/arcane /srv/arcane-before-restore; install -d -m 0700 /srv/arcane; tar -C /srv/arcane -xzf /var/lib/arcane-protected-backup.tgz; systemctl start docker-arcane.service")

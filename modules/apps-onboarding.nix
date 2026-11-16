@@ -19,17 +19,21 @@ in {
         test "$ready" = 1
         ${lib.optionalString (appImage != null && !(config.nixlab.deployment.apps.enable or false)) "PYTHONPATH=${../scripts} python3 ${../scripts/deploy-apps.py} ${appImage.system}"}
         incus exec apps --project lab -- install -d -m 0700 /var/lib/nixlab-secrets
-        if test -f /var/lib/nixlab-secrets/apps-arcane-password; then
-          incus file push /var/lib/nixlab-secrets/apps-arcane-password apps/var/lib/nixlab-secrets/arcane-admin-password --project lab --mode 0600
-        fi
         if test -f /var/lib/nixlab-secrets/apps-demo-password; then
           incus file push /var/lib/nixlab-secrets/apps-demo-password apps/var/lib/nixlab-secrets/demo-db-password --project lab --mode 0444
         fi
         incus file push /var/lib/nixlab-admin/apps-tls.crt apps/var/lib/nixlab-secrets/tls.crt --project lab --mode 0644
         incus file push /var/lib/nixlab-admin/apps-tls.key apps/var/lib/nixlab-secrets/tls.key --project lab --mode 0600
-        incus exec apps --project lab -- systemctl restart docker-arcane.service
+        PYTHONPATH=${../admin}:${../scripts} python3 ${../admin/arcane.py} onboard ${pkgs.writeText "arcane-settings.json" (builtins.toJSON site)}
         ${lib.optionalString site.apps.enableDemo "incus exec apps --project lab -- systemctl restart nixlab-demo.service"}
       '';
+    };
+    systemd.services.nixlab-arcane-secret-expire = {
+      serviceConfig.Type = "oneshot";
+      script = ''PYTHONPATH=${../admin}:${../scripts} ${pkgs.python3}/bin/python3 ${../admin/arcane.py} expire'';
+    };
+    systemd.timers.nixlab-arcane-secret-expire = {
+      wantedBy = [ "timers.target" ]; timerConfig = { OnBootSec = "1min"; OnUnitActiveSec = "1min"; };
     };
     systemd.services.nginx.serviceConfig.LoadCredential = [
       "nixlab-tls.crt:/var/lib/nixlab-admin/tls.crt"

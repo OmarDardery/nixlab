@@ -106,6 +106,7 @@ class DirectActivationTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.manager = Mock()
+        self.manager.settings.return_value = initial()
         self.manager.review.return_value = {'id': 'a' * 32}
         self.manager.job_path.return_value = self.root
         self.candidate = initial()
@@ -117,14 +118,14 @@ class DirectActivationTests(unittest.TestCase):
     def test_separate_secret_and_leave_access_confirmation_pending(self):
         with patch('direct.wait_for', side_effect=[{'status': 'ready'}, {'status': 'awaiting-confirmation'}]), patch('builtins.print'):
             record = direct.activate(self.candidate, self.manager)
-        password = rt.SECRET_PATHS['arcanePassword'].read_text().strip()
+        password = self.manager.review.call_args.kwargs['secret_values']['arcanePassword']
         self.assertGreaterEqual(len(password), 24)
         self.assertNotIn(password, json.dumps(record))
         args, kwargs = self.manager.review.call_args
         self.assertNotIn(password, json.dumps(args[0]))
-        self.assertEqual(kwargs['secret_values'], {})
-        self.assertEqual(rt.SECRET_PATHS['arcanePassword'].read_text().strip(), password)
-        self.assertEqual([call[0] for call in self.manager.method_calls], ['review', 'apply'])
+        self.assertEqual(kwargs['secret_values'], {'arcanePassword':password})
+        self.assertFalse(rt.SECRET_PATHS['arcanePassword'].exists())
+        self.assertEqual([call[0] for call in self.manager.method_calls], ['settings', 'review', 'apply'])
         self.manager.confirm.assert_not_called()
 
     def test_build_failure_never_applies_or_confirms(self):
@@ -161,7 +162,7 @@ class DirectActivationTests(unittest.TestCase):
         effective = copy.deepcopy(self.candidate); effective['apps']['enable'] = True
         with patch('direct.wait_for', return_value={'status': 'awaiting-confirmation'}), patch('builtins.print'):
             record = direct.activate(self.candidate, self.manager, effective=effective)
-        self.assertTrue(rt.SECRET_PATHS['arcanePassword'].is_file())
+        self.assertIn('arcanePassword',self.manager.review.call_args.kwargs['secret_values'])
         self.assertEqual(record, {'status': 'awaiting-confirmation'})
         self.assertFalse(self.manager.review.call_args.args[0]['apps']['enable'])
 

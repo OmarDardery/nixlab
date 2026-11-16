@@ -100,7 +100,7 @@ Expected encrypted YAML keys:
 | Host | `cloudflared` | Tunnel credentials JSON as a YAML multiline string |
 | Host | `restic-password` | Restic repository password |
 | Host | `restic-environment` | Runtime restic environment, e.g. repository access credentials; can be empty for credential-free targets |
-| VM | `arcane-admin-password` | Strong plaintext bootstrap password, encrypted by sops in Git |
+| VM | Arcane initial password | Supplied through authenticated onboarding into transient runtime input; not managed as a recurring SOPS secret |
 | VM | `demo-db-password` | Strong database password; only required when demo enabled |
 
 Without sops-nix, provision the same root-owned files under `/var/lib/nixlab-secrets` using
