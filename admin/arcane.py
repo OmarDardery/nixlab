@@ -51,6 +51,8 @@ def credential_status(settings):
 
 def supplied_password(settings, value, action):
     # Validate again inside root authority; never trust gateway validation alone.
+    if not isinstance(value,str) or not value:
+        raise ValueError('Supply a valid Arcane password')
     rt.encode_secrets({'arcanePassword':value},settings)
     if action not in ('enroll','reset') or not settings['apps']['enable']:
         raise ValueError('Arcane applications VM is disabled')

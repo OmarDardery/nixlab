@@ -225,6 +225,9 @@ def restore_files(directory):
             source = recovery / 'modules' / name
             rt.atomic(rt.ROOT / name, source.read_bytes(), mode=source.stat().st_mode & 0o777)
     for item in manifest['files']:
+        # A credential consumed by first boot cannot become live again through
+        # an older OS transaction's recovery manifest. Database auth is durable.
+        if item.get('name') == 'secret-arcanePassword': continue
         target = Path(item['path'])
         if item['existed']:
             rt.atomic(target, (recovery / item['name']).read_bytes(), mode=item['mode'])

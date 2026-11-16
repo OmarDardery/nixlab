@@ -152,3 +152,20 @@ class GatewayTests(unittest.TestCase):
                 if allowed:
                     self.assertEqual(broker.call_args.args[1],'/arcane/reset')
                     self.assertEqual(broker.call_args.args[2]['_actor'],'owner')
+
+class PublicationTests(unittest.TestCase):
+    def test_empty_or_missing_reset_input_never_invokes_privileged_child(self):
+        with patch.object(arcane.subprocess,'run') as run:
+            for value in (None,'',123,'weak'):
+                with self.assertRaises(ValueError): arcane.supplied_password(initial(),value,'reset')
+            run.assert_not_called()
+
+    def test_old_transaction_rollback_cannot_republish_consumed_bootstrap(self):
+        import worker
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);target=root/'retired-plaintext'
+            rt.write_json(root/'recovery/manifest.json',{'files':[{'name':'secret-arcanePassword','path':str(target),'existed':True,'mode':0o600}]})
+            real_path=Path
+            with patch.object(worker,'Path',side_effect=lambda value: root/'empty-network' if str(value)=='/run/NetworkManager/system-connections' else real_path(value)):
+                worker.restore_files(root)
+            self.assertFalse(target.exists())
