@@ -54,10 +54,16 @@ def state():
         except (OSError,ValueError): return 'blocked'
     try:
         with sqlite3.connect(db.as_uri() + '?mode=ro', uri=True) as connection:
+            if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'").fetchone():
+                # A crash during the first schema migration may precede users.
+                # Only our durable initialization intent permits retry; arbitrary
+                # existing or corrupt SQLite files never count as fresh.
+                try: pending=json.loads(marker.read_text()).get('state')=='initializing'
+                except (OSError,ValueError): pending=False
+                return 'initializing' if pending and connection.execute('PRAGMA quick_check').fetchone()[0]=='ok' else 'blocked'
             # Any existing identity prohibits first-boot credential replacement.
             count = connection.execute('SELECT count(*) FROM users').fetchone()[0]
-            admin = connection.execute("SELECT count(*) FROM users WHERE username='admin'").fetchone()[0]
-        if count: return 'initialized' if admin else 'blocked'
+        if count: return 'initialized'
         try: return 'initializing' if json.loads(marker.read_text()).get('state')=='initializing' else 'blocked'
         except (OSError,ValueError): return 'blocked'
     except sqlite3.Error:
@@ -74,6 +80,7 @@ def prepare():
     expire()
     current = state()
     if current == 'blocked': raise ValueError('Restore Arcane database or use recovery')
+    if current == 'initialized': (DATA/'initial-admin-password').unlink(missing_ok=True)
     # Migrate the former private file to tmpfs only on a provably fresh DB.
     legacy = Path('/var/lib/nixlab-secrets/arcane-admin-password')
     if current == 'fresh' and not (RUNTIME/'password').exists() and legacy.is_file():
@@ -139,6 +146,7 @@ def terminal_reset(value):
         os.execvp('docker',['docker','exec','-it','-e','ARCANE_ALLOW_CLI_PASSWORD_RESET=true',
                            'arcane','/app/arcane','admin','reset-password','--username','admin'])
     output = bytearray()
+    reaped = False
     try:
         for prompt in (b'New password:',b'Confirm new password:'):
             deadline = time.monotonic()+30
@@ -153,16 +161,18 @@ def terminal_reset(value):
         while time.monotonic()<deadline:
             child,status=os.waitpid(pid,os.WNOHANG)
             if child:
+                reaped = True
                 if os.waitstatus_to_exitcode(status): raise ValueError('Recovery failed')
                 return
             time.sleep(.1)
         raise ValueError('Recovery timed out')
     finally:
-        try: os.kill(pid,signal.SIGKILL)
-        except ProcessLookupError: pass
+        if not reaped:
+            try: os.kill(pid,signal.SIGKILL)
+            except ProcessLookupError: pass
+            try: os.waitpid(pid,0)
+            except ChildProcessError: pass
         os.close(fd)
-        try: os.waitpid(pid,0)
-        except ChildProcessError: pass
 
 
 def recover_pending(stop=True):

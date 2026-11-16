@@ -26,7 +26,7 @@ in pkgs.testers.runNixOSTest {
     virtualisation.oci-containers.containers.arcane = { imageFile = arcaneArchive; pull = "never"; };
     systemd.services.arcane-test-inputs = {
       requires = [ "docker.service" ]; after = [ "docker.service" "systemd-tmpfiles-setup.service" ];
-      before = [ "docker-arcane.service" ]; requiredBy = [ "docker-arcane.service" ];
+      before = [ "docker-arcane.service" "nixlab-arcane-prepare.service" ]; requiredBy = [ "docker-arcane.service" ];
       serviceConfig = { Type = "oneshot"; RemainAfterExit = true; UMask = "0077"; };
       path = [ pkgs.python3 pkgs.openssl pkgs.docker ];
       script = ''

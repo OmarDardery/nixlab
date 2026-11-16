@@ -44,6 +44,15 @@ class LifecycleTests(unittest.TestCase):
         (self.data/'arcane.db').write_bytes(b'corrupt')
         self.assertEqual(guest.state(),'blocked')
 
+    def test_crash_during_owned_schema_migration_can_retry_but_unknown_database_cannot(self):
+        with sqlite3.connect(self.data/'arcane.db') as db:
+            db.execute('CREATE TABLE migration_progress(version INTEGER)')
+        self.assertEqual(guest.state(),'blocked')
+        guest.atomic(self.data/'.nixlab-bootstrap.json',json.dumps({'state':'initializing'}))
+        self.assertEqual(guest.state(),'initializing')
+        guest.atomic(self.data/'.nixlab-bootstrap.json',json.dumps({'state':'initialized'}))
+        self.assertEqual(guest.state(),'blocked')
+
     def test_empty_established_database_never_reopens_enrollment(self):
         self.database(())
         guest.atomic(self.data/'.nixlab-bootstrap.json',json.dumps({'state':'initialized'}))
@@ -70,6 +79,14 @@ class LifecycleTests(unittest.TestCase):
         guest.prepare()
         self.assertEqual((self.run/'environment').read_text(),'')
 
+    def test_existing_renamed_identity_is_preserved_and_generated_input_retired(self):
+        self.database(('owner',))
+        guest.atomic(self.data/'initial-admin-password',PASSWORD)
+        guest.prepare()
+        self.assertEqual(guest.state(),'initialized')
+        self.assertFalse((self.data/'initial-admin-password').exists())
+        self.assertEqual((self.run/'environment').read_text(),'')
+
     def test_missing_input_never_starts_default_password_bootstrap(self):
         with self.assertRaises(ValueError): guest.prepare()
         self.assertFalse((self.run/'environment').exists())
@@ -83,7 +100,8 @@ class LifecycleTests(unittest.TestCase):
         with patch.object(guest,'command') as command,patch.object(guest,'api',return_value=True), \
                 patch.object(guest,'terminal_reset',side_effect=failed_reset):
             with self.assertRaises(ValueError): guest.reset(PASSWORD)
-        self.assertEqual(guest.state(),'initialized')
+        with sqlite3.connect(self.data/'arcane.db') as db:
+            self.assertEqual(db.execute('SELECT username FROM users').fetchone()[0],'admin')
         self.assertFalse((self.data.parent/'arcane-credential-checkpoint/pending').exists())
         self.assertFalse((self.run/'reset-active').exists())
         self.assertEqual(command.call_args.args,('systemctl','start','docker-arcane.service'))
@@ -96,7 +114,8 @@ class LifecycleTests(unittest.TestCase):
             db.execute("UPDATE users SET username='changed'")
         guest.atomic(checkpoint/'pending','pending')
         guest.recover_pending(stop=False)
-        self.assertEqual(guest.state(),'initialized')
+        with sqlite3.connect(self.data/'arcane.db') as db:
+            self.assertEqual(db.execute('SELECT username FROM users').fetchone()[0],'admin')
         self.assertFalse((checkpoint/'pending').exists())
 
     def test_existing_state_cannot_be_enrolled_even_with_valid_input(self):
@@ -154,6 +173,11 @@ class GatewayTests(unittest.TestCase):
                     self.assertEqual(broker.call_args.args[2]['_actor'],'owner')
 
 class PublicationTests(unittest.TestCase):
+    def test_sops_keeps_durable_ownership_but_initial_arcane_input_is_transient(self):
+        settings=initial();settings['secrets']['enable']=True
+        self.assertEqual(rt.encode_secrets({'arcanePassword':PASSWORD},settings),{'arcanePassword':PASSWORD})
+        with self.assertRaises(ValueError): rt.encode_secrets({'resticPassword':PASSWORD},settings)
+
     def test_empty_or_missing_reset_input_never_invokes_privileged_child(self):
         with patch.object(arcane.subprocess,'run') as run:
             for value in (None,'',123,'weak'):

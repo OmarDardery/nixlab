@@ -66,6 +66,7 @@ token = login()
 assert request('/api/auth/me', token=token)[0] == 200, 'Arcane authenticated API unavailable'
 assert request('/api/auth/me')[0] in (401, 403), 'Arcane API allowed anonymous access'
 assert request('/api/health')[0] == 200, 'Arcane health unavailable'
+assert not Path('/srv/arcane/initial-admin-password').exists(), 'Arcane generated fallback plaintext'
 assert not Path('/run/nixlab-arcane/password').exists(), 'Bootstrap plaintext was retained'
 assert not Path('/var/lib/nixlab-secrets/arcane-admin-password').exists(), 'Legacy bootstrap plaintext was retained'
 key = Path('/srv/arcane/encryption-key')
