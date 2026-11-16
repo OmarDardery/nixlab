@@ -120,7 +120,8 @@ def secret_files():
     for name in ('auth.json', 'users.json', 'bootstrap-state.json', 'setup-password', 'operator-password', 'arcane-account.json', 'browser-certificates.json',
                  'ca.key', 'ca.crt', 'tls.key', 'tls.crt', 'apps-tls.key', 'apps-tls.crt'):
         files['admin/' + name] = rt.STATE / name
-    for name, path in rt.SECRET_PATHS.items(): files['runtime/' + name] = path
+    for name, path in rt.SECRET_PATHS.items():
+        if name != 'arcanePassword': files['runtime/' + name] = path
     configured = settings()
     for section, key in (('backup', 'passwordFile'), ('backup', 'environmentFile'), ('tunnel', 'credentialsFile')):
         value = configured.get(section, {}).get(key)
@@ -130,6 +131,7 @@ def secret_files():
     key = Path(configured.get('secrets', {}).get('ageKeyFile', '/var/lib/sops-nix/key.txt'))
     if key.is_file(): files['sops/age-key.txt'] = key
     for path in Path('/var/lib/nixlab-secrets').rglob('*'):
+        if path.name == 'apps-arcane-password': continue
         if path.is_file() and not any(p.is_symlink() for p in (path, *path.parents)):
             files['runtime-files/' + str(path.relative_to('/var/lib/nixlab-secrets'))] = path
     for parent in (Path('/etc/NetworkManager/system-connections'), Path('/run/NetworkManager/system-connections')):

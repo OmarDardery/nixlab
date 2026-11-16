@@ -198,6 +198,17 @@ class PublicationTests(unittest.TestCase):
                 with self.assertRaises(ValueError): arcane.supplied_password(initial(),value,'reset')
             run.assert_not_called()
 
+    def test_recovery_archive_excludes_transient_bootstrap_but_keeps_durable_secrets(self):
+        import recovery
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);bootstrap=root/'bootstrap';durable=root/'restic'
+            rt.atomic(bootstrap,PASSWORD);rt.atomic(durable,'durable-private-input')
+            with patch.object(rt,'STATE',root),patch.dict(rt.SECRET_PATHS,arcanePassword=bootstrap,resticPassword=durable), \
+                    patch.object(recovery,'settings',return_value=initial()):
+                files=recovery.secret_files()
+            self.assertNotIn(bootstrap,files.values())
+            self.assertIn(durable,files.values())
+
     def test_old_transaction_rollback_cannot_republish_consumed_bootstrap(self):
         import worker
         with tempfile.TemporaryDirectory() as folder:
