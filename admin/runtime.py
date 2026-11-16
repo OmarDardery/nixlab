@@ -34,7 +34,7 @@ def public_error(error):
 SECRET_PATHS = {
     'cockpitPassword': Path('/var/lib/nixlab-secrets/cockpit-operator-password'),
     'wifiPassword': Path('/var/lib/nixlab-secrets/wifi.env'),
-    'arcanePassword': Path('/var/lib/nixlab-secrets/apps-arcane-password'),
+    'arcanePassword': Path('/run/nixlab-secrets/apps-arcane-password'),
     'demoPassword': Path('/var/lib/nixlab-secrets/apps-demo-password'),
     'resticPassword': Path('/var/lib/nixlab-secrets/restic-password'),
     'resticEnvironment': Path('/var/lib/nixlab-secrets/restic-environment'),
@@ -637,7 +637,7 @@ def encode_secrets(values, settings):
             if not value.startswith('$6$'):
                 raise ValueError('Failed to encode the local account password')
         elif field == 'arcanePassword':
-            if (not 16 <= len(value) <= 256 or '\n' in value or '\r' in value
+            if (not 16 <= len(value) <= 256 or any(ord(c) < 32 or ord(c) == 127 for c in value)
                     or not any(c.isupper() for c in value) or not any(c.islower() for c in value)
                     or not any(c.isdigit() for c in value) or not any(not c.isalnum() and not c.isspace() for c in value)):
                 raise ValueError('Arcane passwords require 16–256 characters with uppercase, lowercase, a number and a symbol')

@@ -3,6 +3,8 @@ import http.client
 import json
 import subprocess
 import sys
+import time
+from pathlib import Path
 import diagnostics
 import runtime as rt
 
@@ -19,15 +21,10 @@ def guest(*args, timeout=120):
 
 
 def authentication_ready(settings):
-    path = rt.SECRET_PATHS['arcanePassword']
-    if not path.is_file(): return False
+    if credential_status(settings)['state'] != 'initialized': return False
     try:
-        code, data = diagnostics.request(diagnostics.management_address(settings), settings['apps']['arcanePort'],
-            '/api/auth/login', {'username': 'admin', 'password': path.read_text().strip()})
-        response = json.loads(data)
-        return code == 200 and isinstance(response, dict) and isinstance(response.get('data'), dict) and isinstance(response['data'].get('token'), str) and bool(response['data']['token'])
-    except (OSError, ValueError, AttributeError, http.client.HTTPException):
-        return False
+        return json.loads(guest('nixlab-arcane-credentials','verified',timeout=15)).get('ok') is True
+    except (OSError,ValueError,subprocess.SubprocessError): return False
 
 
 def reset(settings):
@@ -41,3 +38,75 @@ def reset(settings):
         raise ValueError('Arcane account recovery failed') from None
     if result.returncode: raise ValueError('Arcane account recovery failed')
     return {'url': 'https://' + diagnostics.management_address(settings) + ':' + str(settings['apps']['arcanePort'])}
+
+
+def credential_status(settings):
+    if not settings['apps']['enable']: return {'state':'disabled'}
+    try:
+        result=json.loads(guest('nixlab-arcane-credentials','status',timeout=15))
+        if result.get('state') in ('fresh','initializing','initialized','blocked'): return result
+    except (ValueError,OSError,subprocess.SubprocessError): pass
+    return {'state':'unavailable'}
+
+
+def supplied_password(settings, value, action):
+    # Validate again inside root authority; never trust gateway validation alone.
+    rt.encode_secrets({'arcanePassword':value},settings)
+    if action not in ('enroll','reset') or not settings['apps']['enable']:
+        raise ValueError('Arcane applications VM is disabled')
+    result=subprocess.run(['incus','--force-local','exec','apps','--project','lab','--mode','non-interactive','--',
+                           'nixlab-arcane-credentials',action],input=value,text=True,capture_output=True,timeout=300)
+    if result.returncode: raise ValueError('Arcane credential operation failed; inspect service state or use local recovery')
+    try: success=json.loads(result.stdout).get('ok') is True
+    except (ValueError,AttributeError): success=False
+    if not success: raise ValueError('Arcane credential verification failed')
+    rt.audit('arcane-credential-'+action)
+    return {'ok':True}
+
+
+def review_secrets(body, actor):
+    import accounts
+    values=dict(body.get('secrets',{}))
+    reuse=body.pop('reuseArcanePassword',False)
+    current=body.pop('arcaneCurrent',None)
+    if not isinstance(reuse,bool): raise ValueError('Explicit password reuse choice required')
+    if reuse:
+        if not accounts.matches(actor,current): raise ValueError('Current portal password is incorrect')
+        if values.get('arcanePassword'): raise ValueError('Choose separate password or explicit reuse')
+        values['arcanePassword']=current
+    return values
+
+
+def onboard(settings):
+    path=rt.SECRET_PATHS['arcanePassword']
+    try:
+        current=credential_status(settings)['state']
+        if current=='initialized':
+            # Existing databases are authoritative, including upgrade from the
+            # former retained-file flow. Never apply replacement bootstrap input.
+            guest('systemctl','restart','docker-arcane.service')
+            return {'ok':True,'existing':True}
+        if current not in ('fresh','initializing') or not path.is_file():
+            raise ValueError('Arcane requires explicit enrollment or local recovery')
+        if time.time()-path.stat().st_mtime >= 900:
+            raise ValueError('Arcane initial credential expired; resubmit it')
+        return supplied_password(settings,path.read_text().rstrip('\r\n'),'enroll')
+    finally:
+        rt.durable_unlink(path)
+        rt.durable_unlink(Path('/var/lib/nixlab-secrets/apps-arcane-password'))
+
+
+def expire_host():
+    rt.durable_unlink(Path('/var/lib/nixlab-secrets/apps-arcane-password'))
+    path=rt.SECRET_PATHS['arcanePassword']
+    if path.exists() and time.time()-path.stat().st_mtime>=900: rt.durable_unlink(path)
+
+
+if __name__=='__main__':
+    try:
+        if sys.argv[1]=='expire': expire_host()
+        else:
+            settings=json.loads(open(sys.argv[2]).read())
+            onboard(settings)
+    except Exception:
+        raise SystemExit('Arcane enrollment failed; resubmit an initial credential or use recovery') from None

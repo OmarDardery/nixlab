@@ -79,16 +79,13 @@ class RetirementTests(unittest.TestCase):
         self.assertFalse(hasattr(local_access, 'operator_password'))
         self.assertFalse(hasattr(installer, 'setup_password'))
 
-    def test_arcane_consumes_private_credentials_but_returns_only_a_boolean(self):
-        with tempfile.TemporaryDirectory() as folder, patch.object(rt, 'STATE', Path(folder)), \
-                patch.dict(rt.SECRET_PATHS, arcanePassword=Path(folder) / 'password'), \
-                patch('diagnostics.management_address', return_value='192.0.2.20'), \
-                patch('diagnostics.request', return_value=(200, json.dumps({'data': {'token': SECRETS['cookie']}}).encode())) as request:
-            rt.atomic(rt.SECRET_PATHS['arcanePassword'], SECRETS['arcane'])
-            result = arcane.authentication_ready(initial())
-            assert_public_clean(self, result)
-            self.assertTrue(type(result) is bool and result, 'Authentication probe must return status only')
-            self.assertTrue(request.call_args.args[-1]['password'] == SECRETS['arcane'], 'Private authentication input changed')
+    def test_arcane_readiness_needs_no_retained_password(self):
+        with patch.object(arcane,'credential_status',return_value={'state':'initialized'}), \
+                patch.object(arcane,'guest',return_value=json.dumps({'ok':True})) as request:
+            result=arcane.authentication_ready(initial())
+            assert_public_clean(self,result)
+            self.assertIs(result,True)
+            self.assertEqual(request.call_args.args,('nixlab-arcane-credentials','verified'))
 
     def test_unexpected_arcane_response_shapes_are_not_authentication(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(rt, 'STATE', Path(folder)), \

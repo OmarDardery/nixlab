@@ -105,7 +105,6 @@ def coverage():
             # A fresh bootstrap uses admin and legitimately has no such file.
             for name in ('apps-tls.key', 'apps-tls.crt'):
                 required['apps-' + name] = rt.STATE / name
-            required['apps-bootstrap'] = rt.SECRET_PATHS['arcanePassword']
             account = rt.STATE / 'arcane-account.json'
             if account.exists() or account.is_symlink():
                 required['apps-account'] = account

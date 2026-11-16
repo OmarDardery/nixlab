@@ -193,11 +193,9 @@ def summarize(settings, record=None):
             print('Arcane: https://' + address + ':' + str(settings['apps']['arcanePort']))
             if arcane.authentication_ready(settings):
                 print('Arcane bootstrap authentication verified. Use your existing Arcane account.')
-                # Retain the last compatible private delivery route until the
-                # supplied-password reset/first-boot flows are qualified.
-                print('Legacy protected Arcane bootstrap input: ' + str(rt.SECRET_PATHS['arcanePassword']))
+                print('Initial credential input has been consumed. Change it through the authenticated portal if needed.')
             else:
-                print('Arcane has an existing account. The bootstrap file is not a verified current password.')
+                print('Arcane authentication is not verified. Inspect enrollment or use recovery.')
                 print('Recover access: sudo nixlab arcane reset-password')
         print('All enabled management endpoints passed health checks. No disks were formatted.')
         if (record or {}).get('rebootRequired'):

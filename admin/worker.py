@@ -181,7 +181,7 @@ def save_recovery(directory):
              (rt.machine_path(rt.ROOT, 'installation'), 'installation.json'),
              (rt.STATE / 'platform-baseline.json', 'platform-baseline.json'),
              (rt.ROOT / 'flake.lock', 'flake.lock')]
-    files += [(path, 'secret-' + key) for key, path in rt.SECRET_PATHS.items()]
+    files += [(path, 'secret-' + key) for key, path in rt.SECRET_PATHS.items() if key != 'arcanePassword']
     files += [(rt.STATE / name, name) for name in ('tls.crt', 'tls.key')]
     manifest = []
     for path, name in files:
@@ -315,6 +315,7 @@ def apply(directory):
         # Live secrets are separate from the immutable, reviewed Nix snapshot.
         for key, data in rt.read_staged_secrets(directory, job.get('secretChanges', [])).items():
             rt.atomic(rt.SECRET_PATHS[key], data)
+        rt.remove_staged_secrets(directory)
         if job.get('platformRevision') or job.get('sourcePlatformUpdated'):
             import upgrades
             upgrades.publish(directory / 'source', rt.ROOT)
@@ -420,8 +421,8 @@ def guard():
             failed = True
         try:
             with rt.locked(blocking=False):
-                import browser_certificates
-                for cleanup in (lambda: rt.cleanup_terminal_secrets(rt.STATE), browser_certificates.cleanup_private,
+                import browser_certificates, arcane
+                for cleanup in (arcane.expire_host, lambda: rt.cleanup_terminal_secrets(rt.STATE), browser_certificates.cleanup_private,
                                 lambda: browser_certificates.expire_owned(rt.STATE)):
                     try:
                         cleanup()

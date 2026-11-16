@@ -43,25 +43,10 @@ def login():
 
 
 def reset_in_terminal(replacement):
-    pid, fd = pty.fork()
-    if pid == 0:
-        os.execvp('docker', ['docker', 'exec', '-it', '-e', 'ARCANE_ALLOW_CLI_PASSWORD_RESET=true',
-                            'arcane', '/app/arcane', 'admin', 'reset-password', '--username', 'admin'])
-    output = bytearray()
-    try:
-        for prompt in (b'New password:', b'Confirm new password:'):
-            deadline = time.monotonic() + 30
-            while prompt not in output and time.monotonic() < deadline:
-                if select.select([fd], [], [], .1)[0]:
-                    try: output.extend(os.read(fd, 4096))
-                    except OSError: break
-            assert prompt in output, 'Upstream Arcane recovery prompt unavailable'
-            os.write(fd, replacement.encode() + b'\n')
-        _, status = os.waitpid(pid, 0)
-        assert os.waitstatus_to_exitcode(status) == 0, 'Upstream Arcane recovery failed'
-        assert replacement.encode() not in output, 'Arcane recovery echoed supplied password'
-    finally:
-        os.close(fd)
+    result = subprocess.run(['nixlab-arcane-credentials','reset'],input=replacement,
+                            text=True,capture_output=True,timeout=240)
+    assert result.returncode == 0, 'Protected supplied-password recovery failed'
+    assert replacement not in result.stdout+result.stderr, 'Recovery disclosed supplied password'
 
 
 # Docker's published port accepts connections before Arcane has completed its
@@ -81,6 +66,8 @@ token = login()
 assert request('/api/auth/me', token=token)[0] == 200, 'Arcane authenticated API unavailable'
 assert request('/api/auth/me')[0] in (401, 403), 'Arcane API allowed anonymous access'
 assert request('/api/health')[0] == 200, 'Arcane health unavailable'
+assert not Path('/run/nixlab-arcane/password').exists(), 'Bootstrap plaintext was retained'
+assert not Path('/var/lib/nixlab-secrets/arcane-admin-password').exists(), 'Legacy bootstrap plaintext was retained'
 key = Path('/srv/arcane/encryption-key')
 assert key.stat().st_mode & 0o777 == 0o600, 'Encryption key is not private'
 key_hash = hashlib.sha256(key.read_bytes()).hexdigest()
@@ -114,8 +101,7 @@ volumes:
     (ROOT / 'evidence.json').write_text(json.dumps({'project': project, 'identity': identity, 'keyHash': key_hash}))
     replacement = password + '-rotated'
     reset_in_terminal(replacement)
-    # The startup password file deliberately retains its OLD value: a restart
-    # must not overwrite the existing database account with bootstrap input.
+    # Bootstrap input has been consumed; restarting must use the durable DB.
     (ROOT / 'login-password').write_text(replacement)
 elif sys.argv[1] == 'verify':
     evidence = json.loads((ROOT / 'evidence.json').read_text())

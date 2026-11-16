@@ -6,10 +6,6 @@
     defaultSopsFile = ../. + "/${site.secrets.guestFile}";
     age.keyFile = site.secrets.ageKeyFile;
     secrets = {
-      arcane-admin-password = {
-        path = "/var/lib/nixlab-secrets/arcane-admin-password";
-        restartUnits = [ "docker-arcane.service" ];
-      };
     } // lib.optionalAttrs site.apps.enableDemo {
       demo-db-password = {
         path = "/var/lib/nixlab-secrets/demo-db-password";

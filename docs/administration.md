@@ -27,10 +27,19 @@ Nixlab qualification remain separate.
 ## Credential delivery during installation and recovery
 
 Installer summaries show URLs, public fingerprints, status and recovery steps.
-Until #65/#66 qualify the replacement, a verified private Arcane bootstrap
-input still has its protected path reported; no credential value is returned.
-They do not print credentials or offer a password-retrieval API. Arcane health
-checks consume private service credentials and return only a boolean. Its reset command invokes upstream interactive recovery at a private terminal; it does not generate a replacement password or retain reset output. Bootstrap-file lifetime remains tracked separately.
+Arcane first-boot input is delivered through protected stdin into guest tmpfs,
+verified through its real TLS login API, and deleted. It expires after 15 minutes.
+Existing databases remain authoritative and restart without a bootstrap password.
+Choose a separate initial password in **Services**, or explicitly opt in to reuse
+by entering your current NixLab password again. Reuse shares compromise risk;
+accounts remain independent and subsequent changes are not synchronized.
+
+The Arcane reset form requires your current NixLab password on every request.
+The root broker checkpoints the database and drives the supported upstream
+interactive CLI through a private PTY, verifies login, and rolls back a failed
+reset. A reboot restores an interrupted checkpoint before starting Arcane.
+For local-console recovery use `sudo nixlab-admin arcane reset-password`.
+Passwords never appear in argv, public output, operation records or the Nix store.
 
 Console-approved browser enrollment is explicitly enabled with
 `--wizard --web-enrollment`; the default legacy path is not silently migrated.
@@ -48,9 +57,6 @@ terminal. Manual changes do not update a managed hash file and may be overwritte
 by later activation. Ensure a working Linux login before ending installation. Service runtime files and existing verifiers remain
 available until the corresponding enrollment/recovery release gates are qualified.
 
-Arcane reset still uses the backed-up offline helper and retains its generated
-credential privately. It does not replace the database. A supplied-password reset
-and removal of retained bootstrap credentials remain separate lifecycle work.
 
 ## SSH and Incus CLI
 
