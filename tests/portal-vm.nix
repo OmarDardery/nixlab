@@ -48,7 +48,10 @@ in pkgs.testers.runNixOSTest {
     assert machine.succeed("systemctl show nixlab-ui -p User --value").strip() == "nixlab-ui"
     assert machine.succeed("stat -c %a /run/nixlab-admin/backend.sock").strip() == "660"
     pam = machine.succeed("cat /etc/pam.d/nixlab-enrollment")
-    assert "pam_unix.so" in pam and "pam_rootok.so" not in pam and "nullok" not in pam, "Unsafe host-proof PAM profile"
+    auth_rules = "\n".join(line for line in pam.splitlines() if line.lstrip().startswith("auth "))
+    account_rules = "\n".join(line for line in pam.splitlines() if line.lstrip().startswith("account "))
+    assert "pam_unix.so" in auth_rules and "pam_rootok.so" not in auth_rules and "nullok" not in auth_rules, "Unsafe host-proof authentication rules"
+    assert "pam_unix.so" in account_rules, "Missing host-proof account checks"
     machine.fail("runuser -u outsider -- python3 -c 'import socket; s=socket.socket(socket.AF_UNIX); s.connect(\"/run/nixlab-admin/backend.sock\")'")
     machine.fail("runuser -u nixlab-ui -- cat /var/lib/nixlab-admin/ca.key")
     machine.succeed("python3 /etc/nixlab-test-client.py")
