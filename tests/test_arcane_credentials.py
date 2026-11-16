@@ -44,6 +44,14 @@ class LifecycleTests(unittest.TestCase):
         (self.data/'arcane.db').write_bytes(b'corrupt')
         self.assertEqual(guest.state(),'blocked')
 
+    def test_old_key_with_lost_database_cannot_be_mistaken_for_first_boot(self):
+        guest.atomic(self.data/'encryption-key','a'*64)
+        self.assertEqual(guest.state(),'blocked')
+        guest.atomic(self.data/'.nixlab-bootstrap.json',json.dumps({'format':1,'state':'fresh'}))
+        self.assertEqual(guest.state(),'fresh')
+        guest.atomic(self.data/'.nixlab-bootstrap.json',json.dumps({'state':'initialized'}))
+        self.assertEqual(guest.state(),'blocked')
+
     def test_crash_during_owned_schema_migration_can_retry_but_unknown_database_cannot(self):
         with sqlite3.connect(self.data/'arcane.db') as db:
             db.execute('CREATE TABLE migration_progress(version INTEGER)')

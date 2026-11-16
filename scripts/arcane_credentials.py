@@ -49,8 +49,10 @@ def state():
     marker = DATA / '.nixlab-bootstrap.json'
     if db.is_symlink(): raise ValueError('Unsafe database')
     if not db.exists():
-        if not marker.exists(): return 'fresh'
-        try: return 'initializing' if json.loads(marker.read_text()).get('state')=='initializing' else 'blocked'
+        if not marker.exists(): return 'blocked' if (DATA/'encryption-key').exists() else 'fresh'
+        try:
+            phase=json.loads(marker.read_text()).get('state')
+            return phase if phase in ('fresh','initializing') else 'blocked'
         except (OSError,ValueError): return 'blocked'
     try:
         with sqlite3.connect(db.as_uri() + '?mode=ro', uri=True) as connection:
