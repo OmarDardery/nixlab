@@ -900,8 +900,13 @@ if __name__ == '__main__':
                 if len(sys.argv) != 3: raise rt.PublicError('Usage: sudo nixlab enroll-key laptop.pub')
                 enroll_key(manager, sys.argv[2], settings)
             else:
-                if sys.argv[2:] != ['reset-password']: raise rt.PublicError('Usage: sudo nixlab portainer reset-password')
-                reset_portainer(settings)
+                if sys.argv[2:] == ['reset-password']:
+                    reset_portainer(settings)
+                elif sys.argv[2:] == ['migration-inventory']:
+                    import app_migration
+                    print(json.dumps(app_migration.collect(settings), indent=2))
+                else:
+                    raise rt.PublicError('Usage: sudo nixlab portainer {reset-password|migration-inventory}')
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
             sys.exit('Command failed; check inputs and host status before retrying')
     elif action == 'backend':
@@ -976,5 +981,5 @@ if __name__ == '__main__':
     elif action == 'reset-password' and os.geteuid() == 0:
         reset_portal_password()
     else:
-        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|portainer reset-password|backend|web|guard|renew|approve-enrollment|reset-password|config|deploy|guests|recovery|commissioning|install-plan|prune-jobs|disk prepare}')
+        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|portainer {reset-password|migration-inventory}|backend|web|guard|renew|approve-enrollment|reset-password|config|deploy|guests|recovery|commissioning|install-plan|prune-jobs|disk prepare}')
 
