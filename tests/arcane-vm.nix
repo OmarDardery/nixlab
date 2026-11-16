@@ -49,7 +49,7 @@ in pkgs.testers.runNixOSTest {
     };
   };
   testScript = ''
-    machine.start()
+    machine.start(allow_reboot=True)
     machine.wait_for_unit("docker-arcane.service")
     machine.wait_for_open_port(9443, "127.0.0.2")
     machine.succeed("python3 ${./arcane-client.py} prepare")
