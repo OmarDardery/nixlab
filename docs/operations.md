@@ -9,7 +9,7 @@ existing service, typed Nix policy and recovery limits. A successful integrity
 check is separate from a tested guest/application restore.
 
 Install from an existing NixOS system using the [single command](plain-nixos.md).
-The installer configures and verifies Incus, Cockpit and the Portainer VM, preserves
+The installer configures and verifies Incus, Cockpit and the Arcane VM, preserves
 installed data and resumes interrupted work. The [commissioning checklist](commissioning.md)
 covers target-machine acceptance.
 
@@ -240,7 +240,7 @@ changes and deletion revoke affected sessions on their next request. The reserve
 HTTPS handler, not just disabled buttons. The root broker is accessible only through
 the local root/UI UNIX socket; requests and jobs carry audit identities.
 
-These roles do not change SSH/sudo, native Incus certificates or Portainer permissions.
+These roles do not change SSH/sudo, native Incus certificates or Arcane permissions.
 The `operator` SSH account is a full infrastructure administrator. An administrator
 Incus browser certificate is separately powerful. Do not give either to a portal-only
 viewer/operator. This is not a multi-tenant isolation or SSO system.

@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0e1116">
-  <meta name="description" content="Nixlab turns an installed NixOS server into an Incus, Cockpit and Portainer homelab. One command, preserved guests, and actual troubleshooting docs.">
+  <meta name="description" content="Nixlab turns an installed NixOS server into an Incus, Cockpit and Arcane homelab. One command, preserved guests, and actual troubleshooting docs.">
   <meta property="og:title" content="Nixlab — A NixOS hypervisor for homelabs.">
-  <meta property="og:description" content="Incus, Cockpit and Portainer on plain NixOS. Native management tools with reviewed host configuration and recovery guidance.">
+  <meta property="og:description" content="Incus, Cockpit and Arcane on plain NixOS. Native management tools with reviewed host configuration and recovery guidance.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://nixlab.dardery.work/">
   <link rel="canonical" href="https://nixlab.dardery.work/">
@@ -27,18 +27,18 @@
         <p class="eyebrow"><span class="square" aria-hidden="true"></span> ONE HOST · CLEAR OWNERSHIP · REPRODUCIBLE OPERATIONS</p>
         <h1>Your home server.<br><em>On your terms.</em></h1>
         <p class="hero-intro">Build a dependable NixOS homelab with native tools, reviewed changes and a single management hub.</p>
-        <p class="hero-detail">Incus guests, Cockpit host services and optional Portainer—without turning your server into a pile of fragile scripts.</p>
+        <p class="hero-detail">Incus guests, Cockpit host services and optional Arcane—without turning your server into a pile of fragile scripts.</p>
         <div class="hero-actions"><a class="button button-primary" href="#install">See installation <span aria-hidden="true">→</span></a><a class="text-link" href="@@BASE@@/docs/">Explore documentation <span aria-hidden="true">↗</span></a></div>
         <p class="hero-footnote"><span class="beta-label">BETA CANDIDATE · PHYSICAL VALIDATION PENDING</span><span class="beta-explainer">Single x86_64 NixOS host. Existing guests require explicit adoption and backup review.</span></p>
       </div>
-      <div class="stack-illustration" aria-label="NixOS host runs Incus and Cockpit, with Docker and Portainer in an apps VM">
+      <div class="stack-illustration" aria-label="NixOS host runs Incus and Cockpit, with Docker and Arcane in an apps VM">
         <div class="map-label"><span>HOMELAB ARCHITECTURE · NOT A LIVE STATUS DISPLAY</span><span aria-hidden="true">● ● ●</span></div>
         <div class="host-box">
           <div class="host-heading"><span class="server-glyph" aria-hidden="true">▤</span><div><strong>THE HOST</strong><span>NixOS · bare metal · no desktop</span></div><span class="small-tag">YOUR NIXOS SERVER</span></div>
           <div class="service-row"><div class="service-symbol" aria-hidden="true">i_</div><div><strong>Incus</strong><span>Containers &amp; virtual machines</span></div><code>:8443</code></div>
           <div class="service-row"><div class="service-symbol" aria-hidden="true">&gt;_</div><div><strong>Cockpit</strong><span>Host terminal, services &amp; logs</span></div><code>:9090</code></div><div class="service-row"><div class="service-symbol" aria-hidden="true">[n]</div><div><strong>NixLab console</strong><span>Reviewed host changes &amp; recovery</span></div><code>:9440</code></div>
           <div class="vm-connector"><span aria-hidden="true">└</span><span>apps · NixOS virtual machine</span><span class="vm-isolation">SEPARATE KERNEL</span></div>
-          <div class="vm-box"><div class="service-row"><div class="service-symbol" aria-hidden="true">▱</div><div><strong>Portainer + Docker</strong><span>Compose stacks live here</span></div><code>:9443*</code></div><p>* HTTPS through the host proxy. Docker stays in the VM.</p></div>
+          <div class="vm-box"><div class="service-row"><div class="service-symbol" aria-hidden="true">▱</div><div><strong>Arcane + Docker</strong><span>Compose stacks live here</span></div><code>:9443*</code></div><p>* HTTPS through the host proxy. Docker stays in the VM.</p></div>
           <div class="host-bottom"><span><span class="small-square" aria-hidden="true"></span> NIX-OWNED HOST</span><span>INCUS-OWNED GUEST DATA</span></div>
         </div>
         <div class="map-caption"><span>Architecture diagram. Not a live status monitor.</span><span class="hand-note">native tools.<br>clear ownership.</span></div>
@@ -61,7 +61,7 @@
       <div class="stack-table">
         <article><span class="row-index">01</span><div><h3>Incus <span>:8443</span></h3><p>Create containers and VMs. Manage guest consoles, networks, storage and snapshots.</p></div><span class="row-role">THE GUESTS</span></article>
         <article><span class="row-index">02</span><div><h3>Cockpit <span>:9090</span></h3><p>Get a host terminal. Inspect services and the journal. Use your Linux account.</p></div><span class="row-role">THE HOST</span></article>
-        <article><span class="row-index">03</span><div><h3>Portainer <span>:9443</span></h3><p>Deploy Docker Compose stacks in the apps VM. Separate Linux and Portainer logins.</p></div><span class="row-role">THE APPS</span></article>
+        <article><span class="row-index">03</span><div><h3>Arcane <span>:9443</span></h3><p>Deploy Docker Compose stacks in the apps VM. Separate Linux and Arcane logins.</p></div><span class="row-role">THE APPS</span></article>
       </div>
       <p class="section-caption">The Nixlab configuration and recovery portal is on <code>:9440</code>. Use the actual address printed by installation. Reported guest IPs and reservations are shown separately. <a href="@@BASE@@/docs/networking/">Networking guide</a> · <a href="@@BASE@@/docs/projects/">Upstream projects &amp; credits</a>.</p>
     </section>
@@ -75,7 +75,7 @@
       <details><summary>Why does my server need an SSH key?<span aria-hidden="true">+</span></summary><p>It does not need one for the default installation. Non-root Linux password login is enabled. Keys are optional client identities for remote administration; generating a server key will not let your laptop log in.</p></details>
       <details><summary>Can I close the laptop lid?<span aria-hidden="true">+</span></summary><p>The installer enables lid-closed operation, and the host configuration disables suspend and hibernation. Check cooling, power and battery behavior on your actual hardware. </p></details>
     </div></section>
-    <section class="last-call section-wrap"><p class="eyebrow">NIXOS · INCUS · COCKPIT · OPTIONAL PORTAINER</p><h2>Start small.<br><span>Validate your host.</span></h2><a class="button button-primary" href="@@BASE@@/docs/plain-nixos/">Start with the installation guide <span aria-hidden="true">↗</span></a></section>
+    <section class="last-call section-wrap"><p class="eyebrow">NIXOS · INCUS · COCKPIT · OPTIONAL ARCANE</p><h2>Start small.<br><span>Validate your host.</span></h2><a class="button button-primary" href="@@BASE@@/docs/plain-nixos/">Start with the installation guide <span aria-hidden="true">↗</span></a></section>
   </main>
   <footer class="site-footer section-wrap"><a class="brand" href="@@BASE@@/">nixlab<span class="brand-cursor" aria-hidden="true">_</span></a><p>Built on maintained <a href="@@BASE@@/docs/projects/">upstream projects</a>.</p><a href="https://github.com/OmarDardery/nixlab">Source &amp; issues ↗</a></footer>
   <p class="sr-only" id="announcer" role="status" aria-live="polite"></p>

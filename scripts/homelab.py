@@ -39,20 +39,20 @@ def main():
     sub.add_parser("install-plan")
     sub.add_parser("commissioning").add_argument("arguments", nargs=argparse.REMAINDER)
     sub.add_parser("enroll-key").add_argument("file", type=Path)
-    portainer = sub.add_parser("portainer")
-    portainer.add_argument("operation", choices=["reset-password"])
+    arcane = sub.add_parser("arcane")
+    arcane.add_argument("operation", choices=["reset-password"])
     for action in ("exec", "exec-many", "restart", "backup", "deploy", "update", "logs", "down", "project-restart", "action"):
         q = sub.add_parser(action)
         q.add_argument("target")
         if action in ("exec", "exec-many", "action"):
             q.add_argument("command", nargs=argparse.REMAINDER)
     args = p.parse_args()
-    if args.action in ("doctor", "enroll-key", "portainer", "commissioning", "install-plan"):
+    if args.action in ("doctor", "enroll-key", "arcane", "commissioning", "install-plan"):
         if os.geteuid() != 0:
             p.error('Run this host administration command with sudo')
         command = ["nixlab-admin", args.action]
         if args.action == "enroll-key": command += [str(args.file)]
-        if args.action == "portainer": command += [args.operation]
+        if args.action == "arcane": command += [args.operation]
         if args.action == "commissioning": command += args.arguments
         return execute(command, args.action, "host")
     prefix = ["incus", "--project", args.project]

@@ -1,7 +1,7 @@
 # Update existing NixOS guests
 
 > **Experimental (Phase 1).** The container guest rollout and recovery suite passed,
-> but the real apps-VM/Portainer end-to-end qualification has **not** passed on
+> but the real apps-VM/Arcane end-to-end qualification has **not** passed on
 > hosted nested KVM. This feature is disabled by default. Do not enable
 > `nixlab.deployment.apps.enable` for production workloads until the apps-VM
 > boot, authentication, deployment, and rollback checks are qualified.
@@ -52,12 +52,12 @@ source. An active unit does not prove an application login or LAN reachability.
 
 For the built-in apps VM, set `nixlab.deployment.apps.enable = true`. It adds the
 `apps` target from the same evaluated guest configuration as the image, checks
-`docker-portainer.service`, and disables the older automatic OS deployment in
+`docker-arcane.service`, and disables the older automatic OS deployment in
 onboarding. Credential/TLS provisioning stays in onboarding. Before opting in, set
-`nixlab.settings.apps.portainerImage` to an image reference with a verified
+`nixlab.settings.apps.arcaneImage` to an image reference with a verified
 `@sha256:` digest (or an immutable local `sha256:` image ID with a declared
 image archive). Mutable tags and the unpinned example demo are refused in this
-mode. Pin images in other Nix-owned guest workloads too. Portainer/helper-owned
+mode. Pin images in other Nix-owned guest workloads too. Arcane/helper-owned
 stacks retain their native update tooling.
 
 ## Review, activate and deploy

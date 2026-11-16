@@ -6,7 +6,7 @@ and [roadmap](https://github.com/OmarDardery/nixlab/issues/19) record the missin
 No tag, release or passed hardware result is implied by this version string.
 
 NixLab is a NixOS hypervisor integration: NixOS owns the host; Incus owns guests,
-networks, volumes and snapshots; optional Portainer owns Docker/Compose workloads.
+networks, volumes and snapshots; optional Arcane owns Docker/Compose workloads.
 Cockpit supplies host administration. NixLab connects these tools and coordinates
 reviewed configuration, host updates and independent recovery. See [credits](projects.md).
 
@@ -28,7 +28,7 @@ Manage addresses, leases, ACLs and guest lifecycle in native Incus; see [network
 ## Supported scope and remaining gates
 
 Current scope is single-host x86_64 NixOS, Incus containers and intended KVM VMs,
-optional isolated Docker/Portainer, reviewed host changes and restic coordination.
+optional isolated Docker/Arcane, reviewed host changes and restic coordination.
 Source/virtual integration tests do not establish physical installation, real
 apps-VM stability or independent replacement-host recovery. Backend/device/custom
 secret coverage and application consistency require the documented drills.

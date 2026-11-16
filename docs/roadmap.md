@@ -8,7 +8,7 @@ virtualization UI. See the [ownership contract](ownership.md).
 | Host lifecycle | Single-command preserved-installation setup, reviewed changes, source/OS updates, confirmation recovery |
 | Ethernet | Host bridges/VLANs, management addressing, guest firewall integration, trusted LAN access, narrow outbound LAN exceptions |
 | Hardware | USB serial discovery, selected stable aliases, native Incus attachment guidance, existing UUID filesystems/ZFS datasets |
-| Native tools | Enabled Incus/Cockpit/Portainer links, upstream credits/docs, all-project read-only guest IPs, pinned Community Scripts Incus CLI wizard, explicit verification labels |
+| Native tools | Enabled Incus/Cockpit/Arcane links, upstream credits/docs, all-project read-only guest IPs, pinned Community Scripts Incus CLI wizard, explicit verification labels |
 | Ownership | Ordinary native/helper resources remain native; declared infrastructure drift is refused before preseed |
 | Recovery | Atomic generations, per-group downtime, shared-volume grouping, maintenance exclusions, independent restic, archive recovery |
 
@@ -62,7 +62,7 @@ Make configuration and workload updates reviewable, pinned and traceable to sour
 - Support optional user-owned Git configuration without requiring Git for boot or recovery.
 - Connect commit diffs and update proposals to existing build/review/activate/confirm operations.
 - Record revision, deployment outcome and resulting system closure together.
-- Reuse image pinning and guest deployment; delegate Portainer-owned stacks to Portainer and distinguish configuration rollback from data recovery.
+- Reuse image pinning and guest deployment; delegate Arcane-owned stacks to Arcane and distinguish configuration rollback from data recovery.
 
 ## NixOS Guest Templates & Roles — P1 · Optional
 
@@ -118,7 +118,7 @@ Give generic NixOS and Compose templates a versioned, editable lifecycle.
 - Consume user-selected versioned templates and export ordinary Nix or Compose files.
 - Include persistence, secret-reference, ownership and compatibility requirements.
 - Preserve provenance and propose upgrade patches without overwriting local edits.
-- Reuse existing deployment mechanisms and Portainer; avoid another template language or application store.
+- Reuse existing deployment mechanisms and Arcane; avoid another template language or application store.
 
 ## Energy-Aware Fleet Policies — P3 · Stretch
 

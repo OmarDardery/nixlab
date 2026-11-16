@@ -6,6 +6,8 @@ let
   migrate = import ../lib/settings-migrations.nix;
   legacy = { ready = true; monitoring.history = false; adminKeys = [ "fixture" ]; };
 in {
+  legacyDashboardPortPreserved = (migrate { schemaVersion = 1; apps.portainerPort = 19443; apps.portainerImage = "retired/image"; }).apps == { arcanePort = 19443; };
+  explicitArcanePortWins = (migrate { schemaVersion = 1; apps = { portainerPort = 19443; arcanePort = 9441; }; }).apps == { arcanePort = 9441; };
   defaultsPreserved = check defaults == defaults;
   legacyCollectionPreserved = (migrate legacy).monitoring.collection;
   explicitFalsePreserved = !(migrate (legacy // { monitoring.collection = false; })).monitoring.collection;

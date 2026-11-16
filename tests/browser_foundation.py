@@ -182,11 +182,11 @@ def main():
             page.locator('.sidebar nav [data-go="integrations"]').click()
             page.locator('[data-path="cockpit.enable"]').check()
             page.locator('[data-path="apps.enable"]').check()
-            page.locator('[data-path="apps.portainerPort"]').fill('9443')
+            page.locator('[data-path="apps.arcanePort"]').fill('9443')
             assert page.locator('[data-path="cockpit.enable"]').is_checked()
-            assert page.locator('[data-path="apps.portainerPort"]').input_value() == '9443'
+            assert page.locator('[data-path="apps.arcanePort"]').input_value() == '9443'
             page.locator('[data-secret="cockpitPassword"]').fill('test-linux-account-password')
-            page.locator('[data-secret="portainerPassword"]').fill('test-portainer-password')
+            page.locator('[data-secret="arcanePassword"]').fill('Test-arcane-password-1!')
             # Active links must not advertise an unapplied draft.
             assert page.locator('a[href="https://192.0.2.10:9443"]').count() == 0
             page.get_by_text('Optional provisioning tools', exact=True).click()
@@ -242,7 +242,7 @@ def main():
             assert request['settings']['cockpit']['enable']
             assert request['settings']['maintenance']['laptopMode'] == settings['maintenance']['laptopMode'], 'Enabling services must not silently change power policy'
             assert request['secrets']['cockpitPassword'] == 'test-linux-account-password'
-            assert request['secrets']['portainerPassword'] == 'test-portainer-password'
+            assert request['secrets']['arcanePassword'] == 'Test-arcane-password-1!'
             assert request['settings']['connectivity']['bridges'][0]['interfaces'] == ['eth0']
             assert request['settings']['hardware']['serialAliases'][0]['serial'] == 'EXAMPLE'
             status['job'].update(status='ready', impactPlan={
@@ -266,7 +266,7 @@ def main():
                 'boundary': 'OS rollback does not restore database schemas', 'targets': [
                     {'id': 'apps', 'name': 'apps', 'project': 'lab', 'targetSystem': '/nix/store/target',
                      'currentSystem': '/nix/store/previous', 'dependsOn': [], 'restartPolicy': 'defer',
-                     'maxAttempts': 3, 'healthUnits': ['docker-portainer.service'], 'httpChecks': 0}]})
+                     'maxAttempts': 3, 'healthUnits': ['docker-arcane.service'], 'httpChecks': 0}]})
             page.evaluate('(value) => { state.status=value; shell(); }', status)
             page.get_by_role('button', name='Deploy reviewed guests', exact=True).click()
             page.wait_for_function("state.status.job?.guestDeployment?.status === 'queued'")

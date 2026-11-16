@@ -25,7 +25,7 @@ its transaction. After a disconnected full installation, rerun without that flag
 Do not delete pending/job/recovery files to force a retry. Inspect the transaction
 and root worker journal from a local console if recovery fails; the retained
 original OS generation and bootloader remain the fallback. Recovery does not need
-the apps VM, Portainer or an application identity service.
+the apps VM, Arcane or an application identity service.
 
 ## Scheduled repository verification
 
@@ -96,7 +96,7 @@ read-only/full state filesystem fails verification rather than reporting success
 The shipped baseline creates an Incus **directory** pool under its dedicated state tree.
 It does not create a host filesystem, consume a raw device, or promise redundancy.
 Persistent data lives under `/var/lib/incus`, application volumes inside the VM's persistent
-disk, Compose definitions under `/srv/compose`, Portainer state under `/srv/portainer`.
+disk, Compose definitions under `/srv/compose`, Arcane state under `/srv/arcane`.
 Nix source/store and runtime state have separate lifecycles.
 
 For ZFS, first review physical disk identity/contents, backups and a recovery plan. Obtain
@@ -221,7 +221,7 @@ do not substitute this demo hook for Immich's documented backup workflow.
 Configured recovery credentials and SOPS links must live under trusted root-owned
 parent directories; writable non-sticky or unprivileged-owned parents make
 coverage incomplete. Move affected credentials to root-controlled storage and
-review their configured paths. Portainer reset metadata is optional on fresh
+review their configured paths. Arcane reset metadata is optional on fresh
 bootstrap but must be included safely once it exists. This preflight refuses
 backup before guest shutdown.
 
@@ -329,7 +329,7 @@ consistency require separate qualification before relying on them.
    Guests have no NICs/profiles, autostart or snapshot schedule. Their imported
    root disks and separate recovered custom volumes remain attached. Start and
    stop selected guests explicitly for the drill, check application records,
-   Portainer state/credentials and Compose definitions, then stop them again.
+   Arcane state/credentials and Compose definitions, then stop them again.
    Runtime jobs inside a guest still need review before any connectivity is added.
    Archived snapshots retain their original configuration; review isolation before
    restoring one. Do not claim success merely because imports succeeded.
@@ -387,13 +387,13 @@ The provided backup does not raw-copy a live Incus database.
 
 ## Security upkeep
 
-Review pinned Nixpkgs/sops inputs, Portainer release notes and Compose image digests regularly.
+Review pinned Nixpkgs/sops inputs, Arcane release notes and Compose image digests regularly.
 Use a branch/PR and `nix flake update`, build/evaluate, then deploy during a maintenance window.
 No unattended flake update or reboot changes the hypervisor behind your back. Kernel updates
 require a planned reboot. Incus database/API upgrades may make an old daemon generation
 incompatible; consult release notes before downgrading. NixOS rollback is not a database backup.
 
-Trusted Incus socket/certificates, Docker socket, passwordless sudo and Portainer admin are all
+Trusted Incus socket/certificates, Docker socket, passwordless sudo and Arcane admin are all
 privileged control planes. Keep them private, use distinct identities, revoke lost keys, and
 protect backups because they include guest secrets. The default firewall restricts management
 by interface/source; it is not a substitute for authentication or physical network security.
@@ -445,7 +445,7 @@ the repository cannot unlock that repository after total host loss.
 
 A completed export is not an off-host transfer, `restic check` is not an application
 restore, and these new records initially say `restore: unverified`. Prove actual
-Portainer state, Compose definitions, Docker volume records and any external data
+Arcane state, Compose definitions, Docker volume records and any external data
 through an isolated restore drill. Incus server identity/administrator enrollment,
 external writers, arbitrary custom module secrets and application-specific
 consistency still require review; this change alone does not close #12 or qualify

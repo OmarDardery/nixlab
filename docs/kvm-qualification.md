@@ -73,7 +73,7 @@ candidate, and the entire job must succeed. A missing file or partial artifact i
 unverified evidence. The job records the physical runner CPU/kernel; compare the
 NixOS test logs and pinned inputs for the guest kernel, Incus, QEMU and firmware.
 
-The fixture checks the actual guest agent, real TLS/authenticated Portainer user,
+The fixture checks the actual guest agent, real TLS/authenticated Arcane user,
 failed health rollback and blocked dependents, successful in-place OS updates,
 unchanged UUID/device topology, persisted file contents and Docker volume records,
 and persistence/authentication after an apps VM reboot. Production transport

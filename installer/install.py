@@ -101,7 +101,7 @@ def parser_args():
     ssh.add_argument('--no-ssh-password-login', action='store_false', dest='ssh_password_login', help='Disable SSH password login; remote installs need a client public key')
     parser.set_defaults(ssh_password_login=True)
     parser.add_argument('--guest-subnet', help='Unused private IPv4 /24')
-    parser.add_argument('--no-apps', action='store_true', help='Skip the Docker/Portainer VM')
+    parser.add_argument('--no-apps', action='store_true', help='Skip the Docker/Arcane VM')
     parser.add_argument('--adopt-incus', action='store_true', help='Back up existing Incus guests and add an isolated Nixlab namespace')
     parser.add_argument('--no-update', action='store_true', help='Keep the current platform source on retry')
     interaction = parser.add_mutually_exclusive_group()
@@ -189,16 +189,16 @@ def summarize(settings, record=None):
             else:
                 print('Linux operator recovery: use an authorized host terminal and sudo passwd operator.')
         if settings['apps']['enable']:
-            import portainer
-            print('Portainer: https://' + address + ':' + str(settings['apps']['portainerPort']))
-            if portainer.authentication_ready(settings):
-                print('Portainer bootstrap authentication verified. Use your existing Portainer account.')
+            import arcane
+            print('Arcane: https://' + address + ':' + str(settings['apps']['arcanePort']))
+            if arcane.authentication_ready(settings):
+                print('Arcane bootstrap authentication verified. Use your existing Arcane account.')
                 # Retain the last compatible private delivery route until the
                 # supplied-password reset/first-boot flows are qualified.
-                print('Legacy protected Portainer bootstrap input: ' + str(rt.SECRET_PATHS['portainerPassword']))
+                print('Legacy protected Arcane bootstrap input: ' + str(rt.SECRET_PATHS['arcanePassword']))
             else:
-                print('Portainer has an existing account. The bootstrap file is not a verified current password.')
-                print('Recover access: sudo nixlab portainer reset-password')
+                print('Arcane has an existing account. The bootstrap file is not a verified current password.')
+                print('Recover access: sudo nixlab arcane reset-password')
         print('All enabled management endpoints passed health checks. No disks were formatted.')
         if (record or {}).get('rebootRequired'):
             print('Reboot to use the new kernel; then run sudo nixlab doctor.')

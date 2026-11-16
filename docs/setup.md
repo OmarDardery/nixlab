@@ -94,7 +94,7 @@ The installer does not overwrite a pre-existing Incus database.
 
 Verify the CA fingerprint against the installer output **before signing in**. The login page
 provides a CA download without authentication; it is a public certificate, not a private key.
-The HTTPS certificate chain also includes the local CA. In installer mode the Incus server and Portainer portal use that CA too; existing ACME configuration, if present, retains certificate ownership. Trust it on your administrator devices
+The HTTPS certificate chain also includes the local CA. In installer mode the Incus server and Arcane portal use that CA too; existing ACME configuration, if present, retains certificate ownership. Trust it on your administrator devices
 only after checking the fingerprint. You can then use ordinary HTTPS for the private portal.
 
 The portal is at `https://HOST_IP:9440` by default. Sign in with the initial password and configure:
@@ -108,7 +108,7 @@ The portal is at `https://HOST_IP:9440` by default. Sign in with the initial pas
   duplicate UUIDs, mismatched filesystem types and mount paths that hide files are rejected.
 - **Access:** paste an SSH public key for the `operator` account. Existing local accounts remain
   in the imported installation. SSH password login is enabled by default for non-root Linux accounts; Access can select key-only login.
-- **Applications:** optionally enable Docker/Portainer (off by default) and set the initial Portainer password. VM CPU/RAM defaults use
+- **Applications:** optionally enable Docker/Arcane (off by default) and set the initial Arcane password. VM CPU/RAM defaults use
   detected hardware. The optional demo also needs a database initialization password.
 - **Radios:** choose Wi-Fi/Bluetooth on or off. Wi-Fi uses NetworkManager with the iwd backend.
   Existing NetworkManager profiles can remain; an old Nix wpa_supplicant profile requires entering
@@ -172,26 +172,26 @@ needed, then switches the guest OS generation. Future wizard changes therefore a
 existing VM's NixOS configuration; importing a new image alone would not do that.
 
 Runtime credentials and a separate application TLS key are delivered through Incus file/exec
-operations. Portainer remains stopped until its required files exist. The host portal links to:
+operations. Arcane remains stopped until its required files exist. The host portal links to:
 
 - `https://HOST_IP:8443` is the Incus Web UI. Under access settings, enter a device name
   and a dedicated bundle passphrase, then choose **Create an Incus browser identity**.
   Import the encrypted PKCS#12 file using that passphrase. Open Incus and select the
   `lab` project. The identity is restricted to that project and expires after 90 days.
   To revoke it, use the displayed fingerprint in the native Incus trust list.
-- `https://HOST_IP:9441`: Portainer through Nginx. The proxy checks the applications VM's TLS
+- `https://HOST_IP:9441`: Arcane through Nginx. The proxy checks the applications VM's TLS
   chain/name against the local CA. It permits trusted management CIDRs and supports WebSockets.
-  The host TLS key is not shared with the VM. Log in with the Portainer bootstrap credential.
+  The host TLS key is not shared with the VM. Log in with the Arcane bootstrap credential.
 
 The apps VM's backend TLS port is inside the private guest network; host forwarding rules exclude
-it from ordinary LAN access. Guests on that bridge are one shared application trust zone. Portainer
+it from ordinary LAN access. Guests on that bridge are one shared application trust zone. Arcane
 still has VM-root-equivalent Docker access. The portal and the Docker dashboard are separate
 control planes with separate credentials. Browser identity import is a client-side trust step,
 not a hand-written Nix configuration change.
 
 Disabling the applications VM stops only the owned VM and disables its autostart; its disk and data are retained. An unowned guest named apps is left untouched while the feature is disabled. Deleting a guest remains an explicit Incus operation after backup.
 
-Bootstrap passwords only initialize Portainer/PostgreSQL; changing those password files later does
+Bootstrap passwords only initialize Arcane/PostgreSQL; changing those password files later does
 not rotate existing database/UI accounts. Rotate inside the application with a coordinated data
 backup. The setup UI does not claim otherwise.
 
@@ -259,8 +259,8 @@ served by the authenticated HTTPS process that is already needed for configurati
 Adding BusyBox httpd, Apache httpd or a separate static web server here would add a daemon
 without removing that API process. Authentication, TLS and source checks also apply to assets.
 
-Docker/Portainer is **opt-in** on the Applications page. Disabled means no new apps VM, Docker
-engine or Portainer proxy is started on the host. An existing owned apps VM is stopped and retained.
+Docker/Arcane is **opt-in** on the Applications page. Disabled means no new apps VM, Docker
+engine or Arcane proxy is started on the host. An existing owned apps VM is stopped and retained.
 Initial resource suggestions are capped at 2 vCPUs/2 GiB, based on detected hardware; this is a
 starting allocation, not a promise that every application fits it. Increase it for real workloads.
 Wi-Fi, Bluetooth, the demo, Cloudflare and backups also remain opt-in. Backup protection still
@@ -274,7 +274,7 @@ started only with history enabled. Enable history for trend graphs/alert rules, 
 
 Nginx runs only when the application portal is enabled, with one worker and 256 connections.
 It provides verified upstream HTTPS, client CIDR restrictions and WebSocket forwarding. This is
-why it is retained for Portainer instead of a basic static httpd. No throughput or RAM benchmark
+why it is retained for Arcane instead of a basic static httpd. No throughput or RAM benchmark
 is implied by these configuration choices. Incus, QEMU and the application workloads dominate
 resource requirements; ordinary containers avoid the overhead of an additional guest kernel.
 
@@ -287,14 +287,14 @@ secrets. Imported settings must be reviewed for the target machine rather than b
 
 Nix declares services, packages, mounts, firewall rules, radios, Compose definitions and desired
 Incus resources. Native options are preferred; guarded initialization/reconciliation covers
-Incus state and runtime credentials. VM disks, snapshots, Portainer-created stacks, database
+Incus state and runtime credentials. VM disks, snapshots, Arcane-created stacks, database
 contents, certificate enrollment and backup contents are mutable state, not reproducible Nix
 configuration. To make an application reproducible, keep its Compose project in Git or the
-Nix-owned project definitions; editing it only in Portainer does not make it declarative.
+Nix-owned project definitions; editing it only in Arcane does not make it declarative.
 
 ## Homepage launcher
 
-The overview links to active Incus and optional Portainer endpoints, upstream Incus helper scripts
+The overview links to active Incus and optional Arcane endpoints, upstream Incus helper scripts
 and the Community Scripts catalog, SSH administration, Cloudflare, project guides and source.
 Disabled tools link to their configuration page. Management URLs use the currently active address,
 not an unsaved edit. Only configured non-wildcard tunnel hostnames become public application links;

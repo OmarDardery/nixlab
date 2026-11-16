@@ -174,7 +174,7 @@ def validate_settings(candidate, current, host, require_devices=True):
         raise ValueError('Time zone is not installed on this host')
     listeners = [('setup', candidate['setup']['port'])]
     if candidate['cockpit']['enable']: listeners.append(('Cockpit', candidate['cockpit']['port']))
-    if candidate['apps']['enable']: listeners.append(('Portainer', candidate['apps']['portainerPort']))
+    if candidate['apps']['enable']: listeners.append(('Arcane', candidate['apps']['arcanePort']))
     used = {22, 53, 67, 8080, 8443, 9100}
     for name, port in listeners:
         if type(port) is not int or not 1024 <= port <= 65535 or port in used:
@@ -189,8 +189,8 @@ def validate_settings(candidate, current, host, require_devices=True):
     for k in ('memory', 'disk'):
         if not re.fullmatch(r'[1-9][0-9]*(?:MiB|GiB)', candidate['apps'][k]):
             raise ValueError('VM ' + k + ' must use MiB/GiB units')
-    if not re.fullmatch(r'[A-Za-z0-9./_:@-]+', candidate['apps']['portainerImage']):
-        raise ValueError('Invalid Portainer image reference')
+    if not re.fullmatch(r'[A-Za-z0-9./_:@-]+', candidate['apps']['arcaneImage']):
+        raise ValueError('Invalid Arcane image reference')
     mounts = candidate['mounts']
     uuids, paths, names = set(), set(), set()
     available = {}
@@ -254,7 +254,7 @@ def validate_settings(candidate, current, host, require_devices=True):
         for hostname, target in candidate['tunnel']['ingress'].items():
             if not re.fullmatch(r'[A-Za-z0-9*.-]+', hostname) or not isinstance(target, str) or not target.startswith(('http://', 'https://')):
                 raise ValueError('Tunnel ingress must map hostnames to HTTP application endpoints')
-            blocked_ports = {22, 8443, 9090, 9100, 9440, 9441, 9443, candidate['setup']['port'], candidate['cockpit']['port'], candidate['apps']['portainerPort']}
+            blocked_ports = {22, 8443, 9090, 9100, 9440, 9441, 9443, candidate['setup']['port'], candidate['cockpit']['port'], candidate['apps']['arcanePort']}
             origin = urlsplit(target)
             if origin.username or origin.password or not origin.hostname or origin.port in blocked_ports:
                 raise ValueError('Management endpoints cannot be public tunnel origins')

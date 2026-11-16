@@ -15,7 +15,7 @@
     enable = true;
     settings = { PasswordAuthentication = false; KbdInteractiveAuthentication = false; PermitRootLogin = "prohibit-password"; };
   };
-  # Portainer is loopback-only without setup, otherwise gated in DOCKER-USER.
+  # Arcane is loopback-only without setup, otherwise gated in DOCKER-USER.
   networking.firewall.allowedTCPPorts = [ 22 8080 ];
   services.prometheus.exporters.node = { enable = site.monitoring.history; listenAddress = "0.0.0.0"; openFirewall = false; };
   networking.firewall.extraCommands = ''

@@ -48,7 +48,7 @@ def lines(settings, links, units, current=None, default=None, kernel=None, boote
     if address:
         yield 'Management: ' + clean(interface) + '  ' + address
         for section, label, port in (
-            ('setup', 'NixLab', 'port'), ('cockpit', 'Cockpit', 'port'), ('apps', 'Portainer', 'portainerPort')):
+            ('setup', 'NixLab', 'port'), ('cockpit', 'Cockpit', 'port'), ('apps', 'Arcane', 'arcanePort')):
             option = settings.get(section, {})
             if option.get('enable') and type(option.get(port)) is int:
                 yield f'{label}: https://{address}:{option[port]}'

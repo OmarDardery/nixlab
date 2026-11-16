@@ -24,7 +24,7 @@ class ConsoleTests(unittest.TestCase):
         self.assertIn('https://192.0.2.20:9440', output)
         self.assertIn('https://192.0.2.20:8443', output)
         self.assertNotIn('192.0.2.10:', output)
-        self.assertNotIn('Portainer:', output)
+        self.assertNotIn('Arcane:', output)
         self.assertIn('Web=unavailable', output)
         self.assertIn('Backups: disabled', output)
         self.assertNotIn('healthy', output)

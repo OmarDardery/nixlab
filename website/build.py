@@ -20,7 +20,7 @@ GROUPS = [
     ('GET STARTED', [('index', 'Overview'), ('plain-nixos', 'Install Nixlab'), ('start', 'First steps'), ('home-server-scenario', 'Homelab acceptance'), ('architecture', 'Architecture'), ('homelab', 'Meet the stack')]),
     ('USE YOUR SERVER', [('administration', 'Accounts & access'), ('networking', 'Networking'), ('guest-deployments', 'Guest updates'), ('file-modules', 'File configuration'), ('hardware', 'Hardware & disks'), ('helpers', 'Application helpers'), ('setup', 'Optional web wizard')]),
     ('WHEN THINGS HAPPEN', [('troubleshooting', 'Troubleshooting'), ('recovery', 'Backups & recovery'), ('operations', 'Operations & updates'), ('commissioning', 'Commissioning'), ('trial', 'Trial checklist'), ('validation', 'What is tested')]),
-    ('PROJECT NOTES', [('deployment', 'Manual deployment'), ('configuration-contract', 'Configuration contract'), ('ownership', 'Ownership'), ('credential-lifecycle', 'Credential lifecycle'), ('staged-transaction-secrets', 'Staged credential lifetime'), ('artifact-audit', 'Artifact audit'), ('migration', 'Migration'), ('arcane-migration', 'Portainer to Arcane'), ('beta', 'Beta candidate'), ('projects', 'Upstream credits'), ('qualification', 'Release qualification'), ('kvm-qualification', 'KVM qualification'), ('roadmap', 'Roadmap'), ('website', 'Website & DNS')]),
+    ('PROJECT NOTES', [('deployment', 'Manual deployment'), ('configuration-contract', 'Configuration contract'), ('ownership', 'Ownership'), ('credential-lifecycle', 'Credential lifecycle'), ('staged-transaction-secrets', 'Staged credential lifetime'), ('artifact-audit', 'Artifact audit'), ('migration', 'Migration'), ('arcane', 'Arcane'), ('beta', 'Beta candidate'), ('projects', 'Upstream credits'), ('qualification', 'Release qualification'), ('kvm-qualification', 'KVM qualification'), ('roadmap', 'Roadmap'), ('website', 'Website & DNS')]),
 ]
 DESCRIPTIONS = {
     'index': 'Find the install guide, understand the stack, or skip directly to whatever is currently broken.',
@@ -172,7 +172,7 @@ def build(output, base):
         destination.write_text(template({'BASE': base, 'TITLE': escape(title), 'DESCRIPTION': escape(description), 'CANONICAL': '/docs/' + slug + '/', 'NAV': navigation(base, slug, pages), 'BODY': body, 'TOC': toc, 'SOURCE': REPO + '/blob/main/docs/' + source.name}))
         search.append({'title': title, 'url': url(base, slug), 'text': plain})
     cards = ''.join(f'<a href="{url(base, slug)}"><h2>{escape(title)}</h2><p>{escape(DESCRIPTIONS[slug])}</p></a>' for slug, title in [('plain-nixos', 'Install Nixlab ↗'), ('troubleshooting', 'Troubleshoot ↗'), ('recovery', 'Back up & recover ↗'), ('commissioning', 'Verify your hardware ↗')])
-    body = '<p>Start with a plain installed NixOS server. The default installer configures Incus, Cockpit and the Docker/Portainer VM, then verifies the enabled interfaces.</p><div class="docs-intro-grid">' + cards + '</div>'
+    body = '<p>Start with a plain installed NixOS server. The default installer configures Incus, Cockpit and the Docker/Arcane VM, then verifies the enabled interfaces.</p><div class="docs-intro-grid">' + cards + '</div>'
     for title, items in GROUPS[1:]:
         body += '<h2>' + escape(title.title()) + '</h2><ul>' + ''.join(f'<li><a href="{url(base, slug)}">{escape(label)}</a></li>' for slug, label in items) + '</ul>'
     home = output / 'docs' / 'index.html'

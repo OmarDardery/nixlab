@@ -36,7 +36,7 @@ class CleanupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); directory = root / 'jobs' / ('a' * 32)
             rt.write_json(directory / 'job.json', {'status': 'confirmed'})
-            rt.stage_secrets(directory, {'portainerPassword': SECRETS['staged']})
+            rt.stage_secrets(directory, {'arcanePassword': SECRETS['staged']})
             with patch.object(rt.os, 'fsync', side_effect=OSError(SECRETS['staged'])):
                 with self.assertRaisesRegex(ValueError, 'cleanup failed') as caught:
                     rt.remove_staged_secrets(directory)
@@ -53,8 +53,8 @@ class CleanupTests(unittest.TestCase):
             root = Path(folder); manager = Manager(root / 'source', root / 'state')
             directory = manager.state / 'jobs' / ('a' * 32)
             rt.write_json(directory / 'job.json', {'status': 'ready', 'created': time.time() - rt.STAGED_SECRET_LIFETIME,
-                                                  'secretChanges': ['portainerPassword']})
-            rt.stage_secrets(directory, {'portainerPassword': SECRETS['staged']})
+                                                  'secretChanges': ['arcanePassword']})
+            rt.stage_secrets(directory, {'arcanePassword': SECRETS['staged']})
             rt.write_json(manager.state / 'active.json', {'id': directory.name})
             with patch.object(rt, 'STATE', manager.state), patch.object(manager, 'spawn') as spawn, \
                     patch.object(worker, 'save_recovery') as recovery, patch.object(rt, 'atomic') as publish:
@@ -70,7 +70,7 @@ class CleanupTests(unittest.TestCase):
             directory = manager.state / 'jobs' / ('a' * 32)
             rt.write_json(directory / 'job.json', {'status': 'failed'})
             rt.write_json(manager.state / 'pending.json', {'id': directory.name})
-            rt.stage_secrets(directory, {'portainerPassword': SECRETS['staged']})
+            rt.stage_secrets(directory, {'arcanePassword': SECRETS['staged']})
             with patch.object(rt, 'STATE', manager.state), self.assertRaisesRegex(ValueError, 'pending activation'):
                 manager.cancel(directory.name)
             self.assertTrue((directory / 'secrets.json').exists())
@@ -86,9 +86,9 @@ class CleanupTests(unittest.TestCase):
                 previous = root / 'previous'
                 rt.atomic(previous / 'bin' / 'switch-to-configuration', '')
                 rt.write_json(directory / 'job.json', {'status': 'awaiting-confirmation', 'previousSystem': str(previous)})
-                rt.atomic(directory / 'recovery' / 'secret-portainerPassword', SECRETS['portainer'])
+                rt.atomic(directory / 'recovery' / 'secret-arcanePassword', SECRETS['arcane'])
                 rt.write_json(manager.state / 'pending.json', {'id': directory.name, 'deadline': time.time() + 60})
-                rt.stage_secrets(directory, {'portainerPassword': SECRETS['staged']})
+                rt.stage_secrets(directory, {'arcanePassword': SECRETS['staged']})
                 (directory / 'system').symlink_to(Path('/run/current-system').resolve())
                 with patch.object(rt, 'STATE', manager.state), patch.object(worker, 'restore_files', return_value={}), \
                         patch.object(worker, 'restore_operator_password'), patch.object(worker, 'run'), \
@@ -97,7 +97,7 @@ class CleanupTests(unittest.TestCase):
                     else: worker.rollback(directory)
                 self.assertFalse((directory / 'secrets.json').exists())
                 self.assertFalse((manager.state / 'pending.json').exists())
-                self.assertEqual((directory / 'recovery' / 'secret-portainerPassword').read_text(), SECRETS['portainer'])
+                self.assertEqual((directory / 'recovery' / 'secret-arcanePassword').read_text(), SECRETS['arcane'])
                 assert_public_clean(self, [(directory / 'job.json').read_text(),
                                           (manager.state / 'audit.jsonl').read_text()])
 
@@ -105,7 +105,7 @@ class CleanupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); directory = root / 'jobs' / ('a' * 32)
             rt.write_json(directory / 'job.json', {'status': 'ready', 'created': time.time() - rt.STAGED_SECRET_LIFETIME})
-            rt.stage_secrets(directory, {'portainerPassword': SECRETS['staged']})
+            rt.stage_secrets(directory, {'arcanePassword': SECRETS['staged']})
             with patch.object(rt, 'write_json', side_effect=OSError(SECRETS['staged'])):
                 with self.assertRaises(ValueError) as caught: rt.cleanup_terminal_secrets(root)
             assert_public_clean(self, str(caught.exception))
@@ -120,7 +120,7 @@ class CleanupTests(unittest.TestCase):
                 directory = Path(folder)
                 with patch.object(rt.os, 'link', side_effect=OSError(error, SECRETS['staged'])):
                     with self.assertRaisesRegex(ValueError, 'publication failed') as caught:
-                        rt.stage_secrets(directory, {'portainerPassword': SECRETS['staged']})
+                        rt.stage_secrets(directory, {'arcanePassword': SECRETS['staged']})
                 assert_public_clean(self, str(caught.exception))
                 self.assertFalse((directory / 'secrets.json').exists())
                 self.assertFalse(list(directory.glob('.secrets.json*')))
@@ -134,7 +134,7 @@ class CleanupTests(unittest.TestCase):
                 if defect == 'unresolved-recovery':
                     job.update(status='rolling-back', created=time.time() - rt.STAGED_SECRET_LIFETIME)
                 rt.write_json(directory / 'job.json', job)
-                rt.stage_secrets(directory, {'portainerPassword': SECRETS['staged']})
+                rt.stage_secrets(directory, {'arcanePassword': SECRETS['staged']})
                 if defect == 'mode': (directory / 'secrets.json').chmod(0o644)
                 if defect == 'pending-record': rt.write_json(root / 'pending.json', {'id': SECRETS['staged']})
                 with self.assertRaises(ValueError) as caught: rt.cleanup_terminal_secrets(root)
@@ -186,7 +186,7 @@ class CleanupTests(unittest.TestCase):
             record = directory / 'job.json'
             stage = directory / 'secrets.json'
             rt.write_json(record, {'status': 'building', 'created': time.time() - rt.STAGED_SECRET_LIFETIME - 1})
-            rt.write_json(stage, {'portainerPassword': SECRETS['staged']})
+            rt.write_json(stage, {'arcanePassword': SECRETS['staged']})
             with patch.object(rt, 'worker_active', return_value=True):
                 rt.cleanup_terminal_secrets(root)
             self.assertTrue(stage.exists())
@@ -207,7 +207,7 @@ class CleanupTests(unittest.TestCase):
             directory = root / 'jobs' / ('c' * 32)
             rt.write_json(directory / 'job.json', {'status': 'confirmed'})
             staged = directory / 'secrets.json'
-            rt.write_json(staged, {'portainerPassword': SECRETS['staged']})
+            rt.write_json(staged, {'arcanePassword': SECRETS['staged']})
             with patch.object(rt, 'unlink_staged', side_effect=OSError(SECRETS['staged'])):
                 with self.assertRaisesRegex(ValueError, 'Staged credential cleanup failed') as failure:
                     rt.cleanup_terminal_secrets(root)
@@ -270,13 +270,13 @@ class CleanupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             directory = Path(folder) / 'private'
             directory.mkdir(mode=0o700)
-            values = {'portainerPassword': SECRETS['staged']}
+            values = {'arcanePassword': SECRETS['staged']}
             rt.stage_secrets(directory, values)
             secret = directory / 'secrets.json'
             self.assertEqual(secret.stat().st_mode & 0o777, 0o600)
             self.assertEqual(rt.read_staged_secrets(directory, list(values)), values)
             with self.assertRaisesRegex(ValueError, 'publication failed'):
-                rt.stage_secrets(directory, {'portainerPassword': SECRETS['portainer']})
+                rt.stage_secrets(directory, {'arcanePassword': SECRETS['arcane']})
             self.assertEqual(rt.read_staged_secrets(directory, list(values)), values)
             self.assertFalse(list(directory.glob('.secrets.json*')))
             os.link(secret, directory / 'alias')
@@ -302,8 +302,8 @@ class CleanupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); directory = root / 'jobs' / ('d' * 32)
             rt.write_json(directory / 'job.json', {'status': 'failed', 'created': time.time() - rt.STAGED_SECRET_LIFETIME})
-            rt.stage_secrets(directory, {'portainerPassword': SECRETS['staged']})
-            rt.atomic(directory / 'recovery' / 'secret-portainerPassword', SECRETS['portainer'])
+            rt.stage_secrets(directory, {'arcanePassword': SECRETS['staged']})
+            rt.atomic(directory / 'recovery' / 'secret-arcanePassword', SECRETS['arcane'])
             with patch.object(rt, 'worker_active', side_effect=[False, True]):
                 rt.cleanup_terminal_secrets(root)
             self.assertTrue((directory / 'secrets.json').exists())
@@ -311,20 +311,20 @@ class CleanupTests(unittest.TestCase):
                 rt.cleanup_terminal_secrets(root)
             self.assertEqual(workers.call_count, 3)
             self.assertFalse((directory / 'secrets.json').exists())
-            self.assertEqual((directory / 'recovery' / 'secret-portainerPassword').read_text(), SECRETS['portainer'])
+            self.assertEqual((directory / 'recovery' / 'secret-arcanePassword').read_text(), SECRETS['arcane'])
 
     def test_legacy_partial_files_are_removed_even_when_recovery_is_pending(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); directory = root / 'jobs' / ('e' * 32)
             rt.write_json(directory / 'job.json', {'status': 'applying', 'created': time.time()})
             rt.write_json(root / 'pending.json', {'id': directory.name})
-            rt.stage_secrets(directory, {'portainerPassword': SECRETS['staged']})
+            rt.stage_secrets(directory, {'arcanePassword': SECRETS['staged']})
             rt.atomic(directory / '.secrets.jsonabcdefgh', SECRETS['staged'])
             rt.atomic(directory / '.secrets.json-keep', 'unrelated')
             rt.cleanup_terminal_secrets(root)
             self.assertFalse((directory / '.secrets.jsonabcdefgh').exists())
             self.assertTrue((directory / '.secrets.json-keep').exists())
-            self.assertEqual(rt.read_staged_secrets(directory, ['portainerPassword'])['portainerPassword'], SECRETS['staged'])
+            self.assertEqual(rt.read_staged_secrets(directory, ['arcanePassword'])['arcanePassword'], SECRETS['staged'])
 
     def test_sigkill_at_publication_boundaries_eventually_scrubs_only_staging(self):
         code = '''
@@ -353,7 +353,7 @@ rt.stage_secrets(sys.argv[2], json.load(sys.stdin))
                 rt.write_json(directory / 'job.json', {'status': 'building', 'created': time.time() - rt.STAGED_SECRET_LIFETIME})
                 rt.atomic(directory / 'recovery' / 'manifest.json', 'rollback evidence')
                 child = subprocess.run([sys.executable, '-c', code, str(BASE), str(directory), point],
-                                       input=json.dumps({'portainerPassword': SECRETS['staged']}),
+                                       input=json.dumps({'arcanePassword': SECRETS['staged']}),
                                        capture_output=True, text=True, timeout=10)
                 self.assertEqual(child.returncode, -9)
                 assert_public_clean(self, [child.stdout, child.stderr])

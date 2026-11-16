@@ -36,7 +36,7 @@ Private delivery is an explicit exception to the *public-artifact* boundary:
 
 Do not remove the last working credential-delivery or console recovery route
 before its replacement is available and tested. Recovery must work with the apps
-VM, Portainer and other application services stopped.
+VM, Arcane and other application services stopped.
 
 ## Current producer-to-consumer inventory
 
@@ -49,8 +49,7 @@ override them. Secret *contents* are never inventory fields.
 | Portal accounts | `admin/accounts.py:update/change_password`; `main.Auth` | `auth.json` and `users.json`, root-owned/group-readable by nixlab-ui; account hash/role changes invalidate existing sessions on lookup | Supplied in authenticated TLS bodies or local getpass; list API returns names/roles; account changes require reauthentication |
 | Portal session/CSRF | `admin/main.py:Auth.login/get`, HTTPS frontend | Bounded in-memory sessions; idle and absolute expiry, logout/password/identity changes revoke; web restart discards memory | Cookie and authenticated CSRF response are private protocol delivery; never support-bundle/log fields; tests must inspect public artifacts separately from Set-Cookie |
 | Linux operator password/hash | `admin/local_access.py:ensure_operator_password`; NixOS user configuration | `/var/lib/nixlab-admin/operator-password` plaintext, `/var/lib/nixlab-secrets/cockpit-operator-password` hash; shadow is live account authority; worker recovery preserves old hash | `install.summarize` directs managed password changes through the portal and unmanaged accounts through console rotation; the plaintext-returning lookup is retired; supplied-password/approval recovery belongs to #67; current retained plaintext requires retirement |
-| Apps Portainer bootstrap password | `installer/direct.py:activate`, `modules/apps-onboarding.nix`, `modules/docker-host.nix` | Host `/var/lib/nixlab-secrets/apps-portainer-password`, guest `/var/lib/nixlab-secrets/portainer-admin-password`; mounted into Portainer with admin-password-file; retained after initialization | Host Incus file push uses mode 0600; `portainer.authentication_ready` verifies privately and returns a boolean; `summarize` reports status and preserves the legacy private delivery path until #65/#66 qualify: #62/#65; existing Portainer database must remain authoritative |
-| Portainer reset result | `admin/portainer.py:reset`; root `main.py` portainer action | Guest data backup under `/var/lib/nixlab/portainer-recovery/TIMESTAMP`; host `portainer-reset-TIMESTAMP.txt` retains helper stdout plus current credential file/account metadata | Helper output is captured, but successful CLI returns only URL, backup and protected credential file path; #66 must accept a supplied password without exposing it; helper image `latest` also requires #58 |
+| Apps Arcane bootstrap password | `installer/direct.py:activate`, `modules/apps-onboarding.nix`, `modules/docker-host.nix` | Host `/var/lib/nixlab-secrets/apps-arcane-password`, guest `/var/lib/nixlab-secrets/arcane-admin-password`; mounted into Arcane through `ARCANE_DEFAULT_ADMIN_PASSWORD_FILE`; retained after initialization | Host Incus file push uses mode 0600; `arcane.authentication_ready` verifies privately and returns a boolean; `summarize` reports status and preserves the legacy private delivery path until #65/#66 qualify: #62/#65; existing Arcane database must remain authoritative |
 | Incus browser private key/P12 passphrase | `controller.Manager.browser_certificate`; Incus trust API and browser | Root-only /run temporary directory is removed; owned public trust metadata persists; ECDSA P-384 client identity lasts 90 days, with guarded owned-trust expiry | Supplied import passphrase; metadata-only public JSON plus session-bound, CSRF-protected, one-claim encrypted download for 120 seconds. Reauthenticated issue/revoke, lab restriction by default, explicit acknowledged unrestricted action, owned inventory and renewal; real client import/selection qualification remains #68 evidence |
 | Management CA/server/app TLS keys | `runtime.issue_tls`, `diagnostics.identity`, `main.renew` | `/var/lib/nixlab-admin/{ca,tls,apps-tls}.key`; host CA retained, leaf renewal; worker recovery retains prior host TLS files | Portal uses systemd LoadCredential; Incus bind mounts host leaf files; apps leaf copied into guest; public CA/fingerprint are safe, private CA never distributed to guests |
 | Transaction secret inputs | `controller.review`, `runtime.encode_secrets`, `worker.apply/save_recovery/rollback` | Root-only `jobs/ID/secrets.json`, then fixed live paths; terminal cleanup retries confirmed/rolled-back/cancelled/superseded; failed/resumable jobs and recovery manifests retained | Separate from candidate source/job metadata; see [staged transaction lifetime](staged-transaction-secrets.md) for enforced admission/expiry, protected publication and visible cleanup failures; rollback material is not generic staging |
@@ -63,8 +62,7 @@ override them. Secret *contents* are never inventory fields.
 
 | Finding | Exact code boundary | Required follow-up |
 |---|---|---|
-| Legacy credentials still retained for protected local delivery | `installer/install.py:summarize` | Installer output has no credential values; the protected Portainer path remains a migration exception until #65/#66 qualify replacement delivery |
-| Generated reset password and helper output retained privately | `admin/main.py` portainer action; `admin/portainer.py:reset` | #66 supplied-password reset; preserve backed-up database/restart recovery and never log helper stdout |
+| Legacy credentials still retained for protected local delivery | `installer/install.py:summarize` | Installer output has no credential values; the protected Arcane path remains a migration exception until #65/#66 qualify replacement delivery |
 | Long-lived Linux/setup plaintext | `local_access.ensure_operator_password`; `install.ensure_portal_account`; `accounts.change_password` | #64/#67 retirement with compatibility for existing accounts; never delete the last viable recovery credential |
 | Browser client qualification still required | `browser_certificates.py`, protected binary download, client import stores | #68 implements ownership, scope, reauthentication, renewal and revocation; retain the issue until matching Incus CI and real browser import/selection/expiry/revoke evidence qualify the supported clients |
 | Broader operation/deployment and service-journal qualification remains | `admin/operations.py`, `admin/deployments.py`, generated units | Broker/frontend errors, host command errors, installer failures and transaction worker records now use fixed messages. Other producers and real service journals still require negative captures |
@@ -88,18 +86,18 @@ This does not scrub historical journals or private files already created by olde
 
 ## Reproducible tests and evidence limits
 
-`tests/credential_fixtures.py` provides distinct synthetic setup, Linux, Portainer,
+`tests/credential_fixtures.py` provides distinct synthetic setup, Linux, Arcane,
 P12, cookie, staged-secret and private-key values. `assert_public_clean` recursively
 checks mapping keys/values, lists and byte/text artifacts, including URL, base64 and
 hex forms. Failure messages name credential categories only. It is a test utility,
 not a general-purpose production redactor or proof against every encoding/hash.
 
 `tests/test_credential_contract.py` checks the scanner itself and actual safe
-boundaries: failed Portainer subprocess output, rejected secret input, account
+boundaries: failed Arcane subprocess output, rejected secret input, account
 metadata/failed login/audit output and cancelled staged secrets. Existing
 `tests/test_setup.py` covers HTTPS auth/CSRF, staging exclusion and rollback;
 `tests/test_completion.py` covers secret/configuration export separation;
-`tests/test_installer_workflow.py` covers verified Portainer access and reset
+`tests/test_installer_workflow.py` covers verified Arcane access and reset
 recovery; `tests/test_clock_readiness.py` checks no partial trust mutation on an
 invalid clock. Run with `python3 -m unittest discover -s tests -v` in the supported
 CI environment. The repository uses unittest, not pytest or node --test, for these
@@ -137,11 +135,10 @@ matching NixOS CI evidence.
 ### Output-boundary hardening evidence
 
 Additional synthetic captures cover first-run and legacy installer summaries, installer
-child-command failures, successful Portainer reset public results and private file mode,
-failed reset plus failed restart, unauthenticated enrollment error responses, hostile
+child-command failures, interactive Arcane recovery results and failure paths, unauthenticated enrollment error responses, hostile
 broker ValueErrors, transaction failure records/journal exceptions, child log routing,
-and legacy transaction output. The reset helper still generates and retains private
-credentials; supplied-password reset and lifecycle deletion remain #66/#65 work.
+and legacy transaction output. Arcane recovery prompts for a supplied password rather than generating private
+credentials. Transient bootstrap-file disposal remains tracked separately.
 
 A complete #61 acceptance claim remains blocked on the final #62–#68 flows, diagnostics
 bundle #72, and real NixOS/generated-unit/journal evidence. Passing the public-boundary
@@ -150,7 +147,7 @@ regression tests alone must not close the issue.
 ### Credential retrieval retirement and release gate (#62)
 
 `installer.ensure_portal_account` returns no credential. `direct.activate` returns
-only its transaction record. Portainer authentication probes return strict boolean
+only its transaction record. Arcane authentication probes return strict boolean
 status, and the unused Linux plaintext lookup is removed. Installer summaries no
 longer accept a credential argument or advertise setup/operator retrieval paths.
 The sign-in page directs users to available enrollment or authorized password
@@ -167,7 +164,7 @@ rotation, setup-file retirement and old-session rejection.
 
 This does **not** certify #62's complete web-first migration gate. #63/#64/#67
 still own verified default enrollment, durable first-claim semantics and approved
-browser recovery. #65/#66 still own transient Portainer first-boot input and
+browser recovery. #65/#66 still own transient Arcane first-boot input and
 supplied-password reset. Existing protected private service files, legacy verifiers
 and console recovery remain in place until those replacements are qualified.
 Do not close #62 merely because the output/helper regression tests pass.

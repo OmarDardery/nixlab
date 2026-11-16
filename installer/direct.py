@@ -52,7 +52,7 @@ def prepare(settings, overview, host, key_files=(), subnet=None, apps=True, prev
         candidate['guests'].update(guest_network(host['routes'], subnet))
     if not settings['ready']:
         candidate['cockpit']['enable'] = True
-        candidate['apps'].update(enable=apps, portainerPort=9443)
+        candidate['apps'].update(enable=apps, arcanePort=9443)
         candidate['maintenance']['laptopMode'] = True
     # Preserve current addressing, accounts and mounts. No disk/bridge migration.
     if not settings['ready']:
@@ -90,10 +90,10 @@ def activate(candidate, manager=None, effective=None, staged_source=None, expect
     if effective['cockpit']['enable'] and effective['cockpit']['managePassword']:
         import local_access
         local_access.ensure_operator_password()
-    if effective['apps']['enable'] and not rt.SECRET_PATHS['portainerPassword'].exists():
+    if effective['apps']['enable'] and not rt.SECRET_PATHS['arcanePassword'].exists():
         # Created once outside the rollback manifest: failed activation must not
-        # rotate the credential after Portainer has initialized its database.
-        rt.atomic(rt.SECRET_PATHS['portainerPassword'], secrets.token_urlsafe(24) + '\n')
+        # rotate the credential after Arcane has initialized its database.
+        rt.atomic(rt.SECRET_PATHS['arcanePassword'], secrets.token_urlsafe(24) + 'Aa1!\n')
     job_id = manager.review(candidate, secret_values={}, principal=PRINCIPAL,
                             staged_source=staged_source, expected_base_digest=expected_base_digest)['id']
     print('Building hypervisor; transaction ' + job_id, flush=True)

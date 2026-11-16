@@ -44,7 +44,7 @@ with tempfile.TemporaryDirectory() as temporary:
         assert verification.check('full', state) == 1
         damaged = json.loads(state.read_text())
         assert damaged['phase'] == 'failed' and damaged['lastSuccess'] == successful
-        password.write_text(SECRETS['portainer'])
+        password.write_text(SECRETS['arcane'])
         assert verification.check('metadata', state) == 1
         assert json.loads(state.read_text())['phase'] == 'failed'
     assert_public_clean(TestCase(), {'output': output.getvalue(), 'record': state.read_text()})

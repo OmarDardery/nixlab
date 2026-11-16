@@ -46,7 +46,7 @@ class BootstrapTests(unittest.TestCase):
         verifier.assert_called_once_with('operator', SECRETS['operator'])
         other = self.session()
         self.assertFalse(other['approved'])
-        with self.assertRaises(ValueError): bootstrap.claim(*self.fields(other), 'attacker', SECRETS['portainer'])
+        with self.assertRaises(ValueError): bootstrap.claim(*self.fields(other), 'attacker', SECRETS['arcane'])
         self.assertEqual(bootstrap.claim(*self.fields(browser), 'owner', SECRETS['setup']), {'ok': True})
         self.assertTrue(accounts.matches('owner', SECRETS['setup']))
         self.assertFalse(accounts.matches('admin', SECRETS['setup']))

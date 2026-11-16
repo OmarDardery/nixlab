@@ -327,7 +327,7 @@ class TransactionTests(SettingsFixture):
             current=settings();rt.write_json(root/'local/settings.json',current)
             manager=Manager(root,state)
             with patch.object(rt,'STATE',state),patch('controller.inventory',return_value=HOST),patch.object(manager,'spawn') as spawn:
-                output=manager.review({'hostName':'changed'}, {'portainerPassword':'new-initial-password'})
+                output=manager.review({'hostName':'changed'}, {'arcanePassword':'New-initial-password-1!'})
                 self.assertEqual(manager.settings()['hostName'],'fixture')
                 directory=manager.job_path(output['id'])
                 snapshot=(directory/'source/local/settings.json').read_text()

@@ -19,15 +19,15 @@ in {
         test "$ready" = 1
         ${lib.optionalString (appImage != null && !(config.nixlab.deployment.apps.enable or false)) "PYTHONPATH=${../scripts} python3 ${../scripts/deploy-apps.py} ${appImage.system}"}
         incus exec apps --project lab -- install -d -m 0700 /var/lib/nixlab-secrets
-        if test -f /var/lib/nixlab-secrets/apps-portainer-password; then
-          incus file push /var/lib/nixlab-secrets/apps-portainer-password apps/var/lib/nixlab-secrets/portainer-admin-password --project lab --mode 0600
+        if test -f /var/lib/nixlab-secrets/apps-arcane-password; then
+          incus file push /var/lib/nixlab-secrets/apps-arcane-password apps/var/lib/nixlab-secrets/arcane-admin-password --project lab --mode 0600
         fi
         if test -f /var/lib/nixlab-secrets/apps-demo-password; then
           incus file push /var/lib/nixlab-secrets/apps-demo-password apps/var/lib/nixlab-secrets/demo-db-password --project lab --mode 0444
         fi
         incus file push /var/lib/nixlab-admin/apps-tls.crt apps/var/lib/nixlab-secrets/tls.crt --project lab --mode 0644
         incus file push /var/lib/nixlab-admin/apps-tls.key apps/var/lib/nixlab-secrets/tls.key --project lab --mode 0600
-        incus exec apps --project lab -- systemctl restart docker-portainer.service
+        incus exec apps --project lab -- systemctl restart docker-arcane.service
         ${lib.optionalString site.apps.enableDemo "incus exec apps --project lab -- systemctl restart nixlab-demo.service"}
       '';
     };
@@ -40,18 +40,18 @@ in {
       enable = true;
       additionalModules = [ pkgs.nginxModules.njs ];
       commonHttpConfig = ''
-        js_import nixlab_cookies from ${./portainer-cookies.js};
-        js_set $nixlab_portainer_cookies nixlab_cookies.requestCookies;
+        js_import nixlab_cookies from ${./arcane-cookies.js};
+        js_set $nixlab_arcane_cookies nixlab_cookies.requestCookies;
       '';
       # One proxy worker is enough for a private management dashboard.
       appendConfig = "worker_processes 1;";
       eventsConfig = "worker_connections 256;";
-      virtualHosts.nixlab-portainer = {
+      virtualHosts.nixlab-arcane = {
         # Explicit listen.ssl alone does not enable NixOS certificate directives.
         onlySSL = true;
         serverName = site.management.address;
         # Source CIDRs and the input firewall restrict access, independently of DHCP readiness.
-        listen = [ { addr = "0.0.0.0"; port = site.apps.portainerPort; ssl = true; } ];
+        listen = [ { addr = "0.0.0.0"; port = site.apps.arcanePort; ssl = true; } ];
         sslCertificate = "/run/credentials/nginx.service/nixlab-tls.crt";
         sslCertificateKey = "/run/credentials/nginx.service/nixlab-tls.key";
         locations."/" = {
@@ -60,13 +60,13 @@ in {
           extraConfig = ''
             ${cidrs}
             deny all;
-            # Preserve the public host *and port* for Portainer's origin checks.
+            # Preserve the public host *and port* for Arcane's origin checks.
             proxy_set_header Host $host:$server_port;
             proxy_set_header X-Forwarded-Host $host:$server_port;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_set_header X-Forwarded-Port $server_port;
             proxy_set_header X-Forwarded-For $remote_addr;
-            proxy_set_header Cookie $nixlab_portainer_cookies;
+            proxy_set_header Cookie $nixlab_arcane_cookies;
             js_header_filter nixlab_cookies.responseCookies;
             proxy_ssl_verify on;
             proxy_ssl_server_name on;

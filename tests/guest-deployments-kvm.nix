@@ -1,19 +1,19 @@
-# Expensive optional check: real apps VM, real Portainer, and a second NixOS guest.
+# Expensive optional check: real apps VM, real Arcane, and a second NixOS guest.
 # The workflow archives an OCI image and passes its immutable manifest digest.
-{ pkgs, apps, portainerArchive, portainerImage, cpuVendor, trial ? "manual" }:
+{ pkgs, apps, arcaneArchive, arcaneImage, cpuVendor, trial ? "manual" }:
 let
   lib = pkgs.lib;
   base = import ./site.nix;
   site = base // {
     inherit cpuVendor;
     setup = base.setup // { enable = true; };
-    apps = base.apps // { inherit portainerImage; };
+    apps = base.apps // { inherit arcaneImage; };
     management = base.management // { interface = "eth1"; configure = true; };
   };
   initialApps = apps.extendModules { modules = [ {
-    nixlab.settings.apps.portainerImage = portainerImage;
-    virtualisation.oci-containers.containers.portainer.imageFile = builtins.path { path = portainerArchive; name = "portainer-image.tar"; };
-    virtualisation.oci-containers.containers.portainer.pull = "never";
+    nixlab.settings.apps.arcaneImage = arcaneImage;
+    virtualisation.oci-containers.containers.arcane.imageFile = builtins.path { path = arcaneArchive; name = "arcane-image.tar"; };
+    virtualisation.oci-containers.containers.arcane.pull = "never";
     environment.etc."nixlab-deploy-version".text = "v1";
   } ]; };
   nextApps = initialApps.extendModules { modules = [ ({ lib, ... }: {

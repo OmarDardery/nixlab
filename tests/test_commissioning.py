@@ -167,7 +167,7 @@ class CommissioningTests(unittest.TestCase):
             return '{"type":"virtual-machine","status":"Running"}'
         with patch('diagnostics.probe', return_value={'ok': True}), patch.object(c, 'command', side_effect=probe) as run, \
              patch('builtins.open', side_effect=OSError('unavailable')), \
-             patch('portainer.authentication_ready', return_value=True), patch('portainer.reset') as reset:
+             patch('arcane.authentication_ready', return_value=True), patch('arcane.reset') as reset:
             c.collect(result, context(), {'apps': {'enable': True}})
         reset.assert_not_called()
         self.assertNotIn('SECRET', json.dumps(result))

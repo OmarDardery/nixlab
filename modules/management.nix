@@ -28,7 +28,7 @@ let
     ++ nginx "nixlab-entry" "Portal redirect"
     ++ optional site.setup.enable (listener "Portal HTTPS" "trusted" "0.0.0.0" site.setup.port)
     ++ optional config.services.cockpit.enable (listener "Cockpit" "trusted" "0.0.0.0" config.services.cockpit.port)
-    ++ nginx "nixlab-portainer" "Portainer proxy"
+    ++ nginx "nixlab-arcane" "Arcane proxy"
     ++ optional (config.virtualisation.incus.enable && incusBind != null)
       (listener "Incus HTTPS" "trusted" (builtins.elemAt incusBind 0) (lib.toInt (builtins.elemAt incusBind 1)))
     ++ optional prom.enable (listener "Prometheus" "local" prom.listenAddress prom.port)

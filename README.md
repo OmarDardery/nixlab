@@ -34,7 +34,7 @@ The interview configures infrastructure capabilities rather than named applicati
 Guest, device, DNS and Compose provisioning remain independent reviewed workflows.
 
 It preserves installed users, filesystems, boot configuration and addressing, then
-builds Incus, Cockpit and the Portainer apps VM. Retries detect active work and
+builds Incus, Cockpit and the Arcane apps VM. Retries detect active work and
 resume automatically. SSH password login is enabled for non-root Linux accounts;
 no SSH key is required. A stable operator password is created if needed.
 Success includes endpoint checks, actual assigned URLs and verified credentials.
@@ -48,7 +48,7 @@ virtualization enabled in firmware.
 The portal is also reachable from trusted LAN clients at `http://HOST_IP/` on port 80,
 which redirects immediately to the authenticated HTTPS host console (default
 `https://HOST_IP:9440/`). Its sidebar links directly to enabled Incus UI,
-Cockpit, and Portainer, plus a copy-only commands cheatsheet. Credentials never
+Cockpit, and Arcane, plus a copy-only commands cheatsheet. Credentials never
 traverse plaintext HTTP.
 
 The portal handles host settings, reviewed file uploads and source upgrades, Ethernet/hardware prerequisites,
@@ -86,7 +86,7 @@ reboots automatically. Keep independent backups before updating.
 | Guests | Incus LTS with KVM/QEMU | One API for Linux system containers and full VMs |
 | Virtualization UI | Packaged `incus-ui-canonical` | Established Incus-compatible fork; uses the authenticated Incus API |
 | Applications (opt-in) | Docker/Compose in the `apps` NixOS VM | Separate kernel and Docker firewall from the hypervisor |
-| Application UI | Portainer CE 2.45.3 LTS | Compose stacks, Git deployment, editor, logs, console, resource views |
+| Application UI | Arcane 3.0.1 | Compose stacks, Git deployment, editor, logs, console, resource views |
 | Host administration | Cockpit (opt-in), SSH, native Incus CLI, packaged `homelab` | Host terminal, services and journal; guest consoles stay in Incus |
 | Network | Private Incus bridge + NixOS nftables/NAT | Per-guest IPs, DHCP/reservations, controlled LAN reachability |
 | Storage | Non-formatting directory pool baseline; existing ZFS dataset option | Safe initial deployment; ZFS preferred for enforced container quotas and efficient snapshots |
@@ -125,10 +125,10 @@ docs/                        # research, commissioning, operation and recovery
 
 ## Start here
 
-The command above installs the Cockpit + Incus + Portainer stack. Existing portal
-users can enable Cockpit and Portainer separately under **Host → Services**; see
+The command above installs the Cockpit + Incus + Arcane stack. Existing portal
+users can enable Cockpit and Arcane separately under **Host → Services**; see
 the [homelab guide](docs/homelab.md). Laptop power policy is a separate explicit setting.
-Existing hosts retain Portainer port 9441 until explicitly changed.
+Existing hosts retain Arcane port 9441 until explicitly changed.
 
 For the installer and browser-first workflow, start with [the quick start](docs/start.md).
 The following guides also cover the advanced/manual deployment path.
@@ -143,7 +143,7 @@ The following guides also cover the advanced/manual deployment path.
 sudo homelab list
 sudo nixlab doctor
 sudo nixlab enroll-key /path/to/laptop.pub
-sudo nixlab portainer reset-password
+sudo nixlab arcane reset-password
 sudo homelab exec apps -- uname -a
 sudo homelab exec GUEST -- systemctl --failed
 sudo homelab exec-many apps,web -- df -h
@@ -158,9 +158,9 @@ Numeric selectors are explicit aliases in the client's JSON config, not inferred
 Proxmox IDs. `backup` is an on-demand Incus export; scheduled restic backups additionally
 stop guests and protect custom volumes. See the consistency distinctions in the recovery guide.
 
-The installer enables Cockpit and Docker/Portainer; use `--no-apps` to omit the VM.
+The installer enables Cockpit and Docker/Arcane; use `--no-apps` to omit the VM.
 Local Prometheus history and the demo workload remain off. Advanced module defaults
-keep Docker/Portainer opt-in. The headless host cannot suspend or hibernate. The setup UI
+keep Docker/Arcane opt-in. The headless host cannot suspend or hibernate. The setup UI
 serves its own static assets; only the optional application portal adds a one-worker Nginx proxy.
 Settings remain declared through Nix and can be exported from the UI. See the
 [resource and ownership policy](docs/setup.md#lightweight-defaults-and-declarative-ownership).

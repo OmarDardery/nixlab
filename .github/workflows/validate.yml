@@ -65,6 +65,20 @@ jobs:
           nix-instantiate --eval --strict --json site.nix > /tmp/nixlab-desired.json
           python3 -c 'import json; assert json.load(open("/tmp/nixlab-desired.json"))["schemaVersion"] == 1'
       # Fail native lifecycle/network recovery early, before larger guest images.
+      - name: Qualify the actual pinned Arcane runtime and persisted Compose data
+        run: |
+          image="$(nix eval --raw .#nixlabDefaults.apps.arcaneImage)"
+          nix shell --inputs-from . nixpkgs#skopeo --command skopeo --override-os linux --override-arch amd64 copy --format oci "docker://$image" "oci-archive:$RUNNER_TEMP/arcane-runtime.tar"
+          export NIXLAB_ARCANE_ARCHIVE="$RUNNER_TEMP/arcane-runtime.tar"
+          export NIXLAB_ARCANE_IMAGE="$(python3 -c 'import json,os,tarfile; a=tarfile.open(os.environ["NIXLAB_ARCANE_ARCHIVE"]); print(json.load(a.extractfile("index.json"))["manifests"][0]["digest"])')"
+          nix build --impure --no-link -L --expr '
+            let flake = builtins.getFlake (builtins.getEnv "PWD");
+                pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; };
+            in import ./tests/arcane-vm.nix {
+              inherit pkgs;
+              arcaneArchive = builtins.path { path = builtins.toPath (builtins.getEnv "NIXLAB_ARCANE_ARCHIVE"); name = "arcane-runtime.tar"; };
+              arcaneImage = builtins.getEnv "NIXLAB_ARCANE_IMAGE";
+            }'
       - name: Verify real restic integrity checks and corruption detection
         run: |
           nix build .#checks.x86_64-linux.backup-verification --no-link -L
@@ -91,8 +105,8 @@ jobs:
               inherit pkgs trial;
               apps = flake.nixosConfigurations.validation-setup-apps;
               sopsModule = flake.inputs.sops-nix.nixosModules.sops;
-              portainerArchive = pkgs.dockerTools.buildLayeredImage { name = "evaluation-only"; };
-              portainerImage = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+              arcaneArchive = pkgs.dockerTools.buildLayeredImage { name = "evaluation-only"; };
+              arcaneImage = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
               cpuVendor = "intel";
               revision = "0000000000000000000000000000000000000000";
             };
@@ -106,8 +120,8 @@ jobs:
                 fixture = trial: import ./tests/guest-deployments-kvm.nix {
               inherit pkgs trial;
               apps = flake.nixosConfigurations.validation-setup-apps;
-              portainerArchive = pkgs.dockerTools.buildLayeredImage { name = "evaluation-only"; };
-              portainerImage = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+              arcaneArchive = pkgs.dockerTools.buildLayeredImage { name = "evaluation-only"; };
+              arcaneImage = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
               cpuVendor = "intel";
             };
             in assert (fixture "evaluation-1").drvPath != (fixture "evaluation-2").drvPath;

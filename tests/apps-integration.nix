@@ -1,6 +1,6 @@
 # Optional, expensive qualification test. The OCI archive is fetched/resolved by
 # the workflow before building, so the nested VM itself requires no registry.
-{ pkgs, apps, sopsModule, portainerArchive, portainerImage, cpuVendor, revision, trial ? "manual" }:
+{ pkgs, apps, sopsModule, arcaneArchive, arcaneImage, cpuVendor, revision, trial ? "manual" }:
 let
   base = import ./site.nix;
   site = base // {
@@ -11,9 +11,9 @@ let
   };
   guest = apps.extendModules {
     modules = [ {
-      nixlab.settings.apps.portainerImage = portainerImage;
-      virtualisation.oci-containers.containers.portainer.imageFile = portainerArchive;
-      virtualisation.oci-containers.containers.portainer.pull = "never";
+      nixlab.settings.apps.arcaneImage = arcaneImage;
+      virtualisation.oci-containers.containers.arcane.imageFile = arcaneArchive;
+      virtualisation.oci-containers.containers.arcane.pull = "never";
     } ];
   };
   appImage = {
@@ -49,8 +49,8 @@ in pkgs.testers.runNixOSTest {
       script = ''
         PYTHONPATH=${../admin}:${../scripts} ${pkgs.python3}/bin/python ${./portal-fixture.py}
         install -d -m 0700 /var/lib/nixlab-secrets
-        test -s /var/lib/nixlab-secrets/apps-portainer-password || \
-          (umask 077; openssl rand -hex 24 > /var/lib/nixlab-secrets/apps-portainer-password)
+        test -s /var/lib/nixlab-secrets/apps-arcane-password || \
+          (umask 077; { openssl rand -hex 24 | tr -d '\n'; printf 'Aa1!\n'; } > /var/lib/nixlab-secrets/apps-arcane-password)
         cp ${../flake.lock} /var/lib/nixlab/config/flake.lock
         printf '%s\n' '${builtins.toJSON { inherit revision; version = builtins.replaceStrings [ "\n" ] [ "" ] (builtins.readFile ../VERSION); }}' > /var/lib/nixlab/config/platform-release.json
       '';
@@ -66,7 +66,7 @@ in pkgs.testers.runNixOSTest {
         host.wait_until_succeeds("nixlab-admin doctor", timeout=180)
         assert json.loads(host.succeed("incus query '/1.0/instances/apps?project=lab'"))["type"] == "virtual-machine"
         host.succeed("incus exec apps --project lab -- systemctl is-active docker.service")
-        # A real Portainer container, real persisted credentials and its actual
+        # A real Arcane container, real persisted credentials and its actual
         # /api/auth response are checked by commissioning.collect.
         report = json.loads(host.succeed("nixlab-admin commissioning collect --mode fresh --environment nested-integration"))
         states = {item["check"]: item["status"] for item in report["checks"]}

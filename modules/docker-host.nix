@@ -40,45 +40,64 @@ in {
   systemd.tmpfiles.rules = [
     "d /srv/compose 0700 root root -"
     "d /srv/compose/demo 0700 root root -"
-    "d /srv/portainer 0700 root root -"
+    "d /srv/arcane 0700 root root -"
     "d /var/lib/nixlab 0700 root root -"
     "d /var/lib/nixlab/dumps 0700 root root -"
   ];
   virtualisation.oci-containers = {
     backend = "docker";
-    containers.portainer = {
-      image = site.apps.portainerImage;
-      ports = [ "${if site.setup.enable then site.guests.appsAddress else "127.0.0.1"}:9443:9443" ];
-      volumes = [ "/var/run/docker.sock:/var/run/docker.sock" "/srv/portainer:/data"
-        "/var/lib/nixlab-secrets/portainer-admin-password:/run/secrets/admin-password:ro" ]
+    containers.arcane = {
+      image = site.apps.arcaneImage;
+      ports = [ "${if site.setup.enable then site.guests.appsAddress else "127.0.0.1"}:9443:3552" ];
+      volumes = [ "/var/run/docker.sock:/var/run/docker.sock" "/srv/arcane:/app/data" "/srv/compose:/srv/compose"
+        "/srv/arcane/encryption-key:/run/secrets/encryption-key:ro"
+        "/var/lib/nixlab-secrets/arcane-admin-password:/run/secrets/admin-password:ro" ]
         ++ lib.optionals site.setup.enable [
           "/var/lib/nixlab-secrets/tls.crt:/run/secrets/tls.crt:ro"
           "/var/lib/nixlab-secrets/tls.key:/run/secrets/tls.key:ro"
         ];
-      cmd = [ "--admin-password-file" "/run/secrets/admin-password" "--host" "unix:///var/run/docker.sock" ] ++ lib.optionals site.setup.enable [ "--tlscert" "/run/secrets/tls.crt" "--tlskey" "/run/secrets/tls.key" ];
+      environment = {
+        ARCANE_ENCRYPTION_KEY_FILE = "/run/secrets/encryption-key";
+        ARCANE_DEFAULT_ADMIN_USERNAME = "admin";
+        ARCANE_DEFAULT_ADMIN_PASSWORD_FILE = "/run/secrets/admin-password";
+        ARCANE_PROJECTS_DIRECTORY = "/srv/compose";
+        ARCANE_APP_URL = if site.setup.enable then "https://${site.management.address}:${toString site.apps.arcanePort}" else "http://localhost:9443";
+        ARCANE_TLS_ENABLED = if site.setup.enable then "true" else "false";
+        PUID = "0"; PGID = "0";
+      } // lib.optionalAttrs site.setup.enable {
+        ARCANE_TLS_CERT_FILE = "/run/secrets/tls.crt";
+        ARCANE_TLS_KEY_FILE = "/run/secrets/tls.key";
+        ARCANE_TRUSTED_PROXIES = builtins.head (lib.splitString "/" site.guests.gatewayCIDR);
+      };
     };
   };
-  systemd.services.docker-portainer.unitConfig.ConditionPathExists = [ "/var/lib/nixlab-secrets/portainer-admin-password" ]
+  systemd.services.nixlab-arcane-key = {
+    before = [ "docker-arcane.service" ]; requiredBy = [ "docker-arcane.service" ];
+    serviceConfig = { Type = "oneshot"; RemainAfterExit = true; UMask = "0077"; };
+    after = [ "systemd-tmpfiles-setup.service" ];
+    script = ''${pkgs.python3}/bin/python3 ${../scripts/arcane_key.py} /srv/arcane/encryption-key'';
+  };
+  systemd.services.docker-arcane.unitConfig.ConditionPathExists = [ "/var/lib/nixlab-secrets/arcane-admin-password" ]
     ++ lib.optionals site.setup.enable [ "/var/lib/nixlab-secrets/tls.crt" "/var/lib/nixlab-secrets/tls.key" ];
   # Published Docker ports traverse FORWARD, not the host INPUT firewall.
-  # Gate the actual DNAT flow before starting Portainer, including after Docker restarts.
-  systemd.services.nixlab-portainer-firewall = lib.mkIf site.setup.enable {
-    description = "Allow only the hypervisor proxy to reach published Portainer";
+  # Gate the actual DNAT flow before starting Arcane, including after Docker restarts.
+  systemd.services.nixlab-arcane-firewall = lib.mkIf site.setup.enable {
+    description = "Allow only the hypervisor proxy to reach published Arcane";
     requires = [ "docker.service" ]; after = [ "docker.service" ];
-    before = [ "docker-portainer.service" ]; requiredBy = [ "docker-portainer.service" ];
+    before = [ "docker-arcane.service" ]; requiredBy = [ "docker-arcane.service" ];
     partOf = [ "docker.service" ];
     path = [ pkgs.iptables ];
     serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
     script = ''
       iptables -w -nL DOCKER-USER >/dev/null
-      if ! iptables -w -nL NIXLAB-PORTAINER >/dev/null 2>&1; then
-        iptables -w -N NIXLAB-PORTAINER
+      if ! iptables -w -nL NIXLAB-ARCANE >/dev/null 2>&1; then
+        iptables -w -N NIXLAB-ARCANE
       fi
-      iptables -w -F NIXLAB-PORTAINER
-      iptables -w -A NIXLAB-PORTAINER -s ${lib.escapeShellArg (builtins.head (lib.splitString "/" site.guests.gatewayCIDR))} -j RETURN
-      iptables -w -A NIXLAB-PORTAINER -j DROP
-      if ! iptables -w -C DOCKER-USER -p tcp -m conntrack --ctdir ORIGINAL --ctorigdst ${lib.escapeShellArg site.guests.appsAddress} --ctorigdstport 9443 -j NIXLAB-PORTAINER 2>/dev/null; then
-        iptables -w -I DOCKER-USER 1 -p tcp -m conntrack --ctdir ORIGINAL --ctorigdst ${lib.escapeShellArg site.guests.appsAddress} --ctorigdstport 9443 -j NIXLAB-PORTAINER
+      iptables -w -F NIXLAB-ARCANE
+      iptables -w -A NIXLAB-ARCANE -s ${lib.escapeShellArg (builtins.head (lib.splitString "/" site.guests.gatewayCIDR))} -j RETURN
+      iptables -w -A NIXLAB-ARCANE -j DROP
+      if ! iptables -w -C DOCKER-USER -p tcp -m conntrack --ctdir ORIGINAL --ctorigdst ${lib.escapeShellArg site.guests.appsAddress} --ctorigdstport 9443 -j NIXLAB-ARCANE 2>/dev/null; then
+        iptables -w -I DOCKER-USER 1 -p tcp -m conntrack --ctdir ORIGINAL --ctorigdst ${lib.escapeShellArg site.guests.appsAddress} --ctorigdstport 9443 -j NIXLAB-ARCANE
       fi
     '';
   };

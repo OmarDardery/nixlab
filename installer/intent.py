@@ -129,7 +129,7 @@ def plan(answers, host, settings, *, remote=False):
         pending.append("Review an existing Ethernet bridge/VLAN and switch configuration in Connectivity; no host NIC is modified by this installer")
     pending.append("Create and manage workload-agnostic Incus guests using Incus UI or reviewed helper scripts; configure persistent storage and resource limits separately")
     if apps:
-        pending.append("Deploy any Compose application in the isolated apps VM through Portainer after supplying reviewed images and private credentials; test persistence and restore")
+        pending.append("Deploy any Compose application in the isolated apps VM through Arcane after supplying reviewed images and private credentials; test persistence and restore")
     pending.append("For guests needing physical USB/serial devices, inspect stable device IDs and explicitly review Incus passthrough; do not assume a particular peripheral")
     pending.append("For LAN-facing services such as DNS, validate stable guest reachability and firewall rules before changing router or client settings")
     if a["access"] == "private":
@@ -146,8 +146,8 @@ def plan(answers, host, settings, *, remote=False):
     reasons = [
         "Existing management addressing, host uplink, users and disks are preserved",
         "Private Incus NAT is the safe initial guest topology",
-        "Cockpit and Incus remain available; Docker/Portainer are isolated inside an apps VM" if apps else
-        "Docker/Portainer VM is omitted to conserve resources",
+        "Cockpit and Incus remain available; Docker/Arcane are isolated inside an apps VM" if apps else
+        "Docker/Arcane VM is omitted to conserve resources",
         "No secrets, router DNS settings or community scripts are applied automatically",
     ]
     if a["network"] != "nat":

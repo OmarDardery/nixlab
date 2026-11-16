@@ -43,7 +43,7 @@ function commandGroups() {
       ["list-guests", "List every Incus project’s guests", "Host terminal", "Read-only inventory. Guest lifecycle and consoles remain in Incus.", "sudo incus list --all-projects"],
       ["apps-shell", "Open a shell in the apps VM", "Host terminal", "Requires the applications VM to be enabled and running.", "sudo homelab exec apps"],
       ["compose-list", "List Compose projects", "Host terminal → apps VM", "Docker runs in the apps VM, not on the hypervisor.", "sudo homelab exec apps -- docker compose ls"],
-      ["portainer-logs", "Read Portainer logs", "Host terminal → apps VM", "Inspect the current guest boot’s Portainer service output.", "sudo homelab exec apps -- journalctl -b -u docker-portainer.service --no-pager"],
+      ["arcane-logs", "Read Arcane logs", "Host terminal → apps VM", "Inspect the current guest boot’s Arcane service output.", "sudo homelab exec apps -- journalctl -b -u docker-arcane.service --no-pager"],
     ] },
     { id: "helpers", title: "Community helper commands", guide: "helpers.md", items: [
       ["helper-list", "Browse the packaged helper catalog", "Host terminal", "List script IDs and compatibility metadata from the pinned sources.", "nixlab-helpers list"],

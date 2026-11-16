@@ -59,8 +59,8 @@ machine-readable report remains `nested-integration`, even if every automated
 probe passes. A partial artifact from a failed run is not successful evidence.
 
 The test imports the production host modules, builds the production apps image
-with the staged Portainer archive, uses Incus image import/reconciliation and
-onboarding, then verifies real Portainer authentication before and after two host
+with the staged Arcane archive, uses Incus image import/reconciliation and
+onboarding, then verifies real Arcane authentication before and after two host
 reboots. Registry access happens on the runner; no registry is needed inside the
 nested guest. No production machine or existing user's data is used.
 
