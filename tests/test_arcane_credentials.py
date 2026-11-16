@@ -24,7 +24,7 @@ class LifecycleTests(unittest.TestCase):
         root=Path(self.temp.name)
         self.data=root/'arcane';self.data.mkdir()
         self.run=root/'run';self.run.mkdir()
-        for key,value in [('DATA',self.data),('RUNTIME',self.run)]:
+        for key,value in [('DATA',self.data),('RUNTIME',self.run),('LEGACY',root/'legacy-password')]:
             patcher=patch.object(guest,key,value);patcher.start();self.addCleanup(patcher.stop)
 
     def database(self,users=('admin',)):
@@ -76,6 +76,12 @@ class LifecycleTests(unittest.TestCase):
             self.assertFalse((self.run/'password').exists())
             marker=json.loads((self.data/'.nixlab-bootstrap.json').read_text())
             self.assertNotIn(PASSWORD,json.dumps(marker))
+
+    def test_invalid_legacy_input_is_retired_even_when_validation_fails(self):
+        guest.atomic(guest.LEGACY,'weak-private-input')
+        with self.assertRaises(ValueError): guest.prepare()
+        self.assertFalse(guest.LEGACY.exists())
+        self.assertFalse((self.run/'password').exists())
 
     def test_expired_tmpfs_input_is_removed(self):
         guest.atomic(self.run/'password',PASSWORD)

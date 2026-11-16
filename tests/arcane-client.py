@@ -126,3 +126,12 @@ else:
 subprocess.run(['docker', 'run', '--rm', '--pull', 'never', '-v', 'api-probe_probe-data:/data',
                 'nixlab-arcane-probe:1', '/bin/sh', '-c', 'test "$(cat /data/record)" = persistent-arcane-test'],
                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+# Inspect real journals, container configuration/output and process arguments,
+# retaining their contents privately and emitting only fixed assertion labels.
+base_password = password.removesuffix('-rotated')
+for args in (['journalctl','--no-pager','--output=cat'], ['docker','logs','arcane'],
+             ['docker','inspect','arcane'], ['ps','-eo','args']):
+    observed = subprocess.run(args,capture_output=True,timeout=30,check=True)
+    material = observed.stdout + observed.stderr
+    for candidate in (base_password,base_password+'-rotated',base_password+'-rotated-interrupted'):
+        assert candidate.encode() not in material, 'Arcane lifecycle disclosed a credential in runtime evidence'

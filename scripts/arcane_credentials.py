@@ -1,5 +1,6 @@
 """Guest-root Arcane credential lifecycle. Secrets enter stdin and never leave it."""
 import fcntl
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ import urllib.request
 
 DATA = Path('/srv/arcane')
 RUNTIME = Path('/run/nixlab-arcane')
+LEGACY = Path('/var/lib/nixlab-secrets/arcane-admin-password')
 TTL = 900
 
 
@@ -81,13 +83,16 @@ def expire():
 def prepare():
     expire()
     current = state()
-    if current == 'blocked': raise ValueError('Restore Arcane database or use recovery')
+    if current == 'blocked':
+        LEGACY.unlink(missing_ok=True)
+        raise ValueError('Restore Arcane database or use recovery')
     if current == 'initialized': (DATA/'initial-admin-password').unlink(missing_ok=True)
     # Migrate the former private file to tmpfs only on a provably fresh DB.
-    legacy = Path('/var/lib/nixlab-secrets/arcane-admin-password')
-    if current == 'fresh' and not (RUNTIME/'password').exists() and legacy.is_file():
-        atomic(RUNTIME/'password', policy(legacy.read_text().rstrip('\r\n')))
-    legacy.unlink(missing_ok=True)
+    try:
+        if current == 'fresh' and not (RUNTIME/'password').exists() and LEGACY.is_file():
+            atomic(RUNTIME/'password', policy(LEGACY.read_text().rstrip('\r\n')))
+    finally:
+        LEGACY.unlink(missing_ok=True)
     if current != 'initialized':
         path = RUNTIME/'password'
         if not path.is_file(): raise ValueError('Supply a fresh initial credential')
@@ -101,8 +106,8 @@ def prepare():
 
 def api(path, password=None):
     cert = Path('/var/lib/nixlab-secrets/tls.crt')
-    tls = cert.exists()
-    origin = os.environ.get('ARCANE_ORIGIN', 'https://apps.internal:9443' if tls else 'http://localhost:9443')
+    origin = os.environ.get('ARCANE_ORIGIN', 'https://apps.internal:9443' if cert.exists() else 'http://localhost:9443')
+    tls = origin.startswith('https://')
     context = ssl.create_default_context(cafile=str(cert)) if tls else None
     # Connect locally while retaining the certificate DNS name and public Origin.
     url = ('https://apps.internal:9443' if tls else 'http://localhost:9443') + path
@@ -177,6 +182,13 @@ def terminal_reset(value):
         os.close(fd)
 
 
+def remove_pending(checkpoint):
+    (checkpoint/'pending').unlink()
+    descriptor=os.open(checkpoint,os.O_DIRECTORY)
+    try: os.fsync(descriptor)
+    finally: os.close(descriptor)
+
+
 def recover_pending(stop=True):
     checkpoint = DATA.parent/'arcane-credential-checkpoint'
     if not (checkpoint/'pending').exists(): return
@@ -185,9 +197,12 @@ def recover_pending(stop=True):
     # SQLite backup is consistent and contains no plaintext. Never touch volumes,
     # Compose definitions, the encryption key, or other application data.
     for suffix in ('-wal','-shm'): (DATA/('arcane.db'+suffix)).unlink(missing_ok=True)
-    with sqlite3.connect(checkpoint/'arcane.db') as source, sqlite3.connect(DATA/'arcane.db') as target:
+    with closing(sqlite3.connect(checkpoint/'arcane.db')) as source, closing(sqlite3.connect(DATA/'arcane.db')) as target:
         source.backup(target)
-    (checkpoint/'pending').unlink()
+    descriptor=os.open(DATA,os.O_DIRECTORY)
+    try: os.fsync(descriptor)
+    finally: os.close(descriptor)
+    remove_pending(checkpoint)
 
 
 def reset(value):
@@ -196,7 +211,7 @@ def reset(value):
     checkpoint=DATA.parent/'arcane-credential-checkpoint'
     checkpoint.mkdir(mode=0o700,exist_ok=True)
     command('systemctl','stop','docker-arcane.service')
-    with sqlite3.connect(DATA/'arcane.db') as source, sqlite3.connect(checkpoint/'arcane.db') as target:
+    with closing(sqlite3.connect(DATA/'arcane.db')) as source, closing(sqlite3.connect(checkpoint/'arcane.db')) as target:
         source.backup(target)
     os.chmod(checkpoint/'arcane.db',0o600)
     atomic(checkpoint/'pending','pending\n')
@@ -212,7 +227,7 @@ def reset(value):
         terminal_reset(value)
         verify(value)
         atomic(DATA/'.nixlab-bootstrap.json',json.dumps({'state':'initialized','verifiedAt':int(time.time())}))
-        (checkpoint/'pending').unlink()
+        remove_pending(checkpoint)
     except BaseException:
         recover_pending()
         command('systemctl','start','docker-arcane.service')
