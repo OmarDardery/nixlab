@@ -64,6 +64,19 @@ def reset_in_terminal(replacement):
         os.close(fd)
 
 
+# Docker's published port accepts connections before Arcane has completed its
+# database initialization and bound its TLS listener. Wait for application
+# readiness, keeping certificate verification enabled on every attempt.
+deadline = time.monotonic() + 90
+while True:
+    try:
+        if request('/api/health')[0] == 200:
+            break
+    except (urllib.error.URLError, ConnectionError, TimeoutError):
+        pass
+    assert time.monotonic() < deadline, 'Arcane TLS health did not become ready'
+    time.sleep(1)
+
 token = login()
 assert request('/api/auth/me', token=token)[0] == 200, 'Arcane authenticated API unavailable'
 assert request('/api/auth/me')[0] in (401, 403), 'Arcane API allowed anonymous access'
