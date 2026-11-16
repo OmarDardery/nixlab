@@ -694,7 +694,7 @@ main.web()""")
         return result,response.headers,response.status
     def test_enrollment_rejects_cross_origin_and_an_existing_administrator(self):
         state, _, status = self.request('/api/enrollment', auth=False)
-        self.assertEqual((status, state), (200, {'available': False}))
+        self.assertEqual((status, state), (200, {'available': False, 'recoveryRequired': False}))
         payload = {'code': 'a' * 32, 'password': 'new-enrollment-test-password'}
         _, _, status = self.request('/api/enrollment', payload, origin='https://attacker.invalid', auth=False)
         self.assertEqual(status, 401)

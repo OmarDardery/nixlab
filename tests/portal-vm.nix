@@ -54,11 +54,13 @@ in pkgs.testers.runNixOSTest {
     machine.succeed("PYTHONPATH=${../admin}:${../scripts} python3 ${./staged-secret-fixture.py} prepare")
     machine.fail("runuser -u outsider -- test -r /var/lib/nixlab-admin/jobs/0000000000000000000000000000006b/secrets.json")
     machine.fail("runuser -u nixlab-ui -- test -r /var/lib/nixlab-admin/jobs/0000000000000000000000000000006b/secrets.json")
+    machine.succeed("PYTHONPATH=${../admin}:${../scripts} python3 ${./enrollment-fixture.py} prepare")
     machine.shutdown()
     machine.start()
     machine.wait_for_unit("nixlab-ui.service")
     machine.wait_for_unit("nixlab-rollback-guard.timer")
     machine.wait_until_succeeds("PYTHONPATH=${../admin}:${../scripts} python3 ${./staged-secret-fixture.py} verify", timeout=90)
     machine.succeed("systemctl is-active nixlab-rollback-guard.timer")
+    machine.succeed("PYTHONPATH=${../admin}:${../scripts} python3 ${./enrollment-fixture.py} verify")
   '';
 }

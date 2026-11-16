@@ -18,5 +18,6 @@ rt.write_json(root / '.nixlab-files.json', files + ['machine/format.json', 'mach
 rt.STATE.mkdir(parents=True, mode=0o710, exist_ok=True)
 os.chown(rt.STATE, 0, grp.getgrnam('nixlab-ui').gr_gid)
 rt.STATE.chmod(0o710)
-rt.write_json(rt.STATE / 'auth.json', rt.password_record('vm-integration-password'), mode=0o640, group='nixlab-ui')
+if not (rt.STATE / 'auth.json').exists() and not (rt.STATE / 'enrollment-fixture-original').exists():
+    rt.write_json(rt.STATE / 'auth.json', rt.password_record('vm-integration-password'), mode=0o640, group='nixlab-ui')
 rt.issue_tls('127.0.0.1', 'nixlab-test')

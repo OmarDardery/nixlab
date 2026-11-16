@@ -171,3 +171,6 @@ browser recovery. #65/#66 still own transient Portainer first-boot input and
 supplied-password reset. Existing protected private service files, legacy verifiers
 and console recovery remain in place until those replacements are qualified.
 Do not close #62 merely because the output/helper regression tests pass.
+
+
+First-admin claim metadata is stored root-only in `bootstrap-state.json`, with a hashed browser proof, current boot identity and bounded monotonic deadline. It contains no plaintext password/code. Claim intent is durable before verifier publication; legacy marker removal precedes publication so an older source generation cannot reopen a completed first claim. Lost-response retries are harmless and never update the committed verifier. Corrupt/future state locks enrollment and automatic migration while preserving usable legacy accounts. Local-root supplied-password recovery and authenticated legacy rotation commit their replacement before deleting the private setup value. The encrypted recovery kit carries the versioned authority; configuration rollback excludes it and all portal account verifiers.

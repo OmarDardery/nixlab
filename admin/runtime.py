@@ -401,8 +401,10 @@ def cleanup_terminal_secrets(state):
         raise ValueError('Staged credential cleanup failed; inspect transaction storage, worker state and host clock; protected recovery was retained')
 
 
-def prepare_state_access():
+def prepare_state_access(*, locked=False):
     """After declarative users exist, let the portal read its initial auth file."""
+    import enrollment
+    enrollment.observe(locked=locked)
     auth = STATE / 'auth.json'
     if not auth.exists() and not (STATE / 'web-enrollment').exists():
         return

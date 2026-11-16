@@ -183,7 +183,7 @@ class ConsoleRotationTests(unittest.TestCase):
             with self.subTest(failure=failure), patch.object(main.os, 'geteuid', return_value=0), \
                     patch.object(main.sys.stdin, 'isatty', return_value=True), \
                     patch.object(getpass, 'getpass', side_effect=warning if failure == 'echo' else None, return_value=SECRETS['setup']), \
-                    patch.object(accounts, 'change_password', side_effect=OSError(SECRETS['operator'])) as change, \
+                    patch.object(accounts, 'recover_password', side_effect=OSError(SECRETS['operator'])) as change, \
                     contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
                 with self.assertRaises(SystemExit) as stopped: main.reset_portal_password()
             assert_public_clean(self, [output.getvalue(), str(stopped.exception)])
@@ -200,6 +200,8 @@ fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 import main
 # Only emulate CLI authorization on non-root CI; storage still uses the real uid.
 main.os = types.SimpleNamespace(geteuid=lambda: 0)
+import accounts
+accounts.local_root = lambda: True
 main.reset_portal_password()
 '''
         with tempfile.TemporaryDirectory() as folder:

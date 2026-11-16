@@ -106,7 +106,7 @@ def backend():
             try:
                 if self.path == '/enrollment':
                     import accounts
-                    result = {'available': accounts.enrollment_open()}
+                    result = accounts.enrollment_status()
                 elif self.path == '/status':
                     result = manager.status()
                 elif self.path == '/inventory':
@@ -807,7 +807,7 @@ def reset_portal_password():
         with warnings.catch_warnings():
             warnings.simplefilter('error', getpass.GetPassWarning)
             value = getpass.getpass('New NixLab administrator password (16–256 characters): ')
-        access_accounts.change_password('admin', value)
+        access_accounts.recover_password(value)
     except (getpass.GetPassWarning, EOFError, ValueError, OSError):
         raise SystemExit('Password change did not complete; check host account state from a private terminal before retrying') from None
     print('Password changed. Existing sessions will be rejected; sign in with the new password.')
