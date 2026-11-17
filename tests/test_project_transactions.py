@@ -266,6 +266,14 @@ class ProjectSourceTransactionsTests(unittest.TestCase):
         self.assertEqual(done["deployment"], "verified")
         self.assertEqual(done["deploymentResources"]["alpha/printer"]["phase"], "verified")
 
+    def test_git_history_is_preserved_by_rejecting_unsafe_directory_replacement(self):
+        git = self.workspace / ".git"
+        git.mkdir()
+        (git / "config").write_text("private local git history; never delete")
+        with self.assertRaisesRegex(ValueError, "Git metadata outside"):
+            self.review()
+        self.assertEqual((git / "config").read_text(), "private local git history; never delete")
+
     def test_status_contains_only_hashes_and_paths_not_source_bytes(self):
         reviewed = self.review()
         data = json.dumps(self.manager.status(reviewed["id"]))
