@@ -218,14 +218,30 @@ See [Incus Compose builds](https://incus-compose.org/builds),
 [compatibility](https://incus-compose.org/compose-compatibility) and
 [getting started](https://incus-compose.org/getting-started).
 
-**Plaintext `.env` is not a portable secret backup.** If the uploaded project
-contains credentials, NixLab must reject publication with a precise explanation
-and offer secure SOPS import. Encrypted SOPS source is preserved and safe to
-version; decrypted environment/credential files are generated only in
-protected runtime locations, for narrowly scoped guests. Do not claim to
-run an incompatible source literally: preserve it unchanged **and block
-deployment** until the user approves separate adjustments or supplies a
-compatible build.
+**Plaintext `.env` is not a portable secret backup.** If imported
+application source includes a plaintext secret, NixLab must **preserve the
+submitted bytes in quarantined staging**, block publication, and offer an
+explicit SOPS import/redaction workflow rather than silently edit the
+original. Common Compose `env_file: .env` and `${VARIABLE}` references can
+still work: the broker materializes project-scoped decrypted values into a
+short-lived, permission-restricted **deployment working directory** at the
+paths expected by the original Compose file, and removes plaintext files
+afterward. Uploaded `compose.yaml`/`Dockerfile` remains byte-identical;
+neither private source nor generated runtime plaintext enters Git or Nix
+store. Verify how the selected Incus Compose version consumes these files
+and what persists inside OCI guests, and avoid leaking them to build logs.
+
+**Build-context size boundary:** the currently merged #127 preflight uses
+conservative limits (1 MiB per file, 32 MiB total). #139 must qualify
+realistic Dockerfile build contexts and either revise those limits with
+bounded upload/storage quotas or store oversized nonsecret source in an
+immutable **content-addressed external project artifact** referenced by
+SHA-256 in the flake. Such artifacts are included in encrypted Restic
+backups with exact manifest hashes; restoration may not depend on a local
+unbacked upload cache. Oversized content is never silently dropped or
+truncated, and plaintext secrets remain excluded. Do not claim to run an
+incompatible source literally: preserve it unchanged **and block deployment**
+until the user approves separate adjustments or supplies a compatible build.
 
 ## 4. Runtime ownership: one desired-state owner per resource
 
