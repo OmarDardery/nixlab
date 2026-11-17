@@ -76,6 +76,15 @@ class ProjectSourceTransactionsTests(unittest.TestCase):
         self.assertEqual(tx.validate_workspace(self.workspace)["sourceHash"], self.before)
         self.assertEqual((self.workspace / "alpha" / "secrets.enc.yaml").read_text(), "sops: ciphertext-test-fixture")
 
+    def test_rollback_waits_for_newer_pending_project_review(self):
+        published = self.review()
+        self.manager.publish(published["id"], published["planHash"])
+        pending = self.edit(**{"alpha/modules/extra.nix": "{ ... }: { }"})
+        with self.assertRaisesRegex(ValueError, "pending project review"):
+            self.manager.rollback(published["id"], published["planHash"])
+        self.manager.cancel(pending["id"])
+        self.assertEqual(self.manager.rollback(published["id"], published["planHash"])["status"], "rolled-back")
+
     def test_creation_and_deletion_require_reviews_and_preserve_entrypoints(self):
         proposed = self.edit(**{"beta/default.nix": '{ ... }: { nixlab.project.name = "beta"; }'})
         self.manager.publish(proposed["id"], proposed["planHash"])
