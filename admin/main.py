@@ -219,7 +219,7 @@ def backend():
                 elif self.path == '/operation':
                     result = operations.submit(body, principal=actor)
                 elif self.path in ('/project/review', '/project/publish', '/project/rollback',
-                                   '/project/cancel', '/project/recover'):
+                                   '/project/cancel', '/project/recover', '/project/deploy'):
                     from project_transactions import ProjectTransactions
                     projects = ProjectTransactions()
                     if self.path == '/project/review':
@@ -230,6 +230,9 @@ def backend():
                         result = projects.rollback(body.get('id'), body.get('planHash'))
                     elif self.path == '/project/cancel':
                         result = projects.cancel(body.get('id'))
+                    elif self.path == '/project/deploy':
+                        result = projects.deploy(body.get('id'), body.get('planHash'),
+                                                 resume=body.get('resume', False))
                     else:
                         result = projects.recover(body.get('id'))
                 elif self.path == '/deploy-guests':
@@ -663,7 +666,7 @@ def web():
                 if self.path in ('/api/recovery-export', '/api/users'):
                     if not accounts.matches(session['username'], body.pop('current', None)):
                         raise rt.PublicError('Reauthenticate before exporting recovery material or changing accounts')
-                actions = {'/api/arcane/reset', '/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests', '/api/project/review', '/api/project/publish', '/api/project/rollback', '/api/project/cancel', '/api/project/recover'}
+                actions = {'/api/arcane/reset', '/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests', '/api/project/review', '/api/project/publish', '/api/project/rollback', '/api/project/cancel', '/api/project/recover', '/api/project/deploy'}
                 if self.path not in actions:
                     return reply(self, 404, {'error': 'Unknown action'})
                 body['_actor'] = session['username']
@@ -826,10 +829,11 @@ def project_cli(argv):
     import argparse
     from project_transactions import ProjectTransactions
     parser = argparse.ArgumentParser(prog='sudo nixlab-admin projects')
-    parser.add_argument('command', choices=['status', 'review', 'publish', 'rollback', 'cancel', 'recover'])
+    parser.add_argument('command', choices=['status', 'review', 'publish', 'rollback', 'cancel', 'recover', 'deploy'])
     parser.add_argument('--changes', type=Path, help='UTF-8 JSON map of relative Nix file edits (review only)')
     parser.add_argument('--id', help='Exact reviewed project transaction ID')
-    parser.add_argument('--plan-hash', help='Exact reviewed plan digest for publish or rollback')
+    parser.add_argument('--plan-hash', help='Exact reviewed plan digest for publish, deploy or rollback')
+    parser.add_argument('--resume', action='store_true', help='Resume an interrupted or partial deployment')
     arguments = parser.parse_args(argv)
     projects = ProjectTransactions()
     try:
@@ -846,6 +850,8 @@ def project_cli(argv):
             result = projects.rollback(arguments.id, arguments.plan_hash)
         elif arguments.command == 'cancel':
             result = projects.cancel(arguments.id)
+        elif arguments.command == 'deploy':
+            result = projects.deploy(arguments.id, arguments.plan_hash, resume=arguments.resume)
         else:
             result = projects.recover(arguments.id)
         print(json.dumps(result, indent=2))
@@ -1002,6 +1008,11 @@ if __name__ == '__main__':
         recovery.cli(sys.argv[2:])
     elif action == 'projects' and os.geteuid() == 0:
         project_cli(sys.argv[2:])
+    elif action == 'project-deploy-job' and os.geteuid() == 0:
+        if len(sys.argv) != 3:
+            sys.exit('Expected one project deployment ID')
+        from project_transactions import ProjectTransactions
+        ProjectTransactions().run_deployment(sys.argv[2])
     elif action == 'legacy-apps' and os.geteuid() == 0:
         if sys.argv[2:] != ['inventory']:
             sys.exit('Usage: sudo nixlab-admin legacy-apps inventory')
