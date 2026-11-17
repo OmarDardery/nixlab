@@ -192,7 +192,7 @@ class ProjectTransactions:
             if record.get("status") in {"building", "ready", "applying", "awaiting-confirmation", "rolling-back"}:
                 raise ValueError("Finish the active host transaction first")
         from deployments import check_idle
-        check_idle(self.state)
+        check_idle(self.state, allow_project=deployment)
 
     def _active(self):
         active = rt.read_json(self.state / "project-active.json", {})
