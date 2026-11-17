@@ -12,8 +12,8 @@ class InventoryAuditTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         rows = audit.decisions(root / "docs/incus-native-file-inventory.md")
         self.assertEqual(len(rows), 297)
-        self.assertEqual(sum(x == "COPY" for x in rows.values()), 21)
-        self.assertEqual(sum(x == "TRANSLATE" for x in rows.values()), 255)
+        self.assertEqual(sum(x == "COPY" for x in rows.values()), 20)
+        self.assertEqual(sum(x == "TRANSLATE" for x in rows.values()), 256)
         self.assertEqual(sum(x == "REMOVE" for x in rows.values()), 21)
 
     def test_strict_requires_translation_and_removal(self):

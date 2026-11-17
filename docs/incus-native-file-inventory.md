@@ -2,7 +2,7 @@
 
 This manifest covers **every file GitHub compared** between the pre-Portainer root commit and `main` at `c12dcd897dff081b1973d5039edea6da9e8ee817` (**297 paths**). These are *planned* decisions, not claims that each file is implemented. `COPY` = reuse exact contents initially; `TRANSLATE` = preserve useful logic but remove old assumptions and qualify; `REMOVE` = do not carry old implementation into the new app runtime. A later reconciliation should compare branch HEAD against this manifest and reclassify any new paths.
 
-Totals: **21 COPY / 255 TRANSLATE / 21 REMOVE**.
+Totals: **20 COPY / 256 TRANSLATE / 21 REMOVE**.
 
 | Existing source path | Action | Reason |
 |---|---|---|
@@ -299,7 +299,7 @@ Totals: **21 COPY / 255 TRANSLATE / 21 REMOVE**.
 | `tests/test_worker_inspection.py` | TRANSLATE | Adjust/add tests for native Incus runtime, Web UI and data preservation |
 | `website/assets/site.js` | COPY | Reusable unchanged asset, neutral example, fixture, or tool |
 | `website/assets/style.css` | COPY | Reusable unchanged asset, neutral example, fixture, or tool |
-| `website/build.py` | COPY | Reusable unchanged asset, neutral example, fixture, or tool |
+| `website/build.py` | TRANSLATE | Register native architecture pages and remove legacy guide links before release |
 | `website/index.html` | TRANSLATE | Remove obsolete Portainer/Arcane instructions and rebuild docs |
 | `website/requirements.txt` | TRANSLATE | Remove obsolete Portainer/Arcane instructions and rebuild docs |
 | `website/templates/doc.html` | COPY | Reusable unchanged asset, neutral example, fixture, or tool |
