@@ -24,8 +24,8 @@ recovery. `backups.nix` is the one-time, dynamically evaluated backup policy.
 [#128](https://github.com/OmarDardery/nixlab/issues/128) (Compose + Projects Web UI) →
 [#129](https://github.com/OmarDardery/nixlab/issues/129) (declarative backups) →
 [#130](https://github.com/OmarDardery/nixlab/issues/130) (GitHub/Drive destinations) →
-[#131](https://github.com/OmarDardery/nixlab/issues/131) (separate-host restore evidence) →
-[#126](https://github.com/OmarDardery/nixlab/issues/126) (final Arcane/Docker apps VM retirement).
+[#126](https://github.com/OmarDardery/nixlab/issues/126) (final Arcane/Docker apps VM retirement, gated by pre-cutover restore proof) →
+[#131](https://github.com/OmarDardery/nixlab/issues/131) (final Arcane-free exact-revision qualification).
 Deprecation of new Arcane onboarding may begin earlier; never delete legacy
 operator data without a proven replacement and recovery. This **replaces** conflicting future Arcane/Portainer
 and Docker-VM plans below. Existing-delivery descriptions remain historical/current,
