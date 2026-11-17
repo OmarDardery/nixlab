@@ -9,13 +9,13 @@ declarative backup policy that automatically covers newly added managed projects
 **Remove Arcane and the Docker apps VM completely** after a non-destructive
 legacy migration. See [target architecture](target-architecture.md).
 
-The active delivery queue is [#126](https://github.com/OmarDardery/nixlab/issues/126)
-(Arcane retirement), [#127](https://github.com/OmarDardery/nixlab/issues/127)
-(project root), [#128](https://github.com/OmarDardery/nixlab/issues/128)
-(Incus Compose Web UI), [#129](https://github.com/OmarDardery/nixlab/issues/129)
-(backup policy), [#130](https://github.com/OmarDardery/nixlab/issues/130)
-(GitHub/Google Drive destinations) and [#131](https://github.com/OmarDardery/nixlab/issues/131)
-(end-to-end qualification). This **replaces** conflicting future Arcane/Portainer
+The safe delivery order is [#127](https://github.com/OmarDardery/nixlab/issues/127)
+(project root) → [#128](https://github.com/OmarDardery/nixlab/issues/128)
+(Incus Compose Web UI/migration path) → [#129](https://github.com/OmarDardery/nixlab/issues/129)
+(backup policy) → [#130](https://github.com/OmarDardery/nixlab/issues/130)
+(GitHub/Google Drive destinations) → [#126](https://github.com/OmarDardery/nixlab/issues/126)
+(final Arcane retirement without data loss) → [#131](https://github.com/OmarDardery/nixlab/issues/131)
+(end-to-end qualification). Arcane may be frozen for new installations earlier, but must not be deleted on a legacy host before its replacement and backup are proven. This **replaces** conflicting future Arcane/Portainer
 and Docker-VM plans below. Existing-delivery descriptions remain historical/current,
 not the desired architecture. The current code is **not yet Arcane-free**.
 
