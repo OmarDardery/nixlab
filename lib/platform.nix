@@ -37,12 +37,4 @@
     ../modules/secrets.nix
   ];
 
-  applications = { modulesPath, ... }: {
-    imports = [
-      ../modules/settings.nix
-      ../modules/guest-secrets.nix
-      ../modules/docker-host.nix
-      (modulesPath + "/virtualisation/incus-virtual-machine.nix")
-    ];
-  };
 }

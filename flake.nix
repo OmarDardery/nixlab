@@ -1,5 +1,5 @@
 {
-  description = "Nixlab: NixOS bare-metal Incus host and isolated Compose VM";
+  description = "NixLab: Incus-native NixOS homelab management";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   inputs.sops-nix = {
     url = "github:Mic92/sops-nix/60182817ee048ac94b4c68ea76d5ef2e8aac730d";
@@ -10,11 +10,6 @@
       checkSettings = values: import ./lib/settings.nix { lib = nixpkgs.lib; inherit values; };
       site = checkSettings (import ./site.nix);
       testSite = import ./tests/site.nix;
-      mkApps = inventory: nixpkgs.lib.nixosSystem {
-        system = inventory.system;
-        specialArgs.inventory = checkSettings inventory;
-        modules = [ sops-nix.nixosModules.sops ./guests/apps.nix ];
-      };
       bootstrap = nixpkgs.lib.nixosSystem {
         system = site.system; specialArgs = { inventory = site; installedBase = null; };
         modules = [ ./configuration-bootstrap.nix ];
@@ -22,22 +17,11 @@
       installedNetworking = if builtins.pathExists (import ./lib/machine.nix ./.).installed
         then { networkManager = bootstrap.config.networking.networkmanager.enable; }
         else { networkManager = false; };
-      # Evaluate host policy without guest image artifacts, then build the guest
-      # from the same effective settings. File overrides therefore reach both roles.
-      policy = mkHost site null [ ];
-      apps = mkApps policy.config.nixlab.settings;
-      coupledPolicy = mkHost testSite null [ ./tests/hardware.nix ./tests/module-tree/typed-settings.nix ];
-      coupledApps = mkApps coupledPolicy.config.nixlab.settings;
-      testApps = mkApps testSite;
-      artifacts = vm: {
-        system = vm.config.system.build.toplevel;
-        metadata = "${vm.config.system.build.metadata}/tarball/${vm.config.image.fileName}";
-        disk = "${vm.config.system.build.qemuImage}/nixos.qcow2";
-      };
-      mkHost = inventory: vm: extra: mkHostNetwork inventory vm extra installedNetworking;
-      mkHostNetwork = inventory: vm: extra: networking: nixpkgs.lib.nixosSystem {
+      # Incus is the only guest runtime: no built-in Docker applications VM.
+      mkHost = inventory: extra: mkHostNetwork inventory extra installedNetworking;
+      mkHostNetwork = inventory: extra: networking: nixpkgs.lib.nixosSystem {
         system = inventory.system;
-        specialArgs = { inventory = checkSettings inventory; appImage = if vm == null then null else artifacts vm; installedNetworking = networking; installedBase = null; };
+        specialArgs = { inventory = checkSettings inventory; installedNetworking = networking; installedBase = null; };
         modules = [ sops-nix.nixosModules.sops ./configuration.nix ] ++ extra;
       };
       installer = import ./installer/package.nix { inherit pkgs; };
@@ -69,42 +53,40 @@
       };
       nixosModules = import ./lib/platform.nix;
       nixosConfigurations = {
-        hypervisor = mkHost site apps [ ];
-        inherit apps bootstrap;
+        hypervisor = mkHost site [ ];
+        inherit bootstrap;
         # Evaluation fixtures, never an installation target.
-        validation-minimal = mkHost (testSite // { apps = testSite.apps // { enable = false; }; }) testApps [ ./tests/hardware.nix ];
-        validation-recovery = mkHost (testSite // { setup = testSite.setup // { enable = true; }; }) testApps
+        validation-minimal = mkHost (testSite // { apps = testSite.apps // { enable = false; }; }) [ ./tests/hardware.nix ];
+        validation-recovery = mkHost (testSite // { setup = testSite.setup // { enable = true; }; })
           [ ./tests/hardware.nix { nixlab.recovery.enable = true; } ];
-        validation-file-disk = mkHost testSite testApps
+        validation-file-disk = mkHost testSite
           ([ ./tests/hardware.nix ] ++ (import ./lib/site-modules.nix ./tests/module-tree));
-        validation-recipes = mkHost (testSite // { apps = testSite.apps // { enable = false; }; }) null
+        validation-recipes = mkHost (testSite // { apps = testSite.apps // { enable = false; }; })
           ([ ./tests/hardware.nix { nixlab.notifications.enable = true; } ] ++ map
             (path: builtins.toFile "nixlab-recipe.nix" (builtins.fromJSON (builtins.readFile path)).module)
             [ ./admin/recipes/laptop.json ./admin/recipes/disk-health.json ./admin/recipes/private-access.json ]);
-        validation-host = mkHost testSite testApps [ ./tests/hardware.nix ];
+        validation-host = mkHost testSite [ ./tests/hardware.nix ];
         validation-management = mkHost (testSite // {
           monitoring = testSite.monitoring // { history = true; };
           cockpit = testSite.cockpit // { enable = true; };
           setup = testSite.setup // { enable = true; };
           maintenance = testSite.maintenance // { laptopMode = true; };
-        }) testApps [ ./tests/hardware.nix ];
-        validation-ethernet = mkHost ethernetSite null [ ./tests/hardware.nix ];
-        validation-ethernet-nm = mkHostNetwork ethernetSite null
+        }) [ ./tests/hardware.nix ];
+        validation-ethernet = mkHost ethernetSite [ ./tests/hardware.nix ];
+        validation-ethernet-nm = mkHostNetwork ethernetSite
           [ ./tests/hardware.nix { networking.networkmanager.enable = true; } ] { networkManager = true; };
         validation-ethernet-wifi = mkHostNetwork (ethernetSite // {
           management = ethernetSite.management // { interface = "wlan0"; };
           radios = ethernetSite.radios // { wifi = ethernetSite.radios.wifi // {
             enable = true; interface = "wlan0"; ssid = "FIXTURE-ONLY"; manageProfile = true;
           }; };
-        }) null [ ./tests/hardware.nix { networking.networkmanager.enable = true; } ] { networkManager = true; };
-        validation-apps = testApps;
-        validation-coupled-apps = coupledApps;
+        }) [ ./tests/hardware.nix { networking.networkmanager.enable = true; } ] { networkManager = true; };
         validation-services = mkHost (testSite // {
           monitoring = testSite.monitoring // { history = true; };
           backup = testSite.backup // { enable = true; repository = "sftp:backup@example.invalid:/nixlab"; };
           tunnel = testSite.tunnel // { enable = true; uuid = "00000000-0000-4000-8000-000000000001";
             ingress."app.example.invalid" = "http://10.77.0.10:8080"; };
-        }) testApps [ ./tests/hardware.nix ];
+        }) [ ./tests/hardware.nix ];
         validation-bootstrap = nixpkgs.lib.nixosSystem {
           system = testSite.system;
           specialArgs = { inventory = testSite // { setup = testSite.setup // { enable = true; }; }; installedBase = ./tests/installed-base.nix; };
@@ -112,10 +94,9 @@
         };
         validation-inherited = nixpkgs.lib.nixosSystem {
           system = testSite.system;
-          specialArgs = { inventory = testSite; appImage = artifacts testApps; installedBase = ./tests/installed-base.nix; installedNetworking.networkManager = true; };
+          specialArgs = { inventory = testSite; installedBase = ./tests/installed-base.nix; installedNetworking.networkManager = true; };
           modules = [ sops-nix.nixosModules.sops ./configuration.nix ];
         };
-        validation-setup-apps = mkApps (testSite // { setup = testSite.setup // { enable = true; }; });
         validation-setup = mkHost (testSite // {
           setup = testSite.setup // { enable = true; };
           management = testSite.management // { configure = true; };
@@ -125,19 +106,17 @@
             { name = "archive"; uuid = "22222222-2222-2222-2222-222222222222"; path = "/srv/nixlab/archive"; fsType = "xfs"; role = "pool"; required = true; readOnly = false; }
           ];
           storage = testSite.storage // { source = "/srv/nixlab/guests/incus"; };
-        }) (mkApps (testSite // { setup = testSite.setup // { enable = true; }; })) [ ./tests/hardware.nix ];
-        validation-demo = mkApps (testSite // { apps = testSite.apps // { enableDemo = true; }; });
+        }) [ ./tests/hardware.nix ];
         validation-zfs = mkHost (testSite // {
           storage = { driver = "zfs"; source = "testpool/incus";
             confirmedExistingZfsDataset = true; hostId = "1234abcd"; };
-        }) testApps [ ./tests/hardware.nix ];
+        }) [ ./tests/hardware.nix ];
       };
       packages.x86_64-linux = {
         inherit installer;
         admin = import ./admin/package.nix { inherit pkgs; };
         homelab = import ./scripts/homelab.nix { inherit pkgs; };
         helpers = import ./helpers/package.nix { inherit pkgs; };
-        apps-image = apps.config.system.build.qemuImage;
       };
       apps.x86_64-linux.install = { type = "app"; program = "${self.packages.x86_64-linux.installer}/bin/nixlab-install"; };
       apps.x86_64-linux.update = { type = "app"; program = "${self.packages.x86_64-linux.installer}/bin/nixlab-update"; };
@@ -154,8 +133,8 @@
         } ]);
         collisions = address: builtins.filter (entry:
           !entry.assertion && lib.hasPrefix "Management listener collision" entry.message)
-          (mkHost testSite null (case address)).config.assertions;
-        monitoringCollision = (mkHost testSite null [ ./tests/hardware.nix {
+          (mkHost testSite (case address)).config.assertions;
+        monitoringCollision = (mkHost testSite [ ./tests/hardware.nix {
           nixlab.settings.cockpit = { enable = true; port = 9091; };
           nixlab.settings.monitoring.history = true;
         } ]).config.assertions;
@@ -240,12 +219,11 @@
         foundation = import ./tests/foundation-vm.nix { inherit pkgs; };
         guest-deployments = import ./tests/guest-deployments-vm.nix { inherit pkgs; };
         host = self.nixosConfigurations.validation-host.config.system.build.toplevel;
-        apps = testApps.config.system.build.toplevel;
         helpers = self.packages.x86_64-linux.homelab;
       };
       devShells.x86_64-linux = {
         default = pkgs.mkShell {
-          packages = with pkgs; [ nixfmt shellcheck python3 incus-lts.client docker-compose ];
+          packages = with pkgs; [ nixfmt shellcheck python3 incus-lts.client ];
         };
       };
     };
