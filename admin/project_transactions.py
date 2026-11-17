@@ -3,6 +3,7 @@
 This intentionally separates an approved source revision from a deployed
 workload: the #133 Incus adapter will consume a separate exact-revision plan.
 """
+import ctypes
 import hashlib
 import json
 import os
@@ -128,6 +129,28 @@ def _parse_nix(paths):
         if result.returncode != 0:
             # Parser output may quote arbitrary source or credentials.
             raise ValueError("Project Nix syntax is invalid") from None
+
+
+def _sync_parent(path):
+    fd = os.open(Path(path).parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _exchange(left, right):
+    """Linux renameat2(RENAME_EXCHANGE): no window with a missing workspace."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    method = getattr(libc, "renameat2", None)
+    if method is None:
+        raise ValueError("Atomic directory exchange unavailable on this host")
+    method.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    method.restype = ctypes.c_int
+    if method(-100, os.fsencode(left), -100, os.fsencode(right), 2) != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+    _sync_parent(left)
 
 
 def _freeze(directory):
@@ -272,12 +295,14 @@ class ProjectTransactions:
             _copy_verified(self._job(identity) / "source", staged, candidate)
             record.update(status="applying-source", phase="prepared")
             self._write(identity, record)
-            # Old/new are siblings on one filesystem: files and metadata are
-            # published by renames, never partial in-place editing.
-            os.rename(live, previous)
-            record["phase"] = "old-moved"
+            # Atomic directory exchange. At every instant /projects exists:
+            # before swap it is the base tree; afterward it is the candidate.
+            # On crash the base source is still at 'staged' or 'previous'.
+            _exchange(live, staged)
+            record["phase"] = "exchanged"
             self._write(identity, record)
-            os.rename(staged, live)
+            os.rename(staged, previous)
+            _sync_parent(previous)
             record.update(status="published-source", phase="published", publishedAt=time.time())
             self._write(identity, record)
             rt.write_json(self.state / "project-last.json", {"id": identity})
@@ -299,20 +324,25 @@ class ProjectTransactions:
                 try: return validate_workspace(path)["sourceHash"] == expected
                 except (OSError, ValueError, WorkspaceError): return False
             if record["status"] == "rolling-back":
-                if matches(live, record["baseHash"]) and matches(reverted, record["candidateHash"]):
+                if matches(live, record["baseHash"]) and matches(previous, record["candidateHash"]):
                     record["status"] = "rolled-back"
-                elif not live.exists() and matches(previous, record["baseHash"]) and matches(reverted, record["candidateHash"]):
-                    os.rename(previous, live)
-                    record["status"] = "rolled-back"
+                    rt.durable_unlink(self.state / "project-last.json")
+                elif matches(live, record["candidateHash"]) and matches(previous, record["baseHash"]):
+                    # Crash before exchange; still running the approved source.
+                    record["status"] = "published-source"
                 else:
                     record["status"] = "recovery-required"
             elif matches(live, record["candidateHash"]) and matches(previous, record["baseHash"]):
                 record["status"] = "published-source"
                 rt.write_json(self.state / "project-last.json", {"id": identity})
-            elif not live.exists() and matches(previous, record["baseHash"]):
-                os.rename(previous, live)
-                record["status"] = "recovered"
-            elif matches(live, record["baseHash"]) and not previous.exists():
+            elif matches(live, record["candidateHash"]) and matches(staged, record["baseHash"]):
+                # Atomic exchange completed, but archive/journal update did not.
+                os.rename(staged, previous)
+                _sync_parent(previous)
+                record["status"] = "published-source"
+                rt.write_json(self.state / "project-last.json", {"id": identity})
+            elif matches(live, record["baseHash"]) and matches(staged, record["candidateHash"]):
+                # Crash before swap; no published changes.
                 record["status"] = "recovered"
             else:
                 record["status"] = "recovery-required"
@@ -340,8 +370,7 @@ class ProjectTransactions:
                 raise ValueError("Project source drift; refuse blind rollback")
             record["status"] = "rolling-back"
             self._write(identity, record)
-            os.rename(live, reverted)
-            os.rename(previous, live)
+            _exchange(live, previous)
             record.update(status="rolled-back", phase="rolled-back")
             self._write(identity, record)
             rt.durable_unlink(self.state / "project-last.json")
