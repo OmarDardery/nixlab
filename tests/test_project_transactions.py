@@ -56,6 +56,9 @@ class ProjectSourceTransactionsTests(unittest.TestCase):
         self.eval_patch = patch.object(tx.project_plans, "evaluate", return_value=self.inventory)
         self.eval_patch.start()
         self.addCleanup(self.eval_patch.stop)
+        self.host_owners_patch = patch.object(project_plans, "_host_claims", return_value=set())
+        self.host_owners_patch.start()
+        self.addCleanup(self.host_owners_patch.stop)
         self.manager = tx.ProjectTransactions(workspace=self.workspace, state=self.state)
 
     def edit(self, **patches):
