@@ -41,6 +41,9 @@ class ProjectSourceTransactionsTests(unittest.TestCase):
         self.state_patch = patch.object(rt, "STATE", self.state)
         self.state_patch.start()
         self.addCleanup(self.state_patch.stop)
+        self.incus_lock_patch = patch.object(tx, "INCUS_LOCK", self.base / "incus.lock")
+        self.incus_lock_patch.start()
+        self.addCleanup(self.incus_lock_patch.stop)
         self.parse_patch = patch.object(tx, "_parse_nix", return_value=None)
         self.parse_patch.start()
         self.addCleanup(self.parse_patch.stop)
@@ -186,6 +189,15 @@ class ProjectSourceTransactionsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "manual recovery"):
             self.manager.recover(reviewed["id"])
         self.assertEqual((self.workspace / "alpha/default.nix").read_text(), "external")
+
+    def test_queued_guest_operation_blocks_project_review(self):
+        from operations import Operations
+        job = self.state / "operations" / ("a" * 32)
+        job.mkdir(parents=True)
+        rt.write_json(job / "job.json", {
+            "id": "a" * 32, "status": "queued", "created": time.time()})
+        with self.assertRaisesRegex(ValueError, "queued or running guest operation"):
+            self.review()
 
     def test_host_activation_and_guest_deployment_are_exclusive(self):
         rt.write_json(self.state / "pending.json", {"id": "f" * 32})
