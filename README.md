@@ -9,9 +9,9 @@ It brings together established tools rather than inventing another virtualizatio
 **For:** self-hosters who want declarative infrastructure with a browser-based way in.
 **Status:** [0.1.0-beta.1 candidate](docs/beta.md); physical qualification and beta publication remain pending.
 
-> **New product goal (2026-11-17):** NixLab manages the NixOS host through its own reviewed **Web UI**, integrates **Incus** for OCI/system containers and VMs (including optional Incus Compose), and provides **Cockpit** for host administration. Users manage independent declarative project flakes and Compose files in the Web UI, with a one-time Nix-generated backup policy covering all managed projects and selected application data. **Arcane and the dedicated Docker apps VM are being fully retired.**
+> **New product goal (2026-11-17):** NixLab manages the NixOS host through its own reviewed **Web UI**, integrates **Incus** for OCI/system containers and VMs (including optional Incus Compose), and provides **Cockpit** for host administration. Users manage a separate **projects workspace flake** with automatically discovered typed `default.nix` projects, recursive modules, Incus/Compose deployment, SOPS + age encrypted secrets and a one-time declarative backup policy for all managed projects and selected persistent data. **Arcane and the dedicated Docker apps VM are being fully retired.**
 >
-> [Target architecture and independent project/backup layout](docs/target-architecture.md) · [Arcane retirement #126](https://github.com/OmarDardery/nixlab/issues/126) · [Project management #127–#128](https://github.com/OmarDardery/nixlab/issues/127) · [Backups #129–#130](https://github.com/OmarDardery/nixlab/issues/129)
+> [Target architecture: projects, secrets and backups](docs/target-architecture.md) · [Arcane retirement #126](https://github.com/OmarDardery/nixlab/issues/126) · [Project management #127–#128](https://github.com/OmarDardery/nixlab/issues/127) · [Backups #129–#130](https://github.com/OmarDardery/nixlab/issues/129)
 >
 > **Migration status:** Current main still contains the legacy Arcane/apps-VM implementation. This decision is a planned migration, **not** a claim that the runtime or existing machines have been changed. Existing VM disks and data must not be automatically removed.
 
