@@ -103,3 +103,14 @@ assert.equal(vm.runInContext('quickManagementLinks()', context), '', 'Never turn
 vm.runInContext("state.status.managementAddress='2001:db8::10'", context);
 assert.ok(vm.runInContext('quickManagementLinks()', context).includes('https://[2001:db8::10]:8443'));
 
+
+vm.runInContext('state.status.setupComplete=true; state.status.settings.apps.enable=false; state.status.effectiveSettings=null',context);
+const freshAppsCard=vm.runInContext('apps()',context);
+assert.ok(freshAppsCard.includes('provisioning is retired'));
+assert.ok(!freshAppsCard.includes('Initial Arcane administrator password'));
+assert.ok(!freshAppsCard.includes('arcane-reuse'));
+assert.ok(!freshAppsCard.includes('data-field="apps.enable"'), 'No first-install Arcane enable toggle');
+vm.runInContext('state.status.settings.apps.enable=true',context);
+const legacyAppsCard=vm.runInContext('apps()',context);
+assert.ok(legacyAppsCard.includes('Legacy Arcane apps VM'));
+assert.ok(legacyAppsCard.includes('arcane-reset-form') || legacyAppsCard.includes('Arcane administrator password'));
