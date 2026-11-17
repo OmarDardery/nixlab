@@ -82,8 +82,10 @@ class LegacyAppsInventoryTests(unittest.TestCase):
         self.assertIsNone(report["docker"]["containers"])
         self.assertFalse(report["safeToDelete"])
 
-    def test_inc us_failure(self):
-        pass
+    def test_incus_error_is_not_absent_vm(self):
+        with patch.object(legacy_apps, "run", side_effect=RuntimeError("offline")):
+            with self.assertRaisesRegex(RuntimeError, "offline"):
+                legacy_apps.inventory()
 
     def test_reject_conflicting_instance_type(self):
         def fake(*args, **kwargs):
