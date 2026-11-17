@@ -58,7 +58,7 @@ class ProjectInventoryTests(unittest.TestCase):
                 self.assertIn("--offline", arguments)
                 self.assertFalse(any("nixos-rebuild" in part or "incus" == part or "docker" == part for part in arguments))
                 bind = next(part for part in arguments if part.startswith("--property=BindReadOnlyPaths="))
-                mount = Path(bind.split("=", 1)[1].split(":", 1)[0])
+                mount = Path(bind.removeprefix("--property=BindReadOnlyPaths=").split(":", 1)[0])
                 self.assertTrue((mount / "printer" / "default.nix").exists())
                 self.assertEqual(mount.stat().st_mode & 0o777, 0o555)
                 return CompletedProcess(arguments, 0, json.dumps(expected).encode(), b"")
