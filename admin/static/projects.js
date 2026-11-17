@@ -16,21 +16,12 @@ const projectReferences = [
   { name: "Cockpit", source: "https://github.com/cockpit-project/cockpit", detail: "Host terminal, services and journal", guide: "homelab.md",
     docs: [["Official docs", "https://cockpit-project.org/documentation.html"]],
     community: [["Community plugins", "https://cockpit-project.org/applications.html"]] },
-  { name: "Docker & Compose", source: "https://github.com/docker/compose", detail: "Application containers inside the apps VM", guide: "homelab.md",
-    docs: [["Docker docs", "https://docs.docker.com/"], ["Compose guide", "https://docs.docker.com/compose/"]],
-    community: [["Compose examples", "https://github.com/docker/awesome-compose"]] },
-  { name: "Arcane", source: "https://github.com/getarcaneapp/arcane", detail: "Docker dashboards, stacks and templates", guide: "homelab.md",
-    docs: [["Official docs", "https://getarcane.app/docs/"], ["Template format", "https://getarcane.app/docs/docker/projects"]],
-    community: [["Community templates", "https://github.com/lissy93/arcane-templates"]] },
   { name: "restic", source: "https://github.com/restic/restic", detail: "Optional off-host backups", guide: "recovery.md", optional: true,
     docs: [["Official docs", "https://restic.readthedocs.io/en/stable/"]],
     community: [["Community tools & wrappers", "https://github.com/restic/others"]] },
   { name: "Cloudflare Tunnel", source: "https://github.com/cloudflare/cloudflared", detail: "Optional public application ingress", guide: "networking.md", optional: true,
     docs: [["Tunnel docs", "https://developers.cloudflare.com/tunnel/"]],
     community: [["cloudflared source & issues", "https://github.com/cloudflare/cloudflared"]] },
-  { name: "Nginx", source: "https://github.com/nginx/nginx", detail: "HTTPS reverse proxy for Arcane", guide: "homelab.md", optional: true,
-    docs: [["Official docs", "https://nginx.org/en/docs/"], ["njs session isolation", "https://nginx.org/en/docs/njs/"]],
-    community: [["NixOS configuration examples", "https://wiki.nixos.org/wiki/Nginx"]] },
   { name: "Tailscale", source: "https://github.com/tailscale/tailscale", detail: "Optional private-access recipe", guide: "operations.md", optional: true,
     docs: [["Official docs", "https://tailscale.com/docs"]],
     community: [["NixOS community guide", "https://wiki.nixos.org/wiki/Tailscale"]] },
@@ -51,7 +42,6 @@ function managementServices() {
   const rows = [
     ["Incus", 8443, true],
     ["Cockpit", active.cockpit?.port, active.cockpit?.enable],
-    ["Arcane", active.apps?.arcanePort, active.apps?.enable],
   ];
   return rows.map(([name, port, enabled]) => {
     const project = projectReferences.find(item => item.name === name);

@@ -15,19 +15,19 @@ const state = {
 const app = document.querySelector("#app");
 // Page IDs continue to match the existing renderers and API handlers.
 const pages = [
-  ["overview","Overview"],["guests","Guests"],["network","Networking"],["storage","Storage"],
+  ["overview","Overview"],["projects","Projects"],["guests","Guests"],["network","Networking"],["storage","Storage"],
   ["hardware","Hardware"],["integrations","Services"],["security","Access"],
   ["accounts","Accounts"],["ingress","Public ingress"],["operations","Backups"],
   ["review","Changes"],["system","Maintenance"],["files","Advanced"],["commands","Help"],
 ];
 const navigationGroups = [
-  ["WORKSPACE",["overview","guests"]],
+  ["WORKSPACE",["overview","projects","guests"]],
   ["INFRASTRUCTURE",["network","storage","hardware","integrations"]],
   ["SECURITY",["security","accounts","ingress"]],
   ["OPERATIONS",["operations","review","system","files"]],
   ["RESOURCES",["commands"]],
 ];
-const pageIcons = {overview:"◫",guests:"▤",network:"◎",storage:"▱",hardware:"⌘",integrations:"▦",security:"◇",accounts:"♧",ingress:"↗",operations:"◷",review:"⇄",system:"⚙",files:"{ }",commands:"?"};
+const pageIcons = {overview:"◫",projects:"▧",guests:"▤",network:"◎",storage:"▱",hardware:"⌘",integrations:"▦",security:"◇",accounts:"♧",ingress:"↗",operations:"◷",review:"⇄",system:"⚙",files:"{ }",commands:"?"};
 function primaryPage() { return state.page; }
 function hostTabs() { return ""; }
 function validPage(id) { return pages.some(([page]) => page === id); }
@@ -205,7 +205,7 @@ function shell() {
   const address = state.status.managementAddress || settings.management.address;
   const observedHealth = freshObservation(operationView.health);
   const requiredUnits = ["incus.service", "nixlab-admin-backend.service", "nixlab-ui.service",
-    ...(settings.cockpit?.enable ? ["cockpit.socket"] : []), ...(settings.apps?.enable ? ["nginx.service"] : [])];
+    ...(settings.cockpit?.enable ? ["cockpit.socket"] : [])];
   const units = operationView.health?.services || [];
   const knownHealth = observedHealth && units.length > 0;
   const live = knownHealth && requiredUnits.every(id => units.some(u => u.Id === id && u.ActiveState === "active"));
@@ -233,6 +233,7 @@ function shell() {
   }
   bind();
   bindOperations();
+  bindNativeProjects();
   bindFoundation();
   bindCommands();
   bindUiChrome();
@@ -241,6 +242,7 @@ function shell() {
 function renderPage() {
   return {
     overview: hostOverview,
+    projects: nativeProjectPage,
     guests: () => title("", "Guests & addresses", "Observed Incus guests and IP addresses. Manage guest lifecycles in Incus.") + guestNetwork(),
     network: hostConnectivity,
     hardware: hostHardware,
@@ -319,17 +321,8 @@ function storage() {
   );
 }
 function apps() {
-  // Preserve recovery controls only for installations that already opted into
-  // the legacy VM. Fresh hosts must not offer Arcane provisioning or secrets.
-  const legacyEnabled = state.status?.effectiveSettings?.apps?.enable ??
-    state.status?.settings?.apps?.enable;
-  if (!legacyEnabled) {
-    return card("Applications through Incus",
-      '<p>Docker/Arcane apps-VM provisioning is retired for new installations. Use the Incus UI to manage OCI or system containers. Declarative Incus Compose project management is being introduced separately.</p>' +
-      '<p class="note">Existing legacy apps VMs and data are never deleted or stopped by disabling their NixLab management. Back up and migrate their volumes explicitly before retirement.</p>');
-  }
-  return card("Legacy Arcane apps VM",
-    `${toggle("Keep legacy applications VM managed during migration", "apps.enable")}<div class="fields">${field("Arcane HTTPS port on the host", "apps.arcanePort", { type: "number", hint: "Existing installations keep their configured port." })}${state.host?.arcane?.state === "initialized" ? '<p>Existing Arcane detected. Its identity and data are preserved. Use the password reset form below to change its credential.</p>' : `${secret("Initial Arcane administrator password", "arcanePassword", "16–256 characters with uppercase, lowercase, a number and a symbol. Bootstrap material is deleted after verified login.")}<label class="toggle"><input id="arcane-reuse" type="checkbox" ${state.arcaneReuse ? "checked" : ""}> Use my NixLab password for initial Arcane setup</label><p class="note">Separate passwords are recommended. Reuse shares compromise risk; accounts remain independent and later password changes are not synchronized.</p><p>Reenter your current password on Changes before building when reuse is selected.</p>`}</div>${state.host?.arcane?.state === "initialized" ? '<form id="arcane-reset-form"><h3>Reset Arcane administrator password</h3><label class="field"><span>Current NixLab password</span><input name="current" type="password" autocomplete="current-password" required></label><label class="field"><span>New Arcane password</span><input name="password" type="password" autocomplete="new-password" minlength="16" maxlength="256" required></label><button>Reset & verify Arcane login</button></form>' : ''}<details><summary>Advanced image & legacy demo settings${state.draft.apps.enableDemo ? " · demo enabled" : ""}</summary><div class="fields">${field("Arcane image", "apps.arcaneImage")}</div>${toggle("Enable the optional demo workload", "apps.enableDemo")}${state.draft.apps.enableDemo ? secret("Demo database password", "demoPassword") : ""}<p class="note">Existing demo configuration is retained; it remains Nix-owned.</p></details><p class="note">Legacy only: disabling this setting removes the NixLab Arcane proxy and onboarding, but DOES NOT stop or delete the VM or its data. Keep alternate access and tested off-host backups before disabling. Use Incus for VM administration.</p>`);
+  return card("Incus-native applications",
+    '<p>All application workloads belong to Incus projects. Use the Projects page to see observed resources.</p><button type="button" data-go="projects">Open Projects</button><p class="note">Native deployment requires an approved revision and is not implemented in this portal yet.</p>');
 }
 
 function security() {
@@ -445,7 +438,7 @@ function review() {
     platformReview() +
     impactReview() +
     guestDeploymentReview() +
-    `<section class="card"><div class="card-header"><div class="status-line"><span class="progress-dot"></span><h2>${job ? esc(job.status.replaceAll("-", " ")) : "Ready to prepare your first generation"}</h2></div>${job ? `<span class="caption mono">${esc(job.id.slice(0, 10))}</span>` : ""}</div><p>Build before activating. A separate recovery service restores the previous generation if the change fails or you do not confirm access in time.</p>${state.arcaneReuse ? '<label class="field full"><span>Current NixLab password for initial Arcane setup</span><input id="arcane-current" type="password" autocomplete="current-password" required></label>' : ''}<div class="actions"><button class="primary" data-action="build" ${building || state.status.pending ? "disabled" : ""}>${job ? "Build a new review" : "Build & review configuration"}</button>${job?.status === "ready" ? `<button class="primary" data-action="apply" ${!job.impactPlan || job.impactPlan.blocked ? "disabled" : ""}>Activate reviewed generation</button>` : ""}${job && ["building", "ready", "failed"].includes(job.status) ? '<button data-action="cancel">Discard candidate</button>' : ""}${state.status.lastConfirmed && state.status.lastConfirmed.id !== job?.id ? '<button data-action="rollback-confirmed">Roll back last confirmed change</button>' : ""}${job?.status === "awaiting-confirmation" ? '<button class="primary" data-action="confirm">Confirm access</button>' : ""}${job?.previousSystem && ["confirmed", "awaiting-confirmation", "failed"].includes(job.status) ? '<button data-action="rollback">Roll back this change</button>' : ""}</div>${state.updateInputs ? '<p class="note">This review includes a Nixpkgs package refresh.</p>' : ""}${job?.error ? `<p class="error">${esc(job.error)}</p>` : ""}</section>${job ? `<section class="card section"><div class="card-header"><h2>Settings in this candidate</h2><span class="caption">${job.changes.length} change(s)</span></div>${job.changes.map((d) => `<div class="diff"><code>${esc(d.setting)}</code><span class="before">${esc(JSON.stringify(d.before))}</span><span class="after">${esc(JSON.stringify(d.after))}</span></div>`).join("") || "<p>No settings changed; the build can still include package updates.</p>"}${job.secretChanges.length ? `<p class="note">Runtime secrets updated: ${esc(job.secretChanges.join(", "))}. Values are excluded from the Nix snapshot and this review.</p>` : ""}<div class="separator"></div><p>Management address after activation: <a href="https://${esc((job.effectiveSettings || job.settings).management.address)}:${esc((job.effectiveSettings || job.settings).setup.port)}">https://${esc((job.effectiveSettings || job.settings).management.address)}:${esc((job.effectiveSettings || job.settings).setup.port)}</a></p></section><section class="card section"><div class="card-header"><h2>Build & activation output</h2><span class="caption">Last 64 KiB</span></div><pre class="log" id="build-log">${esc(job.log || "Waiting for the build worker…")}</pre></section>` : ""}`
+    `<section class="card"><div class="card-header"><div class="status-line"><span class="progress-dot"></span><h2>${job ? esc(job.status.replaceAll("-", " ")) : "Ready to prepare your first generation"}</h2></div>${job ? `<span class="caption mono">${esc(job.id.slice(0, 10))}</span>` : ""}</div><p>Build before activating. A separate recovery service restores the previous generation if the change fails or you do not confirm access in time.</p><div class="actions"><button class="primary" data-action="build" ${building || state.status.pending ? "disabled" : ""}>${job ? "Build a new review" : "Build & review configuration"}</button>${job?.status === "ready" ? `<button class="primary" data-action="apply" ${!job.impactPlan || job.impactPlan.blocked ? "disabled" : ""}>Activate reviewed generation</button>` : ""}${job && ["building", "ready", "failed"].includes(job.status) ? '<button data-action="cancel">Discard candidate</button>' : ""}${state.status.lastConfirmed && state.status.lastConfirmed.id !== job?.id ? '<button data-action="rollback-confirmed">Roll back last confirmed change</button>' : ""}${job?.status === "awaiting-confirmation" ? '<button class="primary" data-action="confirm">Confirm access</button>' : ""}${job?.previousSystem && ["confirmed", "awaiting-confirmation", "failed"].includes(job.status) ? '<button data-action="rollback">Roll back this change</button>' : ""}</div>${state.updateInputs ? '<p class="note">This review includes a Nixpkgs package refresh.</p>' : ""}${job?.error ? `<p class="error">${esc(job.error)}</p>` : ""}</section>${job ? `<section class="card section"><div class="card-header"><h2>Settings in this candidate</h2><span class="caption">${job.changes.length} change(s)</span></div>${job.changes.map((d) => `<div class="diff"><code>${esc(d.setting)}</code><span class="before">${esc(JSON.stringify(d.before))}</span><span class="after">${esc(JSON.stringify(d.after))}</span></div>`).join("") || "<p>No settings changed; the build can still include package updates.</p>"}${job.secretChanges.length ? `<p class="note">Runtime secrets updated: ${esc(job.secretChanges.join(", "))}. Values are excluded from the Nix snapshot and this review.</p>` : ""}<div class="separator"></div><p>Management address after activation: <a href="https://${esc((job.effectiveSettings || job.settings).management.address)}:${esc((job.effectiveSettings || job.settings).setup.port)}">https://${esc((job.effectiveSettings || job.settings).management.address)}:${esc((job.effectiveSettings || job.settings).setup.port)}</a></p></section><section class="card section"><div class="card-header"><h2>Build & activation output</h2><span class="caption">Last 64 KiB</span></div><pre class="log" id="build-log">${esc(job.log || "Waiting for the build worker…")}</pre></section>` : ""}`
   );
 }
 function formatBytes(v) {
@@ -456,7 +449,7 @@ function formatBytes(v) {
 function login(message = "") {
   clearInterval(state.timer);
   state.timer = null;
-  app.innerHTML = `<main id="main" class="login"><section class="login-card">${brandLogo()}<h1>Sign in to your host.</h1><p>Use your NixLab portal account. Hosts with browser enrollment enabled will show console approval here. If you need a new portal password, use <code>sudo nixlab-admin reset-password</code> from an authorized host terminal.</p><form id="login-form"><label class="field"><span>Account</span><input name="username" value="admin" autocomplete="username" required></label><label class="field"><span>Portal password</span><input name="password" type="password" autocomplete="current-password" required autofocus></label><p class="error" id="login-error">${esc(message)}</p><button class="primary">Sign in →</button></form><p class="note">SSH, Cockpit and Arcane use separate identities. Verify the local CA fingerprint before signing in. <a href="/ca.crt">Download the management CA</a>.</p></section></main>`;
+  app.innerHTML = `<main id="main" class="login"><section class="login-card">${brandLogo()}<h1>Sign in to your host.</h1><p>Use your NixLab portal account. Hosts with browser enrollment enabled will show console approval here. If you need a new portal password, use <code>sudo nixlab-admin reset-password</code> from an authorized host terminal.</p><form id="login-form"><label class="field"><span>Account</span><input name="username" value="admin" autocomplete="username" required></label><label class="field"><span>Portal password</span><input name="password" type="password" autocomplete="current-password" required autofocus></label><p class="error" id="login-error">${esc(message)}</p><button class="primary">Sign in →</button></form><p class="note">SSH and Cockpit use separate identities from the NixLab portal. Verify the local CA fingerprint before signing in. <a href="/ca.crt">Download the management CA</a>.</p></section></main>`;
   document.querySelector("#login-form").onsubmit = async (e) => {
     e.preventDefault();
     const button = e.target.querySelector("button");

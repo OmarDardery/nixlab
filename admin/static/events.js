@@ -99,18 +99,6 @@ function bind() {
       .forEach((el) => (el.disabled = true));
   const update = document.querySelector("#update-inputs");
   if (update) update.onchange = () => (state.updateInputs = update.checked);
-  const reuse = document.querySelector("#arcane-reuse");
-  if (reuse) reuse.onchange = () => { state.arcaneReuse = reuse.checked; delete state.secrets.arcanePassword; shell(); };
-  const arcaneReset = document.querySelector("#arcane-reset-form");
-  if (arcaneReset) arcaneReset.onsubmit = async (event) => {
-    event.preventDefault();
-    const button = arcaneReset.querySelector("button"); button.disabled = true;
-    try {
-      await api("arcane/reset", Object.fromEntries(new FormData(arcaneReset)));
-      toast("Arcane password changed and login verified. NixLab password is unchanged.");
-    } catch (error) { toast(error.message); }
-    finally { arcaneReset.reset(); button.disabled = false; }
-  };
   const password = document.querySelector("#password-form");
   if (password)
     password.onsubmit = async (e) => {
@@ -202,8 +190,6 @@ async function action(name, el) {
       await api("review", {
         settings: state.draft,
         secrets: state.secrets,
-        reuseArcanePassword: !!state.arcaneReuse,
-        arcaneCurrent: document.querySelector("#arcane-current")?.value,
         updateInputs: state.updateInputs,
         modules: state.modules,
         revision: state.platformRevision || null,
@@ -216,8 +202,7 @@ async function action(name, el) {
       document.querySelectorAll("#platform-password").forEach(input => { input.value = ""; });
       document.querySelectorAll("#platform-ack").forEach(input => { input.checked = false; });
       state.modules = {};
-      state.secrets = {}; state.arcaneReuse = false;
-      document.querySelectorAll("#arcane-current").forEach(input => { input.value = ""; });
+      state.secrets = {};
       state.platformRevision = "";
       state.status = await api("status");
       state.page = "review";

@@ -22,7 +22,7 @@ function commandGroups() {
       ["quick-guests", "Show all guests", "Host terminal", "Instances and their current states across Incus projects.", "sudo incus list --all-projects"],
       ["quick-failures", "Failed services", "Host terminal", "Inspect failed systemd units.", "systemctl --failed"],
       ["quick-log", "Follow NixLab web logs", "Host terminal", "Investigate authentication or startup problems.", "sudo journalctl -u nixlab-ui -f"],
-      ["quick-apps", "Check apps VM", "Host terminal", "Check Docker from inside the isolated guest.", "sudo incus exec apps --project lab -- docker ps"],
+      ["quick-incus-projects", "List Incus namespaces", "Host terminal", "Inspect named Incus projects.", "sudo incus project list"],
       ["quick-guest-logs", "Guest service logs", "Host terminal", "Inspect the selected guest without publishing its admin interfaces.", "sudo incus exec GUEST --project lab -- journalctl -b --no-pager -n 50"],
       ["quick-recovery", "Show pending install checklist", "Host terminal", "See pending guest network, device and backup commissioning steps.", "sudo nixlab install-plan"],
       ["quick-config", "Current change status", "Host terminal", "View reviewed configuration transactions.", "sudo nixlab-admin config status"],
@@ -39,11 +39,14 @@ function commandGroups() {
       ["ssh", "Connect to this host", "Your laptop", "Use the operator Linux password or an enrolled client key.", "ssh operator@" + host],
       ["commissioning", "Collect commissioning evidence", "Host terminal", "Read-only probes record revision-bound results. Reboots, installation retry and restore drills remain separate procedures in the commissioning guide.", "sudo nixlab commissioning collect --mode fresh"],
     ] },
-    { id: "guests", title: "Guest & Docker examples", guide: "administration.md", items: [
-      ["list-guests", "List every Incus project’s guests", "Host terminal", "Read-only inventory. Guest lifecycle and consoles remain in Incus.", "sudo incus list --all-projects"],
-      ["apps-shell", "Open a shell in the apps VM", "Host terminal", "Requires the applications VM to be enabled and running.", "sudo homelab exec apps"],
-      ["compose-list", "List Compose projects", "Host terminal → apps VM", "Docker runs in the apps VM, not on the hypervisor.", "sudo homelab exec apps -- docker compose ls"],
-      ["arcane-logs", "Read Arcane logs", "Host terminal → apps VM", "Inspect the current guest boot’s Arcane service output.", "sudo homelab exec apps -- journalctl -b -u docker-arcane.service --no-pager"],
+    { id: "guests", title: "Incus resources", guide: "administration.md", items: [
+      ["list-guests", "List instances across projects", "Host terminal", "Read-only Incus inventory.", "sudo incus list --all-projects"],
+      ["list-projects", "List project namespaces", "Host terminal", "Inspect Incus projects and their limits.", "sudo incus project list"],
+      ["list-images", "List OCI and system images", "Host terminal", "Inspect available images; no build is triggered.", "sudo incus image list"],
+      ["list-storage", "List storage pools", "Host terminal", "Inspect pools without deleting data.", "sudo incus storage list"],
+      ["list-networks", "List networks", "Host terminal", "Inspect Incus network definitions.", "sudo incus network list"],
+      ["guest-info", "Inspect a guest", "Host terminal", "Inspect resources, state and devices.", "sudo incus info GUEST --project PROJECT"],
+      ["guest-shell", "Open a guest shell", "Host terminal", "Interactive access explicitly names its project.", "sudo incus exec GUEST --project PROJECT -- sh"],
     ] },
     { id: "helpers", title: "Community helper commands", guide: "helpers.md", items: [
       ["helper-list", "Browse the packaged helper catalog", "Host terminal", "List script IDs and compatibility metadata from the pinned sources.", "nixlab-helpers list"],
