@@ -88,6 +88,8 @@ def activate(candidate, manager=None, effective=None, staged_source=None, expect
     from controller import Manager
     manager = manager or Manager()
     effective = effective or candidate
+    if effective['apps']['enable'] or effective['apps']['enableDemo']:
+        raise ValueError('Legacy applications VM is not supported by the Incus-native installer; migrate data explicitly')
     if effective['cockpit']['enable'] and effective['cockpit']['managePassword']:
         import local_access
         local_access.ensure_operator_password()

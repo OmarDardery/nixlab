@@ -114,22 +114,20 @@ class DirectActivationTests(unittest.TestCase):
         self.manager.review.return_value = {'id': 'a' * 32}
         self.manager.job_path.return_value = self.root
         self.candidate = initial()
-        self.candidate['apps']['enable'] = True
+        self.candidate['apps']['enable'] = False
         self.secret_patch = patch.dict(rt.SECRET_PATHS, arcanePassword=self.root / 'arcane-password')
         self.secret_patch.start()
         self.addCleanup(self.secret_patch.stop)
 
-    def test_separate_secret_and_leave_access_confirmation_pending(self):
+    def test_no_legacy_secret_and_leave_access_confirmation_pending(self):
         with patch('direct.wait_for', side_effect=[{'status': 'ready'}, {'status': 'awaiting-confirmation'}]), patch('builtins.print'):
             record = direct.activate(self.candidate, self.manager)
-        password = self.manager.review.call_args.kwargs['secret_values']['arcanePassword']
-        self.assertGreaterEqual(len(password), 24)
-        self.assertNotIn(password, json.dumps(record))
+        self.assertEqual(record, {'status': 'awaiting-confirmation'})
         args, kwargs = self.manager.review.call_args
-        self.assertNotIn(password, json.dumps(args[0]))
-        self.assertEqual(kwargs['secret_values'], {'arcanePassword':password})
+        self.assertFalse(args[0]['apps']['enable'])
+        self.assertEqual(kwargs['secret_values'], {})
         self.assertFalse(rt.SECRET_PATHS['arcanePassword'].exists())
-        self.assertEqual([call[0] for call in self.manager.method_calls], ['settings', 'review', 'apply'])
+        self.assertEqual([call[0] for call in self.manager.method_calls], ['review', 'apply'])
         self.manager.confirm.assert_not_called()
 
     def test_build_failure_never_applies_or_confirms(self):
@@ -153,22 +151,21 @@ class DirectActivationTests(unittest.TestCase):
         self.manager.apply.assert_called_once()
         self.manager.confirm.assert_not_called()
 
-    def test_resume_preserves_existing_arcane_credential(self):
+    def test_existing_legacy_secret_is_never_touched_or_reused(self):
+        # The root broker must never overwrite old credentials or silently migrate a guest.
         rt.SECRET_PATHS['arcanePassword'].write_text('existing-secret')
         with patch('direct.wait_for', return_value={'status': 'awaiting-confirmation'}), patch('builtins.print'):
-            record = direct.activate(self.candidate, self.manager)
-        self.assertEqual(record, {'status': 'awaiting-confirmation'})
+            direct.activate(self.candidate, self.manager)
         self.assertEqual(rt.SECRET_PATHS['arcanePassword'].read_text(), 'existing-secret')
         self.assertEqual(self.manager.review.call_args.kwargs['secret_values'], {})
 
-    def test_file_owned_apps_receive_credentials_without_overwriting_json(self):
-        self.candidate['apps']['enable'] = False
-        effective = copy.deepcopy(self.candidate); effective['apps']['enable'] = True
-        with patch('direct.wait_for', return_value={'status': 'awaiting-confirmation'}), patch('builtins.print'):
-            record = direct.activate(self.candidate, self.manager, effective=effective)
-        self.assertIn('arcanePassword',self.manager.review.call_args.kwargs['secret_values'])
-        self.assertEqual(record, {'status': 'awaiting-confirmation'})
-        self.assertFalse(self.manager.review.call_args.args[0]['apps']['enable'])
+    def test_legacy_file_owned_apps_fail_before_any_privileged_mutation(self):
+        effective = copy.deepcopy(self.candidate)
+        effective['apps']['enable'] = True
+        with self.assertRaisesRegex(ValueError, 'Legacy applications VM'):
+            direct.activate(self.candidate, self.manager, effective=effective)
+        self.manager.review.assert_not_called()
+        self.manager.apply.assert_not_called()
 
     def test_failed_worker_status_is_reported_with_log_path(self):
         self.manager.job.return_value = {'status': 'failed', 'error': 'fixture build failure'}
