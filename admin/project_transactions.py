@@ -531,7 +531,8 @@ class ProjectTransactions:
                     result = project_plans.recheck_and_apply(
                         project, resource, verify_only=phase == "applying")
                     journal["resources"][key].update(phase="verified",
-                                                     newEtag=result["newEtag"])
+                                                     newEtag=result["newEtag"],
+                                                     observedHealth=result.get("health", "unknown"))
                     journal["updatedAt"] = time.time()
                     rt.write_json(directory / "deployment.json", journal)
                 journal["status"] = "verified"
