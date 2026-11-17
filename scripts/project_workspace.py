@@ -21,7 +21,7 @@ MAX_DEPTH = 16
 MAX_MODULE_DEPTH = 8
 MAX_BYTES = 32 * 1024 * 1024
 MAX_FILE_BYTES = 1024 * 1024
-CIPHERTEXT = re.compile(r"^secrets\\.enc\\.(yaml|yml|json)$", re.IGNORECASE)
+CIPHERTEXT = re.compile(r"^secrets\.enc\.(yaml|yml|json)$", re.IGNORECASE)
 
 
 class WorkspaceError(ValueError):
