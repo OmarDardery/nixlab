@@ -65,6 +65,7 @@
         duplicateIdentitiesRejected = rejected ./tests/project-workspace-duplicates;
         secretTraversalRejected = rejected ./tests/project-workspace-invalid-secret;
         conflictingClaimsRejected = rejected ./tests/project-workspace-bad-claim;
+        plaintextSourceRejected = rejected ./tests/project-workspace-plaintext;
       };
       nixosModules = import ./lib/platform.nix;
       nixosConfigurations = {
