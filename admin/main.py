@@ -468,6 +468,7 @@ def web():
                 assets = {'/': ('index.html', 'text/html; charset=utf-8'),
                           '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
                           '/projects.js': ('projects.js', 'text/javascript; charset=utf-8'),
+                          '/incus-projects.js': ('incus-projects.js', 'text/javascript; charset=utf-8'),
                           '/api.js': ('api.js', 'text/javascript; charset=utf-8'),
                           '/events.js': ('events.js', 'text/javascript; charset=utf-8'),
                           '/operations.js': ('operations.js', 'text/javascript; charset=utf-8'),
