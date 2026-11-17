@@ -49,11 +49,15 @@ class DirectPlanningTests(unittest.TestCase):
         self.assertEqual(current, original)
         self.assertTrue(value['ready'])
         self.assertTrue(value['cockpit']['enable'])
-        self.assertTrue(value['apps']['enable'])
-        self.assertEqual(value['apps']['arcanePort'], 9443)
+        self.assertFalse(value['apps']['enable'])
+        self.assertEqual(value['apps']['arcanePort'], 9441)
         self.assertEqual(value['management'], current['management'])
         self.assertEqual(value['mounts'], [])
         self.assertEqual(value['adminKeys'], [KEY])
+
+    def test_explicit_legacy_vm_request_cannot_create_arcane(self):
+        with self.assertRaisesRegex(ValueError, 'retired for new installations'):
+            direct.prepare(initial(), {}, inventory(), apps=True)
 
     def test_explicit_key_and_no_apps_do_not_require_a_guest_vm(self):
         with tempfile.TemporaryDirectory() as folder:

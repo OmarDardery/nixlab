@@ -97,3 +97,51 @@ source may not understand schema 1. The existing transaction recovery restores t
 original source and settings together; do not copy only the new settings onto an
 old checkout. Unknown future versions require compatible source, not hand-editing
 the version number. The broker fails clearly when Nix is unavailable.
+
+
+## Arcane retirement: safe transition to Incus-only projects
+
+As of the new platform direction, **fresh NixLab installations do not create
+a Docker/Arcane applications VM**, even if the installer records Compose
+workloads as a future requirement. The latter are intended for independently
+declarative Incus/Incus Compose projects after compatibility qualification.
+The old `apps` settings exist only to keep legacy hosts readable while a
+separately reviewed migration is built.
+
+**Existing `lab/apps` is not deleted or stopped by changing
+`apps.enable = false`.** NixLab no longer emits the old "stop apps" reconciliation
+sentinel for disabled apps. The legacy VM's disk, Docker named volumes, Arcane
+database, encryption key, Compose definitions and runtime secrets remain
+physical data under Incus until the operator explicitly migrates or archives them.
+A NixOS rollback does not restore changes to that data.
+
+Before removing the legacy VM, perform the following read-only checks on the
+actual host and record the results in private recovery notes:
+
+```sh
+sudo incus list --project lab
+sudo incus config show apps --project lab --expanded
+sudo incus storage volume list guests --project lab
+sudo incus exec apps --project lab -- docker ps --all
+sudo incus exec apps --project lab -- docker volume ls
+```
+
+The pool in the third command is an example; use the configured Incus storage
+pool rather than assuming `guests`. Treat container environment variables and
+the expanded instance configuration as **potentially sensitive**; do not post
+raw outputs, Docker inspect payloads or credential files publicly.
+
+Before cutover, create an independent, encrypted off-host recovery point with
+actual filesystem/database consistency. Use `incus export` for the powered-off
+VM plus any independent Incus custom volumes; Docker named volumes and bind
+mounts inside its disk require their own documented consistency/restore checks.
+NixLab's current grouped restic backup may cover only declared/observed
+volumes, so inspect its coverage report rather than assuming every service
+is protected.
+
+New Incus Compose support, SOPS/age secret migration and automatic project-data
+backups are tracked by #127/#133/#134/#128/#129/#130. **No Arcane volume is
+automatically converted to an Incus Compose volume**. Restore each application
+from reviewed configuration, its encrypted secret material and separately
+validated state. Test the new endpoint before switching LAN DNS or Cloudflare
+ingress, and keep the old VM recoverable until an independent restore drill.

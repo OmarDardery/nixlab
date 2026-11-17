@@ -181,6 +181,15 @@ def main():
             assert page.locator('[data-record="hardware.serialAliases"][data-key="serial"]').input_value() == 'EXAMPLE'
             page.locator('.sidebar nav [data-go="integrations"]').click()
             page.locator('[data-path="cockpit.enable"]').check()
+            # Fresh installations do not offer Arcane provisioning.
+            assert page.get_by_text('Applications through Incus', exact=True).count() == 1
+            assert page.locator('[data-path="apps.enable"]').count() == 0
+            assert page.locator('[data-secret="arcanePassword"]').count() == 0
+            # Exercise legacy-only controls independently: an already-enabled
+            # Arcane host retains its migration/reset UI and existing data.
+            status['settings']['apps']['enable'] = True
+            status['effectiveSettings']['apps']['enable'] = True
+            page.evaluate('(value) => { state.status=value; shell(); }', status)
             page.locator('[data-path="apps.enable"]').check()
             page.locator('[data-path="apps.arcanePort"]').fill('9443')
             assert page.locator('[data-path="cockpit.enable"]').is_checked()

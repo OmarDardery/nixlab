@@ -28,7 +28,7 @@ def guest_network(routes, requested=None):
     raise ValueError('No non-overlapping guest subnet; select an unused --guest-subnet')
 
 
-def prepare(settings, overview, host, key_files=(), subnet=None, apps=True, previous_guests=None,
+def prepare(settings, overview, host, key_files=(), subnet=None, apps=False, previous_guests=None,
             remote=False, password_login=None):
     candidate = copy.deepcopy(settings)
     keys = list(candidate['adminKeys']) + overview.get('adminKeys', [])
@@ -51,8 +51,10 @@ def prepare(settings, overview, host, key_files=(), subnet=None, apps=True, prev
     else:
         candidate['guests'].update(guest_network(host['routes'], subnet))
     if not settings['ready']:
+        if apps:
+            raise ValueError('Docker/Arcane apps VM is retired for new installations; use Incus OCI or Incus Compose instead')
         candidate['cockpit']['enable'] = True
-        candidate['apps'].update(enable=apps, arcanePort=9443)
+        candidate['apps']['enable'] = False
         candidate['maintenance']['laptopMode'] = True
     # Preserve current addressing, accounts and mounts. No disk/bridge migration.
     if not settings['ready']:

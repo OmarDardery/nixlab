@@ -101,7 +101,7 @@ def parser_args():
     ssh.add_argument('--no-ssh-password-login', action='store_false', dest='ssh_password_login', help='Disable SSH password login; remote installs need a client public key')
     parser.set_defaults(ssh_password_login=True)
     parser.add_argument('--guest-subnet', help='Unused private IPv4 /24')
-    parser.add_argument('--no-apps', action='store_true', help='Skip the Docker/Arcane VM')
+    parser.add_argument('--no-apps', action='store_true', help='Compatibility flag; no Docker/Arcane VM on new installations')
     parser.add_argument('--adopt-incus', action='store_true', help='Back up existing Incus guests and add an isolated Nixlab namespace')
     parser.add_argument('--no-update', action='store_true', help='Keep the current platform source on retry')
     interaction = parser.add_mutually_exclusive_group()
@@ -398,7 +398,7 @@ def main():
             candidate = direct.prepare(default, overview, host, args.ssh_key,
                 proposal['guestSubnet'] if proposal else args.guest_subnet,
                 proposal['apps'] if proposal and not default['ready'] else
-                (not args.no_apps if not default['ready'] else default['apps']['enable']),
+                (False if not default['ready'] else default['apps']['enable']),
                 previous_guests=previous_guests, remote=remote,
                 password_login=args.ssh_password_login)
             if proposal:

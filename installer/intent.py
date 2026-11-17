@@ -90,13 +90,9 @@ def plan(answers, host, settings, *, remote=False):
     m = settings["management"]
     net = ipaddress.ip_interface(str(m["address"]) + "/" + str(m["prefixLength"])).network
     wireless = any(i["name"] == m["interface"] and i.get("wireless") for i in host.get("interfaces", []))
-    ram_kib = int(host.get("memoryKiB") or 0)
-    # Unknown memory never pretends to be enough for a heavy apps VM.
-    apps = a["workloads"] in ("compose", "both")
-    if apps and ram_kib and ram_kib < 4 * 1024 * 1024:
-        raise ValueError("Apps VM needs at least 4 GiB physical RAM; choose containers or upgrade RAM")
-    if apps and not ram_kib:
-        raise ValueError("Cannot discover available RAM for the requested apps VM")
+    # Docker/Arcane apps-VM provisioning is retired for new installations.
+    # Compose intent remains recorded for future Incus Compose projects only.
+    apps = False
     if a["network"] != "nat" and wireless:
         raise ValueError("Wi-Fi uplinks cannot be enslaved to an Ethernet bridge/VLAN. Use NAT and configure LAN access separately")
     if a["network"] != "nat" and remote:
@@ -128,8 +124,8 @@ def plan(answers, host, settings, *, remote=False):
     if deferred_network:
         pending.append("Review an existing Ethernet bridge/VLAN and switch configuration in Connectivity; no host NIC is modified by this installer")
     pending.append("Create and manage workload-agnostic Incus guests using Incus UI or reviewed helper scripts; configure persistent storage and resource limits separately")
-    if apps:
-        pending.append("Deploy any Compose application in the isolated apps VM through Arcane after supplying reviewed images and private credentials; test persistence and restore")
+    if a["workloads"] in ("compose", "both"):
+        pending.append("Use Incus OCI and a qualified Incus Compose project after setup; Docker/Arcane apps VM is not installed; verify data persistence and an independent restore")
     pending.append("For guests needing physical USB/serial devices, inspect stable device IDs and explicitly review Incus passthrough; do not assume a particular peripheral")
     pending.append("For LAN-facing services such as DNS, validate stable guest reachability and firewall rules before changing router or client settings")
     if a["access"] == "private":
@@ -142,24 +138,21 @@ def plan(answers, host, settings, *, remote=False):
         pending.append("Supply an off-host restic repository, encryption password and schedule through Recovery; no backup destination is invented")
     if a["monitoring"]:
         pending.append("Host metrics collection is enabled; notification delivery and retention require separate confirmation")
-    pending.append("Run commissioning after initial install and two reboots; verify DHCP, SSH, Incus, apps VM, and all real workloads")
+    pending.append("Run commissioning after initial install and two reboots; verify DHCP, SSH, Incus, and all real workloads")
     reasons = [
         "Existing management addressing, host uplink, users and disks are preserved",
         "Private Incus NAT is the safe initial guest topology",
-        "Cockpit and Incus remain available; Docker/Arcane are isolated inside an apps VM" if apps else
-        "Docker/Arcane VM is omitted to conserve resources",
+        "Cockpit and Incus are the host management tools; no Docker/Arcane VM is created",
         "No secrets, router DNS settings or community scripts are applied automatically",
     ]
     if a["network"] != "nat":
         reasons[1] = "Requested LAN networking is deferred for guarded local-console review; initial guest topology stays NAT"
     if a["network"] == "nat":
         reasons.append("NAT guests do not automatically expose services to LAN clients; review port forwarding, routing or a separate LAN network as needed")
-    vm_memory = settings["apps"]["memory"]
-    memory_mib = int(vm_memory[:-3]) * (1024 if vm_memory.endswith("GiB") else 1)
     return dict(version=VERSION, answers=a, apps=apps, laptop=a["laptop"],
                 monitoring=a["monitoring"], guestSubnet=a["guestSubnet"],
                 reasons=reasons, pending=pending, networkRequiresReview=deferred_network,
-                estimatedAppMemoryMiB=(memory_mib if apps else 0),
+                estimatedAppMemoryMiB=0,
                 managementAddress=m["address"], guestCidr=proposed_cidr)
 
 
@@ -174,13 +167,10 @@ def apply(candidate, proposal):
 
 def preview(proposal, output=print):
     output("\nNixLab proposed configuration (review before activation)")
-    output("  Apps VM: " + ("enabled" if proposal["apps"] else "omitted"))
+    output("  Legacy Docker/Arcane apps VM: not provisioned")
     output("  Host metrics: " + ("enabled" if proposal["monitoring"] else "disabled"))
     output("  Laptop policy: " + ("always-on" if proposal["laptop"] else "standard server"))
     output("  Guest network: private NAT " + proposal["guestCidr"] + " (existing host LAN unchanged)")
-    if proposal["apps"]:
-        output("  Estimated apps VM RAM allocation: " +
-               str(proposal["estimatedAppMemoryMiB"]) + " MiB, excluding host/container overhead")
     output("  Management: " + proposal["managementAddress"] + " (preserved)")
     for reason in proposal["reasons"]:
         output("  Why: " + reason)

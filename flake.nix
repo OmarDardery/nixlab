@@ -182,6 +182,19 @@
           && c.services.prometheus.port == 9091
           && c.services.prometheus.port != c.nixlab.settings.cockpit.port;
         hostDockerDisabled = !c.virtualisation.docker.enable;
+        freshDoesNotCreateLegacyAppsVM = !(lib.any (instance:
+          instance.name == "apps" && instance.project == "lab")
+          self.nixosConfigurations.validation-minimal.config.nixlab.incus.desiredInstances);
+        disabledAppsNeverIssuesShutdown = !(lib.any (instance:
+          instance.name == "apps" && (instance.stop or false))
+          self.nixosConfigurations.validation-minimal.config.nixlab.incus.desiredInstances);
+        freshHasNoLegacyArcaneServices = let
+          fresh = self.nixosConfigurations.validation-minimal.config;
+        in !(fresh.systemd.services ? nixlab-apps-onboarding)
+          && !(fresh.systemd.services ? nixlab-arcane-secret-expire)
+          && !(fresh.systemd.timers ? nixlab-arcane-secret-expire)
+          && !(fresh.services.nginx.virtualHosts ? nixlab-arcane)
+          && !fresh.virtualisation.docker.enable;
         selectedPort = (builtins.head proxy.listen).port == 9443;
         legacyPortPreserved = (builtins.head legacy.services.nginx.virtualHosts.nixlab-arcane.listen).port == 9441;
         proxyPreservesOrigin = nixpkgs.lib.hasInfix "proxy_set_header Host $host:$server_port;" proxy.locations."/".extraConfig;
