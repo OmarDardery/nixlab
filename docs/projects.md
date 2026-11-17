@@ -16,7 +16,7 @@ Guest lifecycle, consoles, networking and storage remain native Incus operations
 | Dockerfile / Compose specification | **Input file formats only**, not an installed Docker runtime | [Dockerfile](https://docs.docker.com/reference/dockerfile/), [Compose spec](https://compose-spec.io/) | [Compose spec](https://github.com/compose-spec/compose-spec) |
 | restic | Independent encrypted off-host backups | [restic manual](https://restic.readthedocs.io/en/stable/) | [restic](https://github.com/restic/restic) |
 | sops-nix / age | Optional declarative secrets and recovery encryption | [sops-nix](https://github.com/Mic92/sops-nix), [age](https://age-encryption.org/) | [sops-nix](https://github.com/Mic92/sops-nix), [age](https://github.com/FiloSottile/age) |
-| Nginx / njs | Private HTTPS forwarding and host/guest cookie isolation | [Nginx](https://nginx.org/en/docs/), [njs](https://nginx.org/en/docs/njs/) | [Nginx](https://github.com/nginx/nginx), [njs](https://github.com/nginx/njs) |
+| Nginx | Local HTTP-to-HTTPS management portal entry and redirect | [Nginx](https://nginx.org/en/docs/) | [Nginx](https://github.com/nginx/nginx) |
 | Prometheus | Optional metrics history and alert rules | [Prometheus manual](https://prometheus.io/docs/introduction/overview/) | [Prometheus](https://github.com/prometheus/prometheus) |
 | cloudflared | Optional public application ingress | [Tunnel manual](https://developers.cloudflare.com/tunnel/) | [cloudflared](https://github.com/cloudflare/cloudflared) |
 | Community Scripts | Optional upstream Incus provisioning helpers | [Compatibility and ownership](helpers.md) | [Incus helpers](https://github.com/community-scripts/Incus) |
