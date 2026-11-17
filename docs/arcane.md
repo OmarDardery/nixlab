@@ -16,3 +16,31 @@ When reading older configuration files, NixLab accepts the retired dashboard por
 First-boot plaintext uses `/run/nixlab-secrets/apps-arcane-password` on the host and `/run/nixlab-arcane/password` in the guest. Both are consumed on handoff/verification and expire after 15 minutes; neither is backed up. Reviewed transaction input is removed when published during activation. Initialized databases start without a bootstrap file; missing/corrupt established state blocks enrollment. SOPS continues managing durable service secrets, but Arcane initial credentials use this transient enrollment flow instead of recurring SOPS decryption.
 
 The Services page offers separate initial passwords by default and explicit opt-in NixLab password reuse after current-password verification. It also offers an independently reauthenticated supplied-password reset for existing Arcane. The guest checkpoints its SQLite database outside `/srv/arcane`, restricts it to root, and records a nonsecret pending marker. Failed resets restore the checkpoint; reboot restores interrupted work before Arcane starts. Docker volumes, Compose definitions and the encryption key are preserved. The checkpoint contains password hashes and must remain private.
+
+
+## Retirement inventory (read-only)
+
+Arcane and the Docker applications VM are being retired from **new**
+installations. Existing installations must keep their workloads intact until
+there is an explicit, tested Incus/Incus Compose replacement.
+
+A privileged administrator can inspect the legacy VM without changing its
+power state:
+
+```sh
+sudo nixlab-admin legacy-apps inventory
+```
+
+The report lists `lab/apps` existence, status, disk references and,
+**only if already running**, bounded Docker container, Compose stack and named
+volume names. It does not export data, inspect environment variables, read
+credentials, stop or start the VM, or assert a successful backup. Missing
+Docker/guest access is reported as unavailable, **not an empty workload list**.
+It reports `safeToDelete=false` regardless of VM presence. Treat names and
+disk paths as private operational metadata.
+
+Before migrating, make application-consistent backups of actual Docker named
+volumes and databases; export the stopped Incus VM plus separately attached
+custom volumes to an encrypted, **off-host** destination. Restore and verify
+on an isolated Incus target before any manual decommissioning. Disabling the
+legacy apps setting must not imply VM deletion or a successful data migration.

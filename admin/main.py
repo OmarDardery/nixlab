@@ -941,6 +941,14 @@ if __name__ == '__main__':
     elif action == 'recovery' and os.geteuid() == 0:
         import recovery
         recovery.cli(sys.argv[2:])
+    elif action == 'legacy-apps' and os.geteuid() == 0:
+        if sys.argv[2:] != ['inventory']:
+            sys.exit('Usage: sudo nixlab-admin legacy-apps inventory')
+        import legacy_apps
+        try:
+            print(json.dumps(legacy_apps.inventory(), indent=2))
+        except (ValueError, OSError, RuntimeError, subprocess.SubprocessError):
+            sys.exit('Legacy apps inventory unavailable or incomplete; inspect Incus and the guest locally')
     elif action == 'install-plan' and os.geteuid() == 0:
         installation = rt.read_json(rt.machine_path(rt.ROOT, 'installation'), {})
         print(json.dumps({'intent': installation.get('intent'),
@@ -989,5 +997,5 @@ if __name__ == '__main__':
     elif action == 'reset-password' and os.geteuid() == 0:
         reset_portal_password()
     else:
-        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|arcane reset-password|backend|web|guard|renew|approve-enrollment|reset-password|config|deploy|guests|recovery|commissioning|install-plan|prune-jobs|disk prepare}')
+        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|arcane reset-password|legacy-apps inventory|backend|web|guard|renew|approve-enrollment|reset-password|config|deploy|guests|recovery|commissioning|install-plan|prune-jobs|disk prepare}')
 
