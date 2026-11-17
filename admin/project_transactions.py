@@ -505,6 +505,7 @@ class ProjectTransactions:
             ):
                 raise ValueError("Project deployment journal or published source differs")
             journal["status"] = "applying"
+            journal["updatedAt"] = time.time()
             rt.write_json(directory / "deployment.json", journal)
             try:
                 for resource in plan["resources"]:
