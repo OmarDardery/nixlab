@@ -1,0 +1,223 @@
+"""Bounded project inventory and reviewed existing-native-instance adapter.
+
+Nix expressions are evaluated in a separate unprivileged systemd sandbox,
+never by the root broker. Only owned existing native Incus guests may receive
+in-place CPU/memory updates. Creating VMs, changing storage, Compose and USB
+devices belongs to #133 and is deliberately refused until qualified.
+"""
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import tempfile
+
+import reconcile
+
+NAME = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
+MEMORY = re.compile(r"[1-9][0-9]*(?:KiB|MiB|GiB)\Z")
+CLAIM = re.compile(r"(instance|volume|network)/([A-Za-z0-9_.-]+)\Z")
+MAX_OUTPUT = 1024 * 1024
+
+
+def digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _public_source(source):
+    # Materialize a throwaway, unprivileged-reader copy of previously checked
+    # ciphertext/public source. Its host ancestors remain root-only.
+    temporary = Path(tempfile.mkdtemp(prefix="nixlab-project-eval-"))
+    try:
+        shutil.copytree(source, temporary / "workspace", symlinks=False)
+        for directory, folders, files in os.walk(temporary / "workspace"):
+            for name in folders:
+                os.chmod(Path(directory) / name, 0o555)
+            for name in files:
+                os.chmod(Path(directory) / name, 0o444)
+        os.chmod(temporary / "workspace", 0o555)
+        yield temporary
+    finally:
+        shutil.rmtree(temporary, ignore_errors=True)
+
+
+def evaluate(source, identity):
+    """Run a locked, offline flake in a resource-limited systemd transient unit.
+
+    Does not use the host Incus socket or root evaluator permissions. Uncached
+    flake inputs FAIL; a separate administrator bootstrap must populate them.
+    """
+    if not isinstance(identity, str) or not re.fullmatch(r"[0-9a-f]{32}", identity):
+        raise ValueError("Invalid reviewed source identity")
+    import contextlib
+    with contextlib.contextmanager(_public_source)(Path(source)) as temporary:
+        path = temporary / "workspace"
+        unit = "nixlab-project-eval-" + identity
+        command = [
+            "systemd-run", "--pipe", "--wait", "--collect", "--quiet",
+            "--unit=" + unit,
+            "--property=Type=exec",
+            "--property=DynamicUser=yes",
+            "--property=ProtectSystem=strict",
+            "--property=ProtectHome=yes",
+            "--property=PrivateTmp=yes",
+            "--property=PrivateDevices=yes",
+            "--property=PrivateNetwork=yes",
+            "--property=IPAddressDeny=any",
+            "--property=RestrictAddressFamilies=AF_UNIX",
+            "--property=NoNewPrivileges=yes",
+            "--property=CapabilityBoundingSet=",
+            "--property=SystemCallFilter=~@mount",
+            "--property=MemoryMax=536870912",
+            "--property=TasksMax=32",
+            "--property=RuntimeMaxSec=90",
+            "--property=UMask=0077",
+            "--property=InaccessiblePaths=/var/lib/incus /var/lib/nixlab-secrets /etc/nixlab /run/nix",
+            "--property=BindReadOnlyPaths=" + str(path) + ":/workspace",
+            "--setenv=HOME=/tmp",
+            "--setenv=NIX_REMOTE=local?root=/nix/store",
+            "--", "nix", "--extra-experimental-features", "nix-command flakes",
+            "eval", "--json", "--offline", "--no-write-lock-file",
+            "--no-accept-flake-config",
+            "--option", "restrict-eval", "true",
+            "--option", "allow-import-from-derivation", "false",
+            "path:/workspace#nixlabProjects",
+        ]
+        try:
+            result = subprocess.run(command, capture_output=True, timeout=110, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            raise ValueError("Restricted project evaluation could not start or timed out") from None
+        if result.returncode != 0 or len(result.stdout) > MAX_OUTPUT:
+            raise ValueError("Restricted project evaluation failed; inspect offline input availability and Nix source")
+        try:
+            raw = json.loads(result.stdout)
+        except (ValueError, UnicodeError, RecursionError):
+            raise ValueError("Invalid project evaluation output") from None
+        return validate_inventory(raw)
+
+
+def validate_inventory(raw):
+    if not isinstance(raw, dict) or set(raw) != {"schemaVersion", "projects"} or raw["schemaVersion"] != 1:
+        raise ValueError("Unsupported typed project inventory")
+    projects = raw["projects"]
+    if not isinstance(projects, dict) or len(projects) > 128:
+        raise ValueError("Invalid number of declarative projects")
+    results = {}
+    claimed = set()
+    for name, p in sorted(projects.items()):
+        if not isinstance(name, str) or not NAME.fullmatch(name) or not isinstance(p, dict):
+            raise ValueError("Invalid declarative project identity")
+        if set(p) != {"name", "enable", "backend", "incusProject", "resources", "secrets", "backup", "claims", "source", "modules"}:
+            raise ValueError("Unknown project inventory field")
+        if p["name"] != name or p["source"] != name or p["backend"] not in ("incus-native", "incus-compose"):
+            raise ValueError("Project inventory identity/backend mismatch")
+        if type(p["enable"]) is not bool or not isinstance(p["incusProject"], str) or not NAME.fullmatch(p["incusProject"]):
+            raise ValueError("Unsupported project state")
+        res = p["resources"]
+        if (not isinstance(res, dict) or set(res) != {"cpus", "memory"} or
+            type(res["cpus"]) is not int or not 1 <= res["cpus"] <= 128 or
+            not isinstance(res["memory"], str) or not MEMORY.fullmatch(res["memory"])):
+            raise ValueError("Invalid bounded project resources")
+        if (not isinstance(p["secrets"], dict) or set(p["secrets"]) != {"file"} or
+            (p["secrets"]["file"] is not None and (
+                not isinstance(p["secrets"]["file"], str) or
+                any(part in ("", ".", "..") for part in p["secrets"]["file"].split("/"))))):
+            raise ValueError("Invalid encrypted secret reference")
+        if (not isinstance(p["backup"], dict) or set(p["backup"]) != {"enable", "consistency"} or
+            type(p["backup"]["enable"]) is not bool or p["backup"]["consistency"] not in ("stop", "quiesce", "none")):
+            raise ValueError("Invalid project backup policy")
+        if (not isinstance(p["modules"], list) or
+            any(not isinstance(m, str) or ".." in m.split("/") for m in p["modules"])):
+            raise ValueError("Invalid project source module identity")
+        if not isinstance(p["claims"], list) or len(p["claims"]) > 64:
+            raise ValueError("Invalid project claim count")
+        for claim in p["claims"]:
+            if not isinstance(claim, str) or not CLAIM.fullmatch(claim):
+                raise ValueError("Unsupported resource claim")
+            identity = p["incusProject"] + "/" + claim
+            if identity in claimed:
+                raise ValueError("Overlapping Incus ownership claims")
+            claimed.add(identity)
+        results[name] = p
+    if len({p["incusProject"] for p in results.values()}) != len(results):
+        raise ValueError("Multiple projects claim a single Incus project")
+    return {"schemaVersion": 1, "projects": results}
+
+
+def _native_spec(project, name, current):
+    if current.get("config", {}).get(reconcile.OWNER) != "true":
+        raise ValueError("Refusing to adopt an Incus instance without NixLab ownership")
+    if current.get("type") not in ("container", "virtual-machine"):
+        raise ValueError("Unsupported existing Incus instance type")
+    try:
+        last = json.loads(current.get("config", {}).get(reconcile.LAST_APPLIED, "{}"))
+    except (ValueError, TypeError):
+        raise ValueError("Invalid previous Incus ownership metadata") from None
+    if not isinstance(last, dict) or last.get("version") != 1:
+        raise ValueError("Existing instance must have last-applied NixLab ownership")
+    if not isinstance(last.get("config"), dict) or not isinstance(last.get("devices"), dict) or not isinstance(last.get("profiles"), list):
+        raise ValueError("Incomplete Incus ownership record")
+    config = dict(last["config"])
+    config["limits.cpu"] = str(project["resources"]["cpus"])
+    config["limits.memory"] = project["resources"]["memory"]
+    return {"project": project["incusProject"], "name": name, "type": current["type"],
+            "config": config, "devices": last["devices"], "profiles": last["profiles"]}
+
+
+def _observation(project, guest):
+    current, etag = reconcile.read_instance(project["incusProject"], guest)
+    spec = _native_spec(project, guest, current)
+    updated = reconcile.plan(current, spec)
+    return {
+        "project": project["incusProject"], "name": guest,
+        "etag": etag,
+        "fingerprint": digest({
+            k: current.get(k) for k in ("type", "config", "devices", "profiles")
+        }),
+        "action": "update" if updated is not None else "noop",
+        "desiredHash": digest(updated if updated is not None else {
+            k: current.get(k) for k in ("type", "config", "devices", "profiles")
+        }),
+    }
+
+
+def plan(inventory):
+    """Fail closed on resource types the #133 adapter cannot yet manage."""
+    items = []
+    for key, project in inventory["projects"].items():
+        if not project["enable"]:
+            continue
+        for claim in sorted(project["claims"]):
+            kind, name = CLAIM.fullmatch(claim).groups()
+            if project["backend"] != "incus-native" or kind != "instance":
+                raise ValueError("Unsupported Incus resource claim; #133 adapter required")
+            items.append(_observation(project, name))
+    return {"format": 1, "inventoryHash": digest(inventory), "resources": items,
+            "actions": [{"project": item["project"], "name": item["name"], "action": item["action"]}
+                        for item in items], "boundary": "Existing NixLab-owned native Incus instances only; volumes/VM images/Compose/data are never replaced"}
+
+
+def recheck_and_apply(project, approved, *, verify_only=False):
+    """Read the fresh ETag/ownership, then write only a reviewed native config."""
+    name = approved["name"]
+    actual = _observation(project, name)
+    if actual != approved:
+        if verify_only and actual["action"] == "noop":
+            return {"status": "verified", "newEtag": actual["etag"]}
+        raise ValueError("Incus state changed since project review; re-review before deployment")
+    if approved["action"] == "noop":
+        return {"status": "verified", "newEtag": approved["etag"]}
+    current, etag = reconcile.read_instance(project["incusProject"], name)
+    if etag != approved["etag"]:
+        raise ValueError("Incus ETag drift during apply")
+    spec = _native_spec(project, name, current)
+    update = reconcile.plan(current, spec)
+    if update is None or digest(update) != approved["desiredHash"]:
+        raise ValueError("Incus update differs from approved plan")
+    reconcile.write_instance(project["incusProject"], name, update, etag)
+    verified = _observation(project, name)
+    if verified["action"] != "noop":
+        raise ValueError("Incus resource did not reach declared desired state")
+    return {"status": "verified", "newEtag": verified["etag"]}
