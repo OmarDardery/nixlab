@@ -269,7 +269,9 @@ class ProjectTransactions:
                     "id": identity, "status": "ready", "created": time.time(),
                     "expires": time.time() + JOB_LIFETIME, "principal": principal,
                     "baseHash": before["sourceHash"], "candidateHash": after["sourceHash"],
-                    "changes": impact, "sourceOnly": True,
+                    "changes": impact, "sourceOnly": not any(
+                        item["action"] != "noop" for item in reviewed_runtime["actions"]
+                    ),
                     "inventoryHash": reviewed_runtime["inventoryHash"],
                     "runtimeActions": reviewed_runtime["actions"],
                 }
@@ -278,7 +280,7 @@ class ProjectTransactions:
                     "candidate": record["candidateHash"], "changes": impact,
                     "inventoryHash": reviewed_runtime["inventoryHash"],
                     "runtimePlan": reviewed_runtime,
-                    "sourceOnly": True,
+                    "sourceOnly": record["sourceOnly"],
                 })
                 rt.write_json(scratch / "inventory.json", inventory)
                 rt.write_json(scratch / "runtime-plan.json", reviewed_runtime)
