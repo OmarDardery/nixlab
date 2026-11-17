@@ -5,6 +5,16 @@ from pathlib import Path
 import project_plans
 
 good, forbidden = map(Path, sys.argv[1:3])
+# Instrument only this disposable no-secret fixture, not the production
+# evaluator, so sandbox command errors are inspectable in CI.
+original_run = project_plans.subprocess.run
+def run_fixture(*args, **kwargs):
+    outcome = original_run(*args, **kwargs)
+    if args and args[0] and args[0][0] == "systemd-run" and outcome.returncode:
+        print("EVALUATOR_STDERR", (outcome.stderr or b"")[-5000:].decode(errors="replace"), flush=True)
+        print("EVALUATOR_STDOUT", (outcome.stdout or b"")[-1000:].decode(errors="replace"), flush=True)
+    return outcome
+project_plans.subprocess.run = run_fixture
 try:
     inventory = project_plans.evaluate(good, "1" * 32)
 except ValueError:
@@ -17,6 +27,7 @@ except ValueError:
     print("EVALUATOR_UNIT_JOURNAL", result.stdout[-5000:], result.stderr[-1000:], flush=True)
     raise
 assert inventory == {"schemaVersion": 1, "projects": {}}, inventory
+project_plans.subprocess.run = original_run
 
 try:
     project_plans.evaluate(forbidden, "2" * 32)
