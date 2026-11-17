@@ -359,6 +359,11 @@ class ProjectTransactions:
             record = self._record(identity)
             if record["status"] != "published-source" or rt.read_json(self.state / "project-last.json", {}).get("id") != identity:
                 raise ValueError("Only the last published source revision can be rolled back")
+            active = rt.read_json(self.state / "project-active.json", {})
+            if active.get("id") not in (None, identity):
+                other = self._record(active["id"])
+                if other["status"] in {"ready", "applying-source", "rolling-back", "recovery-required"}:
+                    raise ValueError("Finish the pending project review before rolling back older source")
             if not isinstance(plan_hash, str) or not secrets.compare_digest(plan_hash, record["planHash"]):
                 raise ValueError("The reviewed project plan must be confirmed for rollback")
             live = _workspace(self.workspace)
