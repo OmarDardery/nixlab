@@ -164,27 +164,27 @@ class LifecycleTests(unittest.TestCase):
             with self.assertRaises(ValueError): guest.policy(value)
 
 class GatewayTests(unittest.TestCase):
-    def test_reset_requires_admin_role_and_reauthentication_and_returns_no_secrets(self):
+    def test_retired_arcane_reset_endpoint_is_unavailable_for_every_role(self):
         import main
         from unittest.mock import Mock
-        with patch.object(main,'BoundedHttpsServer') as server,patch.object(main.ssl,'SSLContext'), \
-                patch.object(main,'reply') as reply,patch.object(main,'broker_request',return_value={'ok':True}) as broker:
+        with patch.object(main,'BoundedHttpsServer') as server, \
+             patch.object(main.ssl,'SSLContext'), \
+             patch.object(main,'reply') as reply, \
+             patch.object(main,'broker_request') as broker:
             main.web()
             handler=object.__new__(server.call_args.args[1])
             handler.access=Mock(return_value='localhost:9440')
             handler.headers={'Origin':'https://localhost:9440'}
             handler.path='/api/arcane/reset'
-            for role,valid,allowed in [('viewer',True,False),('operator',True,False),('admin',False,False),('admin',True,True)]:
+            for role in ('viewer', 'operator', 'admin'):
                 handler.session=Mock(return_value={'role':role,'username':'owner'})
                 broker.reset_mock()
-                with patch.object(main,'json_body',return_value={'current':PASSWORD,'password':PASSWORD}), \
-                        patch('accounts.matches',return_value=valid):
+                with patch.object(main,'json_body',return_value={'current':PASSWORD,'password':PASSWORD}):
                     handler.do_POST()
-                self.assertEqual(broker.called,allowed)
+                broker.assert_not_called()
+                self.assertIn(reply.call_args.args[1], (403, 404))
                 assert_public_clean(self,reply.call_args.args[2])
-                if allowed:
-                    self.assertEqual(broker.call_args.args[1],'/arcane/reset')
-                    self.assertEqual(broker.call_args.args[2]['_actor'],'owner')
+
 
 class PublicationTests(unittest.TestCase):
     def test_sops_keeps_durable_ownership_but_initial_arcane_input_is_transient(self):
