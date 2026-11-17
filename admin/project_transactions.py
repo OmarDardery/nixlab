@@ -17,6 +17,7 @@ import tempfile
 import time
 
 import runtime as rt
+import project_plans
 from project_workspace import validate_workspace, WorkspaceError
 
 WORKSPACE = Path(os.environ.get("NIXLAB_PROJECTS", "/srv/nixlab/projects"))
@@ -205,11 +206,15 @@ class ProjectTransactions:
         if not identity:
             return {"active": None, "deployment": "not-implemented"}
         record = self._record(identity)
+        deployment = rt.read_json(self._job(identity) / "deployment.json", {})
         return {key: record.get(key) for key in
                 ("id", "status", "created", "expires", "baseHash", "candidateHash",
-                 "planHash", "changes", "principal", "sourceOnly", "errorCode")} | {
-                     "deployment": "not-implemented",
-                     "recoveryRequired": record["status"] in ("applying-source", "rolling-back", "recovery-required"),
+                 "planHash", "changes", "principal", "sourceOnly", "errorCode",
+                 "inventoryHash", "runtimeActions")} | {
+                     "deployment": deployment.get("status", "not-started"),
+                     "deploymentResources": deployment.get("resources", {}),
+                     "recoveryRequired": record["status"] in ("applying-source", "rolling-back", "recovery-required") or
+                         deployment.get("status") in ("partial", "interrupted"),
                  }
 
     def review(self, changes, principal="root"):
@@ -242,6 +247,8 @@ class ProjectTransactions:
                     impact.append({"path": relative, "operation": op})
                 _parse_nix(nix_files)
                 after = validate_workspace(source)
+                inventory = project_plans.evaluate(source, identity)
+                reviewed_runtime = project_plans.plan(inventory)
                 if before["sourceHash"] == after["sourceHash"]:
                     raise ValueError("Project source has no changes to publish")
                 # A changed source outside the approved paths is never promoted.
@@ -252,12 +259,18 @@ class ProjectTransactions:
                     "expires": time.time() + JOB_LIFETIME, "principal": principal,
                     "baseHash": before["sourceHash"], "candidateHash": after["sourceHash"],
                     "changes": impact, "sourceOnly": True,
+                    "inventoryHash": reviewed_runtime["inventoryHash"],
+                    "runtimeActions": reviewed_runtime["actions"],
                 }
                 record["planHash"] = _digest({
                     "id": identity, "base": record["baseHash"],
                     "candidate": record["candidateHash"], "changes": impact,
+                    "inventoryHash": reviewed_runtime["inventoryHash"],
+                    "runtimePlan": reviewed_runtime,
                     "sourceOnly": True,
                 })
+                rt.write_json(scratch / "inventory.json", inventory)
+                rt.write_json(scratch / "runtime-plan.json", reviewed_runtime)
                 rt.write_json(scratch / "job.json", record)
                 _freeze(source)
                 os.replace(scratch, directory)
@@ -289,6 +302,15 @@ class ProjectTransactions:
             candidate = validate_workspace(self._job(identity) / "source")
             if before["sourceHash"] != record["baseHash"] or candidate["sourceHash"] != record["candidateHash"]:
                 raise ValueError("Project source or reviewed candidate changed; re-review required")
+            # Recheck both the typed inventory and live Incus ETags under the
+            # mutation lock. No guest is touched by source publication.
+            runtime_inventory = project_plans.evaluate(self._job(identity) / "source", identity)
+            planned_inventory = rt.read_json(self._job(identity) / "inventory.json")
+            if project_plans.digest(runtime_inventory) != project_plans.digest(planned_inventory):
+                raise ValueError("Reviewed typed project inventory changed")
+            current_plan = project_plans.plan(runtime_inventory)
+            if current_plan != rt.read_json(self._job(identity) / "runtime-plan.json"):
+                raise ValueError("Incus observation changed since review; prepare a new project plan")
             staged, previous, reverted = self._paths(identity)
             if any(path.exists() or path.is_symlink() for path in (staged, previous, reverted)):
                 raise ValueError("Project recovery path already exists; inspect it locally")
@@ -359,6 +381,13 @@ class ProjectTransactions:
             record = self._record(identity)
             if record["status"] != "published-source" or rt.read_json(self.state / "project-last.json", {}).get("id") != identity:
                 raise ValueError("Only the last published source revision can be rolled back")
+            deployment = rt.read_json(self._job(identity) / "deployment.json", {})
+            if deployment.get("status") not in (None, "not-started", "verified"):
+                raise ValueError("Recover the partial Incus deployment before changing project source")
+            if deployment.get("status") == "verified" and record.get("runtimeActions") and any(
+                item.get("action") != "noop" for item in record["runtimeActions"]
+            ):
+                raise ValueError("Source-only rollback would leave applied Incus settings inconsistent; review a new forward change")
             active = rt.read_json(self.state / "project-active.json", {})
             if active.get("id") not in (None, identity):
                 other = self._record(active["id"])
@@ -381,6 +410,127 @@ class ProjectTransactions:
             rt.durable_unlink(self.state / "project-last.json")
             rt.audit("project-source-rolled-back", identity=identity)
             return self.status(identity)
+
+    def deploy(self, identity, plan_hash, *, resume=False):
+        """Queue a project-only, exact-Etag deployment in the existing broker.
+
+        This worker currently supports *only* reviewed in-place limits for
+        already-owned native Incus instances. Other backends are refused.
+        """
+        with rt.locked(blocking=False):
+            from recovery_guard import require_normal
+            require_normal()
+            self._root_state()
+            job = self._record(identity)
+            if job["status"] != "published-source" or rt.read_json(self.state / "project-last.json", {}).get("id") != identity:
+                raise ValueError("Publish the exact project source revision before deployment")
+            if not isinstance(plan_hash, str) or not secrets.compare_digest(plan_hash, job["planHash"]):
+                raise ValueError("The exact reviewed deployment plan must be approved")
+            if validate_workspace(_workspace(self.workspace))["sourceHash"] != job["candidateHash"]:
+                raise ValueError("Published project source drifted before deployment")
+            directory = self._job(identity)
+            plan = rt.read_json(directory / "runtime-plan.json")
+            inventory = rt.read_json(directory / "inventory.json")
+            if project_plans.digest(inventory) != plan["inventoryHash"]:
+                raise ValueError("Reviewed inventory is corrupt")
+            existing = rt.read_json(directory / "deployment.json", {})
+            if existing and not resume:
+                raise ValueError("Resume the current deployment journal; never restart blindly")
+            if resume and existing.get("status") not in ("partial", "interrupted"):
+                raise ValueError("No partial deployment to recover")
+            if not existing:
+                # All ETags checked before the worker is launched. The worker
+                # checks them again immediately before each individual write.
+                if project_plans.plan(inventory) != plan:
+                    raise ValueError("Incus state differs from approved deployment")
+                existing = {
+                    "format": 1, "status": "queued", "createdAt": time.time(),
+                    "planHash": job["planHash"], "sourceHash": job["candidateHash"],
+                    "resources": {r["project"] + "/" + r["name"]: {
+                        "phase": "pending", "action": r["action"]
+                    } for r in plan["resources"]},
+                }
+            else:
+                existing["status"] = "queued"
+            rt.write_json(directory / "deployment.json", existing)
+            rt.write_json(self.state / "project-deploy-active.json", {"id": identity})
+            rt.audit("project-deploy-requested", identity=identity, resume=resume, principal=job["principal"])
+            try:
+                rt.pin_worker_runtime(directory)
+                subprocess.run([
+                    "systemd-run", "--quiet", "--collect", "--no-block",
+                    "--unit=nixlab-project-deploy-" + identity,
+                    "--property=RuntimeMaxSec=3600",
+                    "--setenv=NIXLAB_STATE=" + str(self.state),
+                    "--setenv=NIXLAB_PROJECTS=" + str(self.workspace),
+                    "--setenv=PATH=" + os.environ.get("PATH", "/run/current-system/sw/bin"),
+                    sys.executable, str(rt.SOURCE / "main.py"),
+                    "project-deploy-job", identity
+                ], capture_output=True, check=True, timeout=20)
+            except (OSError, subprocess.SubprocessError):
+                existing.update(status="interrupted", errorCode="worker-start-failed")
+                rt.write_json(directory / "deployment.json", existing)
+                raise ValueError("Project worker failed to start; use explicit resume") from None
+            return self.status(identity)
+
+    def run_deployment(self, identity):
+        """Root-only async worker: updates one guarded resource at a time."""
+        with rt.locked():
+            from recovery_guard import require_normal
+            require_normal()
+            directory = self._job(identity)
+            record = self._record(identity)
+            journal = rt.read_json(directory / "deployment.json")
+            plan = rt.read_json(directory / "runtime-plan.json")
+            inventory = rt.read_json(directory / "inventory.json")
+            if journal.get("status") not in ("queued", "partial", "interrupted") or (
+                journal.get("planHash") != record.get("planHash") or
+                journal.get("sourceHash") != record.get("candidateHash") or
+                project_plans.digest(inventory) != plan.get("inventoryHash") or
+                validate_workspace(self.workspace)["sourceHash"] != record["candidateHash"]
+            ):
+                raise ValueError("Project deployment journal or published source differs")
+            journal["status"] = "applying"
+            rt.write_json(directory / "deployment.json", journal)
+            try:
+                for resource in plan["resources"]:
+                    key = resource["project"] + "/" + resource["name"]
+                    phase = journal["resources"][key]["phase"]
+                    if phase == "verified":
+                        # Previous successes can be trusted only while the
+                        # resource remains in declared desired state.
+                        project = next(p for p in inventory["projects"].values()
+                                       if p["incusProject"] == resource["project"])
+                        current = project_plans._observation(project, resource["name"])
+                        if current["action"] != "noop":
+                            raise ValueError("Previously verified Incus resource drifted; re-review")
+                        continue
+                    project = next(p for p in inventory["projects"].values()
+                                   if p["incusProject"] == resource["project"])
+                    journal["resources"][key]["phase"] = "applying"
+                    rt.write_json(directory / "deployment.json", journal)
+                    result = project_plans.recheck_and_apply(
+                        project, resource, verify_only=phase == "applying")
+                    journal["resources"][key].update(phase="verified",
+                                                     newEtag=result["newEtag"])
+                    rt.write_json(directory / "deployment.json", journal)
+                journal["status"] = "verified"
+                journal["completedAt"] = time.time()
+            except Exception:
+                # A write may have succeeded before a power loss or API error.
+                # Never reissue it blindly; resume verifies actual desired
+                # state and re-reviews any inconclusive outcome.
+                journal["status"] = "partial"
+                journal["errorCode"] = "resource-review-required"
+                rt.write_json(directory / "deployment.json", journal)
+                rt.audit("project-deploy-partial", identity=identity)
+                return self.status(identity)
+            rt.write_json(directory / "deployment.json", journal)
+            rt.durable_unlink(self.state / "project-deploy-active.json")
+            rt.audit("project-deploy-verified", identity=identity,
+                     resources=len(plan["resources"]))
+            return self.status(identity)
+
 
     def cancel(self, identity):
         with rt.locked(blocking=False):
