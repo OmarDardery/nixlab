@@ -1,0 +1,210 @@
+"""Project-only source transaction contract: no NixOS rebuild or Incus calls."""
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import time
+import unittest
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "admin"))
+sys.path.insert(0, str(ROOT / "scripts"))
+
+import runtime as rt
+import project_transactions as tx
+
+
+class ProjectSourceTransactionsTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.base = Path(temp.name)
+        self.host = self.base / "lab"
+        self.host.mkdir(mode=0o700)
+        self.workspace = self.host / "projects"
+        self.workspace.mkdir(mode=0o700)
+        self.state = self.base / "state"
+        self.state.mkdir(mode=0o700)
+        (self.workspace / "flake.nix").write_text('{ outputs = { self }: {}; }')
+        (self.workspace / "flake.lock").write_text(json.dumps({
+            "version": 7, "root": "root", "nodes": {"root": {"inputs": {}}}
+        }))
+        project = self.workspace / "alpha"
+        (project / "modules").mkdir(parents=True, mode=0o700)
+        (project / "default.nix").write_text('{ ... }: { nixlab.project.name = "alpha"; }')
+        (project / "modules" / "network.nix").write_text("{ ... }: { nixlab.project.enable = true; }")
+        (project / "secrets.enc.yaml").write_text("sops: ciphertext-test-fixture")
+        self.before = tx.validate_workspace(self.workspace)["sourceHash"]
+        self.state_patch = patch.object(rt, "STATE", self.state)
+        self.state_patch.start()
+        self.addCleanup(self.state_patch.stop)
+        self.parse_patch = patch.object(tx, "_parse_nix", return_value=None)
+        self.parse_patch.start()
+        self.addCleanup(self.parse_patch.stop)
+        self.manager = tx.ProjectTransactions(workspace=self.workspace, state=self.state)
+
+    def edit(self, **patches):
+        return self.manager.review(patches, principal="admin")
+
+    def review(self):
+        return self.edit(**{"alpha/modules/network.nix": "{ ... }: { nixlab.project.enable = false; }"})
+
+    def test_review_does_not_touch_live_source_or_execute_host_commands(self):
+        with patch.object(tx.subprocess, "run", side_effect=AssertionError("No host commands during review")):
+            reviewed = self.review()
+        self.assertEqual(reviewed["status"], "ready")
+        self.assertEqual(reviewed["deployment"], "not-implemented")
+        self.assertTrue(reviewed["sourceOnly"])
+        self.assertEqual(tx.validate_workspace(self.workspace)["sourceHash"], self.before)
+        self.assertEqual(self.manager.status()["id"], reviewed["id"])
+        self.assertFalse((self.state / "active.json").exists())
+        self.assertFalse((self.state / "pending.json").exists())
+
+    def test_publish_changes_source_only_then_exact_rollback(self):
+        reviewed = self.review()
+        with self.assertRaisesRegex(ValueError, "exact reviewed"):
+            self.manager.publish(reviewed["id"], "0" * 64)
+        actual = self.manager.publish(reviewed["id"], reviewed["planHash"])
+        self.assertEqual(actual["status"], "published-source")
+        self.assertEqual(actual["candidateHash"], tx.validate_workspace(self.workspace)["sourceHash"])
+        self.assertEqual((self.workspace / "alpha" / "secrets.enc.yaml").read_text(), "sops: ciphertext-test-fixture")
+        self.assertIn("false", (self.workspace / "alpha/modules/network.nix").read_text())
+        rolled = self.manager.rollback(reviewed["id"], reviewed["planHash"])
+        self.assertEqual(rolled["status"], "rolled-back")
+        self.assertEqual(tx.validate_workspace(self.workspace)["sourceHash"], self.before)
+        self.assertEqual((self.workspace / "alpha" / "secrets.enc.yaml").read_text(), "sops: ciphertext-test-fixture")
+
+    def test_creation_and_deletion_require_reviews_and_preserve_entrypoints(self):
+        proposed = self.edit(**{"beta/default.nix": '{ ... }: { nixlab.project.name = "beta"; }'})
+        self.manager.publish(proposed["id"], proposed["planHash"])
+        self.assertTrue((self.workspace / "beta/default.nix").exists())
+        with self.assertRaisesRegex(ValueError, "entrypoints"):
+            self.edit(**{"beta/default.nix": None})
+        created = self.edit(**{"alpha/modules/extra.nix": "{ ... }: { }"})
+        self.manager.publish(created["id"], created["planHash"])
+        deleted = self.edit(**{"alpha/modules/extra.nix": None})
+        self.manager.publish(deleted["id"], deleted["planHash"])
+        self.assertFalse((self.workspace / "alpha/modules/extra.nix").exists())
+
+    def test_conflicting_editor_source_change_refuses_publish(self):
+        reviewed = self.review()
+        (self.workspace / "alpha/default.nix").write_text('{ ... }: { nixlab.project.name = "changed"; }')
+        with self.assertRaisesRegex(ValueError, "changed"):
+            self.manager.publish(reviewed["id"], reviewed["planHash"])
+        self.assertTrue((self.workspace / "alpha/modules/network.nix").read_text().endswith("true; }"))
+
+    def test_tampered_candidate_is_rejected(self):
+        reviewed = self.review()
+        path = self.state / "project-transactions" / reviewed["id"] / "source" / "alpha" / "modules" / "network.nix"
+        path.chmod(0o600)
+        path.write_text("tampered")
+        with self.assertRaisesRegex(ValueError, "changed"):
+            self.manager.publish(reviewed["id"], reviewed["planHash"])
+        self.assertEqual(tx.validate_workspace(self.workspace)["sourceHash"], self.before)
+
+    def test_review_expiration_blocks_publish(self):
+        reviewed = self.review()
+        path = self.state / "project-transactions" / reviewed["id"] / "job.json"
+        job = rt.read_job_record(path)
+        job["expires"] = time.time() - 1
+        rt.write_json(path, job)
+        with self.assertRaisesRegex(ValueError, "expired"):
+            self.manager.publish(reviewed["id"], reviewed["planHash"])
+
+    def test_unreviewed_or_concurrent_projects_are_blocked(self):
+        first = self.review()
+        with self.assertRaisesRegex(ValueError, "Finish or recover"):
+            self.edit(**{"alpha/modules/another.nix": "{ ... }: { }"})
+        self.manager.cancel(first["id"])
+        again = self.review()
+        self.manager.publish(again["id"], again["planHash"])
+        next_job = self.edit(**{"alpha/modules/another.nix": "{ ... }: { }"})
+        self.assertEqual(next_job["status"], "ready")
+
+    def test_recovery_restores_source_after_interrupted_rename(self):
+        reviewed = self.review()
+        real_rename = os.rename
+        counter = {"calls": 0}
+        def crash_after_old(source, target):
+            counter["calls"] += 1
+            if counter["calls"] == 2:
+                raise OSError("simulated crash before new project is installed")
+            return real_rename(source, target)
+        with patch.object(tx.os, "rename", side_effect=crash_after_old):
+            with self.assertRaises(OSError):
+                self.manager.publish(reviewed["id"], reviewed["planHash"])
+        self.assertFalse(self.workspace.exists())
+        recovered = self.manager.recover(reviewed["id"])
+        self.assertEqual(recovered["status"], "recovered")
+        self.assertEqual(tx.validate_workspace(self.workspace)["sourceHash"], self.before)
+
+    def test_recovery_finalizes_completed_rename_after_journal_write_failure(self):
+        reviewed = self.review()
+        real_write = self.manager._write
+        def fail_final(identity, record):
+            if record["status"] == "published-source":
+                raise OSError("simulated crash before commit journal")
+            return real_write(identity, record)
+        with patch.object(self.manager, "_write", side_effect=fail_final):
+            with self.assertRaises(OSError):
+                self.manager.publish(reviewed["id"], reviewed["planHash"])
+        actual = self.manager.recover(reviewed["id"])
+        self.assertEqual(actual["status"], "published-source")
+        self.assertEqual(tx.validate_workspace(self.workspace)["sourceHash"], reviewed["candidateHash"])
+
+    def test_unexpected_drift_during_recovery_is_never_deleted(self):
+        reviewed = self.review()
+        with patch.object(tx.os, "rename", side_effect=OSError("never renamed")):
+            with self.assertRaises(OSError):
+                self.manager.publish(reviewed["id"], reviewed["planHash"])
+        (self.workspace / "alpha/default.nix").write_text("external")
+        with self.assertRaisesRegex(ValueError, "manual recovery"):
+            self.manager.recover(reviewed["id"])
+        self.assertEqual((self.workspace / "alpha/default.nix").read_text(), "external")
+
+    def test_host_activation_and_guest_deployment_are_exclusive(self):
+        rt.write_json(self.state / "pending.json", {"id": "f" * 32})
+        with self.assertRaisesRegex(ValueError, "host activation"):
+            self.review()
+        (self.state / "pending.json").unlink()
+        rt.write_json(self.state / "deployment-active.json", {"id": "a" * 32})
+        with self.assertRaisesRegex(ValueError, "guest deployment"):
+            self.review()
+
+    def test_unsafe_paths_plaintext_and_missing_lock_fail_closed(self):
+        for filename in ("../evil.nix", "alpha/source/Dockerfile", "alpha/../default.nix",
+                         "alpha/secrets.enc.yaml", "alpha/modules/_disabled.nix"):
+            with self.subTest(filename=filename):
+                with self.assertRaises(ValueError):
+                    self.edit(**{filename: "nix expression"})
+        (self.workspace / "alpha" / ".env").write_text("TORBOX_API_KEY=NOPE")
+        with self.assertRaisesRegex(ValueError, "plaintext"):
+            self.review()
+        (self.workspace / "alpha" / ".env").unlink()
+        (self.workspace / "flake.lock").unlink()
+        with self.assertRaisesRegex(ValueError, "flake.lock"):
+            self.review()
+
+    def test_symlink_and_hardlink_in_workspace_fail_closed(self):
+        p = self.workspace / "alpha" / "modules" / "outside.nix"
+        with tempfile.TemporaryDirectory() as temp:
+            p.symlink_to(Path(temp) / "outside")
+            with self.assertRaisesRegex(ValueError, "Symlink"):
+                self.review()
+            p.unlink()
+        os.link(self.workspace / "flake.nix", self.workspace / "alias.nix")
+        with self.assertRaisesRegex(ValueError, "Hardlinked"):
+            self.review()
+
+    def test_status_contains_only_hashes_and_paths_not_source_bytes(self):
+        reviewed = self.review()
+        data = json.dumps(self.manager.status(reviewed["id"]))
+        self.assertNotIn("sops: ciphertext-test-fixture", data)
+        self.assertNotIn("nixlab.project.enable = false", data)
+        self.assertNotIn("currentPassword", data)
+        self.assertTrue(reviewed["planHash"])
+
+if __name__ == "__main__":
+    unittest.main()
