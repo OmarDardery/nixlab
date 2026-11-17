@@ -465,6 +465,7 @@ class ProjectTransactions:
                 }
             else:
                 existing["status"] = "queued"
+            existing["updatedAt"] = time.time()
             rt.write_json(directory / "deployment.json", existing)
             rt.write_json(self.state / "project-deploy-active.json", {"id": identity})
             rt.audit("project-deploy-requested", identity=identity, resume=resume, principal=job["principal"])
