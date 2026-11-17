@@ -225,7 +225,7 @@ def recheck_and_apply(project, approved, *, verify_only=False):
             return {"status": "verified", "newEtag": actual["etag"], "health": actual["observedStatus"]}
         raise ValueError("Incus state changed since project review; re-review before deployment")
     if approved["action"] == "noop":
-        return {"status": "verified", "newEtag": approved["etag"]}
+        return {"status": "verified", "newEtag": approved["etag"], "health": approved["observedStatus"]}
     current, etag = reconcile.read_instance(project["incusProject"], name)
     if etag != approved["etag"]:
         raise ValueError("Incus ETag drift during apply")
