@@ -2,12 +2,12 @@
 
 Nixlab is the NixOS host foundation for Incus, not a second virtualization UI.
 
-**Target decision (2026-11-17):** [Arcane-free Web UI, Incus, Cockpit and
-declarative project/backup ownership](target-architecture.md) supersedes
-Arcane/Docker assignments below. The following tables document the *current
-legacy implementation*, not a new promise to continue Arcane. Full removal
-and non-destructive preservation are tracked in
-[#126](https://github.com/OmarDardery/nixlab/issues/126).
+**Target decision (2026-11-17):** [Web UI, Incus, Cockpit,
+original Dockerfile/Compose uploads and Nix project ownership](target-architecture.md).
+The table below defines the **final contract**; later historical sections may
+describe legacy implementation until removed under
+[#126](https://github.com/OmarDardery/nixlab/issues/126). Existing guest data
+must survive upgrades and migration.
 
 | Layer | Authoritative owner |
 |---|---|
@@ -15,7 +15,7 @@ and non-destructive preservation are tracked in
 | Ordinary guests, lifecycle, consoles, limits, device attachment, snapshots | Incus UI/API/CLI |
 | Additional managed guest networks, DHCP, reservations, forwards, ACLs, pools/volumes | Incus |
 | Community Scripts application installation/updates | Upstream Incus wizard/application tooling |
-| Optional Docker stacks and their consoles/logs | Arcane or existing declared Compose source |
+| Reviewed OCI/Compose app declarations and images (target) | NixLab project source; pinned Incus Compose runtime; Buildah/Podman isolated OCI builder |
 | Independent backup scheduling, coverage and whole-host recovery | Nixlab |
 
 ## Control and data boundaries for maintainers
