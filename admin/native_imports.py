@@ -407,7 +407,10 @@ class PublishedSources:
                     "actor": actor, "created": time.time(),
                 })
                 # Do not allow a partial directory to become the current source.
-                _durable_directory(source)
+                # Nested build contexts must survive power loss too; fsync
+                # every newly created parent before publishing the ref.
+                for current_dir, _, _ in os.walk(source, topdown=False, followlinks=False):
+                    _durable_directory(current_dir)
                 _durable_directory(temporary)
                 os.rename(temporary, target)
                 _durable_directory(revisions)
