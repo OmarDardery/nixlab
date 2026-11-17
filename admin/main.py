@@ -133,6 +133,9 @@ def backend():
                               'backupVerification': backup_verification.status(settings['backup']['enable'], repository=settings['backup']['repository'])}
                 elif self.path == '/guests':
                     result = {'guests': guests() if manager.settings()['ready'] else []}
+                elif self.path == '/project-sources':
+                    import native_projects
+                    result = native_projects.overview()
                 elif self.path.startswith('/deployment/'):
                     from deployments import Deployments
                     result = Deployments().status(self.path.removeprefix('/deployment/'))
@@ -524,7 +527,7 @@ def web():
                     return reply(self, 200, broker_request('GET', path[4:]))
                 if path.startswith('/api/deployment/'):
                     return reply(self, 200, broker_request('GET', path[4:]))
-                if path in ('/api/status', '/api/inventory', '/api/ca', '/api/operations', '/api/guests', '/api/guest-network', '/api/health', '/api/recipes'):
+                if path in ('/api/status', '/api/inventory', '/api/ca', '/api/operations', '/api/guests', '/api/guest-network', '/api/project-sources', '/api/health', '/api/recipes'):
                     result = broker_request('GET', path[4:])
                     if path == '/api/status' and session['role'] != 'admin' and result.get('job'):
                         result['job'] = {k: v for k, v in result['job'].items() if k not in ('log', 'moduleChanges', 'platformChanges')}

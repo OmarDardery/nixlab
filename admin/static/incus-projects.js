@@ -3,6 +3,7 @@
 // Phase-1 Incus-native project view. Local source previews do NOT upload,
 // execute, or deploy files. All privileged operations require a later broker.
 const nativeSourcePreflight = {files: [], error: "", scanning: false};
+const nativePersistedSource = {loaded: false, loading: false, value: null};
 const NATIVE_MAX_FILES = 64;
 const NATIVE_MAX_BYTES = 16 * 1024 * 1024;
 const NATIVE_MAX_FILE_BYTES = 4 * 1024 * 1024;
@@ -43,6 +44,13 @@ function nativeProjectPage() {
     '</code></td><td>' + esc(guests.length) + '</td><td>' +
     esc(guests.map(g => String(g.name) + ' (' + (g.status || 'Unknown') + ')').join(', ')) +
     '</td></tr>').join('');
+  const persisted = nativePersistedSource.value;
+  const workspace = !nativePersistedSource.loaded
+    ? "<p>Loading reviewed source metadata…</p>"
+    : !persisted?.available
+      ? "<p>Declarative source unavailable (" + esc(persisted?.reason || "unknown") + "). No resources are changed.</p>"
+      : "<p>Source SHA-256: <code>" + esc(persisted.sourceHash) + "</code> · " + esc(persisted.fileCount) + " files</p>" +
+        (persisted.projects || []).map(item => "<div class=\"service-row\"><b>" + esc(item.name) + "</b><span>" + esc(item.moduleCount) + " modules</span></div>").join("");
   const manifest = nativeSourcePreflight.files.length
     ? '<div class="table-wrap"><table><thead><tr><th>Original path</th><th>Bytes</th><th>SHA-256</th></tr></thead><tbody>' +
       nativeSourcePreflight.files.map(f => '<tr><td><code>' + esc(f.path) + '</code></td><td>' +
@@ -54,6 +62,7 @@ function nativeProjectPage() {
       '<button type="button" id="native-project-refresh">Refresh inventory</button>' +
       message + (rows ? '<div class="table-wrap"><table><thead><tr><th>Project</th><th>Guests</th><th>Observed state</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '') +
       '<p><a href="/docs/incus-native-architecture.md">Runtime and ownership contract</a></p>') +
+    card("Published declarative source (read-only)", workspace) +
     card("Preview original application files locally",
       '<p>Preview Dockerfiles, Compose YAML and related build-context files without executing them. Relative paths and exact SHA-256 digests remain visible.</p>' +
       '<label class="field"><span>Choose files</span><input id="native-source-files" type="file" multiple></label>' +
@@ -97,6 +106,18 @@ async function nativePreviewFiles(files) {
   }
 }
 function bindNativeProjects() {
+  if (!nativePersistedSource.loaded && !nativePersistedSource.loading) {
+    nativePersistedSource.loading = true;
+    void api("project-sources").then(value => {
+      nativePersistedSource.value = value;
+    }).catch(() => {
+      nativePersistedSource.value = {available: false, reason: "read-failed", projects: []};
+    }).finally(() => {
+      nativePersistedSource.loaded = true;
+      nativePersistedSource.loading = false;
+      if (state.page === "projects") shell();
+    });
+  }
   document.querySelector("#native-project-refresh")?.addEventListener("click", async event => {
     const button = event.currentTarget;
     button.disabled = true;
