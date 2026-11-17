@@ -237,4 +237,6 @@ def recheck_and_apply(project, approved, *, verify_only=False):
     verified = _observation(project, name)
     if verified["action"] != "noop":
         raise ValueError("Incus resource did not reach declared desired state")
-    return {"status": "verified", "newEtag": verified["etag"]}
+    if approved["observedStatus"] == "Running" and verified["observedStatus"] != "Running":
+        raise ValueError("Incus guest stopped during configuration update; manual health review required")
+    return {"status": "verified", "newEtag": verified["etag"], "health": verified["observedStatus"]}
