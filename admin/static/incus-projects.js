@@ -3,10 +3,12 @@
 // Phase-1 Incus-native project view. Local source previews do NOT upload,
 // execute, or deploy files. All privileged operations require a later broker.
 const nativeSourcePreflight = {files: [], error: "", scanning: false};
+let nativeSelectedFiles = [];
+const nativeImportState = {busy: false, result: null, error: ""};
 const nativePersistedSource = {loaded: false, loading: false, value: null};
 const NATIVE_MAX_FILES = 64;
-const NATIVE_MAX_BYTES = 16 * 1024 * 1024;
-const NATIVE_MAX_FILE_BYTES = 4 * 1024 * 1024;
+const NATIVE_MAX_BYTES = 32 * 1024 * 1024;
+const NATIVE_MAX_FILE_BYTES = 8 * 1024 * 1024;
 
 function nativeSourcePath(file) {
   const name = file.webkitRelativePath || file.name;
@@ -51,11 +53,17 @@ function nativeProjectPage() {
       ? "<p>Declarative source unavailable (" + esc(persisted?.reason || "unknown") + "). No resources are changed.</p>"
       : "<p>Source SHA-256: <code>" + esc(persisted.sourceHash) + "</code> · " + esc(persisted.fileCount) + " files</p>" +
         (persisted.projects || []).map(item => "<div class=\"service-row\"><b>" + esc(item.name) + "</b><span>" + esc(item.moduleCount) + " modules</span></div>").join("");
+  const upload = nativeImportState.result
+    ? '<p role="status">Staged original source for <b>' + esc(nativeImportState.result.project) +
+      '</b> as immutable import <code>' + esc(nativeImportState.result.id) +
+      '</code> (manifest <code>' + esc(nativeImportState.result.manifestHash) +
+      '</code>). No OCI build or Incus deployment has run.</p>'
+    : '<p class="note">Only source upload is supported here; publishing to a project, execution and resource apply are not yet available.</p>';
   const manifest = nativeSourcePreflight.files.length
     ? '<div class="table-wrap"><table><thead><tr><th>Original path</th><th>Bytes</th><th>SHA-256</th></tr></thead><tbody>' +
       nativeSourcePreflight.files.map(f => '<tr><td><code>' + esc(f.path) + '</code></td><td>' +
         esc(f.size) + '</td><td><code>' + esc(f.sha256) + '</code></td></tr>').join('') +
-      '</tbody></table></div><p class="note">Local preview only. Original bytes have not been uploaded or deployed.</p>'
+      '</tbody></table></div><p class="note">Selected original bytes are only in this browser until an administrator explicitly stages them.</p>'
     : '<p class="note">Selection stays in your browser. No file contents are sent to NixLab.</p>';
   return title("INCUS WORKSPACE", "Projects", "Observe Incus resources and inspect source before a future reviewed import.") +
     card("Observed Incus projects",
@@ -69,12 +77,22 @@ function nativeProjectPage() {
       '<label class="field"><span>Choose directory</span><input id="native-source-folder" type="file" webkitdirectory directory multiple></label>' +
       (nativeSourcePreflight.scanning ? '<p role="status">Computing checksums in the browser…</p>' : '') +
       (nativeSourcePreflight.error ? '<p role="alert" class="error">' + esc(nativeSourcePreflight.error) + '</p>' : '') + manifest) +
+    card("Stage source in private review storage",
+      '<p>After selecting files, reauthenticate and stage their exact bytes with an immutable SHA-256 manifest. This does not publish a Nix flake or deploy applications.</p>' +
+      '<label class="field"><span>Project slug</span><input id="native-import-project" type="text" maxlength="63" placeholder="my-project" pattern="[a-z][a-z0-9-]*"></label>' +
+      '<label class="field"><span>Current administrator password</span><input id="native-import-password" type="password" autocomplete="current-password"></label>' +
+      '<button type="button" id="native-import-stage"' + (nativeSourcePreflight.files.length && !nativeImportState.busy ? '' : ' disabled') + '>Stage exact source bytes</button>' +
+      (nativeImportState.busy ? '<p role="status">Transferring verified source chunks…</p>' : '') +
+      (nativeImportState.error ? '<p role="alert" class="error">' + esc(nativeImportState.error) + '</p>' : '') + upload) +
     card("Declarative deployment",
-      '<p>File upload, OCI building, secrets, managed deployment, revisions and backups will be enabled only after the privileged broker and native Incus adapter have passed their security and recovery tests.</p>' +
+      '<p>Source staging is available, but OCI building, secrets, reviewed publication, managed deployment, revisions and backups require the privileged deployment adapter and recovery tests.</p>' +
       '<p><a href="/docs/incus-native-plan.md">Implementation phases</a></p>');
 }
 async function nativePreviewFiles(files) {
   nativeSourcePreflight.files = [];
+  nativeSelectedFiles = [];
+  nativeImportState.result = null;
+  nativeImportState.error = "";
   nativeSourcePreflight.error = "";
   nativeSourcePreflight.scanning = true;
   if (state.page === "projects") shell();
@@ -89,19 +107,59 @@ async function nativePreviewFiles(files) {
       const path = nativeSourcePath(file);
       if (paths.has(path)) throw Error("Duplicate source path: " + path);
       paths.add(path);
-      if (file.size > NATIVE_MAX_FILE_BYTES) throw Error("Preview limit is 4 MiB per file.");
+      if (file.size > NATIVE_MAX_FILE_BYTES) throw Error("Preview limit is 8 MiB per file.");
       total += file.size;
-      if (total > NATIVE_MAX_BYTES) throw Error("Preview limit is 16 MiB per selection.");
+      if (total > NATIVE_MAX_BYTES) throw Error("Preview limit is 32 MiB per selection.");
       const hash = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
       const sha256 = [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
       items.push({path, size: file.size, sha256});
     }
     nativeSourcePreflight.files = items.sort((a, b) => a.path.localeCompare(b.path));
+    nativeSelectedFiles = list;
   } catch (error) {
     nativeSourcePreflight.error = error.message || "Source preflight failed.";
     nativeSourcePreflight.files = [];
+    nativeSelectedFiles = [];
   } finally {
     nativeSourcePreflight.scanning = false;
+    if (state.page === "projects") shell();
+  }
+}
+
+async function nativeStageSource() {
+  if (nativeImportState.busy || nativeSourcePreflight.scanning || !nativeSelectedFiles.length) return;
+  const project = document.getElementById("native-import-project")?.value?.trim();
+  const current = document.getElementById("native-import-password")?.value;
+  if (document.getElementById("native-import-password")) document.getElementById("native-import-password").value = "";
+  nativeImportState.busy = true;
+  nativeImportState.error = "";
+  nativeImportState.result = null;
+  if (state.page === "projects") shell();
+  try {
+    if (!/^[a-z][a-z0-9-]{0,62}$/.test(project || "")) throw Error("Use a lowercase project slug.");
+    if (!current) throw Error("Enter your administrator password.");
+    const files = nativeSourcePreflight.files;
+    const original = new Map(nativeSelectedFiles.map(file => [nativeSourcePath(file), file]));
+    const candidate = await api("project-import/prepare", {project, files, current});
+    for (const item of files) {
+      const file = original.get(item.path);
+      if (!file || file.size !== item.size) throw Error("Selected source changed before upload.");
+      for (let offset = 0; offset < item.size; offset += 65536) {
+        const bytes = new Uint8Array(await file.slice(offset, Math.min(offset + 65536, item.size)).arrayBuffer());
+        let binary = "";
+        for (let i = 0; i < bytes.length; i += 8192)
+          binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+        const result = await api("project-import/chunk",
+          {id: candidate.id, path: item.path, offset, data: btoa(binary)});
+        if (result.offset !== offset + bytes.length) throw Error("Broker chunk acknowledgment mismatch.");
+      }
+    }
+    nativeImportState.result = await api("project-import/finish",
+      {id: candidate.id, manifestHash: candidate.manifestHash});
+  } catch (error) {
+    nativeImportState.error = error.message || "Source staging failed without deployment.";
+  } finally {
+    nativeImportState.busy = false;
     if (state.page === "projects") shell();
   }
 }
@@ -118,6 +176,9 @@ function bindNativeProjects() {
       if (state.page === "projects") shell();
     });
   }
+  document.querySelector("#native-import-stage")?.addEventListener("click", () => {
+    void nativeStageSource();
+  });
   document.querySelector("#native-project-refresh")?.addEventListener("click", async event => {
     const button = event.currentTarget;
     button.disabled = true;
