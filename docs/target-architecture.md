@@ -1,188 +1,391 @@
-# Target architecture: NixLab = NixOS + Incus + Cockpit + Web UI
+# NixLab target: declarative projects, encrypted secrets and recoverable Incus data
 
-**Product decision (2026-11-17). Planned architecture, not current implementation.**
-NixLab makes a homelab reproducible and recoverable without shipping an
-additional application orchestrator. Its only permanent management surfaces are:
+**Decision (2026-11-17). This is a proposed implementation contract, not an
+already shipped feature.** The goal is a reproducible single-host homelab in
+which every managed project can be reconstructed from reviewed Nix declarations,
+its SOPS-encrypted configuration and independently backed-up persistent data.
 
-1. **NixLab Web UI** — privileged, reviewed Nix configuration, project files,
-   declarative deployments, backup policy and recovery evidence.
-2. **Incus and its native UI/API** — guest/OCI/VM lifecycle, Incus projects,
-   networks, devices, storage and snapshots. **incus-compose** is an optional
-   adapter on Incus, not a new daemon/control plane.
-3. **Cockpit** — Linux host services, terminal, files and diagnostics.
-4. **NixOS** remains the declarative system host and systemd/timer authority,
-   not a separate user-facing application control plane.
+NixLab keeps exactly three management surfaces: **NixLab Web UI** for declarative
+source, change review, secrets, backup and recovery; **Incus + native Incus UI**
+for containers, OCI applications, VMs, projects, networks, devices and volumes;
+and **Cockpit** for underlying Linux host administration. NixOS remains the
+host configuration and systemd foundation. **incus-compose** is a CLI/client
+adapter backed by Incus, not a Docker daemon or additional platform control
+plane.
 
-**Arcane, Docker inside an apps VM, the dedicated apps VM, Arcane reverse proxy,
-credential flows, application stack ownership, and Arcane CI fixtures are
-removed from the *target*.** They still exist in current source until migration
-[#126](https://github.com/OmarDardery/nixlab/issues/126) is implemented.
-Do not claim the target is shipped. An upgrade must never automatically destroy
-existing operator-owned `lab/apps` guests, disks, named volumes or credentials.
+**Fully retire Arcane and the dedicated Docker applications VM from the final
+architecture.** This is tracked by [#126](https://github.com/OmarDardery/nixlab/issues/126).
+Current NixLab still contains both. An upgrade must preserve existing `lab/apps`
+VM disks, named volumes, Compose files, credentials and data; migration is
+explicit and never a destructive cleanup step.
 
-## Separation of operating system and lab projects
+## 1. Host configuration is not application configuration
+
+Use one top-level **projects workspace flake**, rather than depending on
+multiple independent project flakes to discover one another. Project-specific
+files are recursively assembled into an aggregated typed inventory. An optional
+nested flake is an explicit resource, **not** an automatically applied host module.
 
 ```text
-/etc/nixos/                       # Installed NixLab OS, boot/hardware and host policy
+/etc/nixos/                              # NixLab NixOS host source, boot, host policy
   flake.nix, flake.lock
-  machine/modules/               # Host-only, privileged Nix modules
+  machine/modules/                      # Explicit, privileged host-only modules
 
-/srv/nixlab/projects/             # Independently versioned/restorable lab declarations
-  aiostreams/
-    flake.nix                     # Optional project-local flake
-    flake.lock
-    modules/*.nix                 # Optional project settings (not host NixOS imports)
-    compose.yaml                  # Incus Compose multi-service application definition
-    compose.incus.yaml            # Optional Incus-specific override
-    project.json                  # Non-secret ownership/deployment metadata
-  klipper/
-    flake.nix
-    flake.lock
-    modules/*.nix
-    project.json
-  backup-policy.nix               # Generated, reviewed, declarative backup intent
+/srv/nixlab/
+  projects/
+    flake.nix                           # Workspace entrypoint, exposes nixlabProjects
+    flake.lock                          # Pinned shared project evaluator dependencies
+    .sops.yaml                          # Public age recipients and SOPS creation rules
+    backups.nix                         # Web UI generated, reviewed backup policy
+    aiostreams/
+      default.nix                       # Project entrypoint
+      modules/
+        containers.nix
+        networking.nix
+        storage.nix
+      compose.yaml
+      compose.incus.yaml                # Optional Incus-specific Compose override
+      secrets.enc.yaml                  # SOPS ciphertext (safe for Git if reviewed)
+      files/                            # Explicit project resources, never auto-executed
+    klipper/
+      default.nix
+      modules/
+        container.nix
+        usb.nix
+        storage.nix
+      secrets.enc.yaml
+    adguard/
+      default.nix
+      modules/container.nix
+      secrets.enc.yaml
+  state/
+    aiostreams/                        # Optional declared host-managed persistent data
+    klipper/
+    adguard/
+  backups-local/                        # Temporary local staging, not sole copy
 
-/var/lib/nixlab/                  # Root-owned runtime/deployment transaction status
-/var/lib/nixlab-secrets/          # Root-owned credentials, keys, recovery material
-/var/lib/incus/                   # Actual guest disks, Incus volumes and snapshots
-/srv/nixlab/data/                 # Optional explicitly owned bind mounts
+/var/lib/nixlab/                         # Durable transactions/revisions/status
+/var/lib/nixlab/keys/projects.agekey     # Canonical root-owned age identity, 0400
+/var/lib/nixlab-secrets/                 # Protected runtime/remote/backup material
+/var/lib/incus/                          # Incus-managed data in existing pools
 ```
 
-These are proposed default paths, not an implemented migration or filesystem
-layout. Respect existing mounts and quotas; never move data implicitly. Store
-large/persistent application data in Incus volumes or managed host datasets,
-**not** in the project Git source directory or the Nix store.
+The `state/` and `backups-local/` directories are optional proposed paths,
+not a mandate to move existing Incus volumes. Reference volumes in their native
+Incus pool. Preserve old filesystems/mounts on migration and keep images, caches,
+Nix store, plaintext credentials and mutable application data **outside** the
+Git-tracked declarative source.
 
-Projects are independent Nix flakes (optional) or source-owned declarative
-Compose definitions. The broker evaluates/builds a reviewed project revision
-and applies only its whitelisted Incus operation plan; it does **not** import
-project Nix files as host modules by default. An explicit host configuration
-change still uses NixLab's guarded `nixos-rebuild` transaction.
+The Web UI edits an **untrusted staged workspace** and performs bounded file
+validation. Published revisions are immutable, root-controlled snapshots.
+Nix expressions and flake inputs can be powerful; they are **privileged code**,
+not safely sandboxed just by using `nix eval`. Never auto-run user uploads as
+root, silently import them into the host flake or give them the Incus socket.
+Administrator approval covers exact reviewed bytes and resulting impact.
 
-**Do not use `nix profile add` for deployments**: a profile adds package
-outputs to a user profile; it does not instantiate Incus projects, reconcile
-devices/volumes, start services or run persistent backups. Prefer isolated
-`nix build path:/srv/nixlab/projects/NAME#...` for project artifacts
-and a bounded NixLab project apply operation that records source revision,
-desired/observed state, and rollback/recovery outcome. Existing data is retained
-when a project declaration disappears. Project modules are privileged code;
-review them as such, protect file paths, require administrator reauthentication,
-validate generated plans and prohibit silent root shell execution from the UI.
+## 2. Deterministic, typed automatic project discovery
 
-No shared host/guest Nix store, second Nix daemon or persistent project database
-is needed. Reuse existing root broker, systemd oneshots/timers, durable JSON
-state and Incus native APIs.
+The workspace flake exposes `nixlabProjects`, an evaluated JSON-serializable
+desired-state inventory. Discovery rules:
 
-## NixLab projects and Incus Compose UI
+1. At the top level, discover immediate project directories having
+   `default.nix`; ignore non-project directories (`state`, backups, scripts).
+2. For each project, import `default.nix` exactly once and recursively load
+   `modules/**/*.nix` sorted by normalized relative path. Disable names
+   prefixed `_` by documented convention. **No other `.nix` files import
+   implicitly**; resources under `files/` and encrypted YAML are inert data.
+3. Reject symlink escapes, path traversal, unreadable paths, unsupported file
+   types, cycles, excessive depth/size, duplicate project names, duplicate
+   Incus resource names and cross-project storage/network ownership conflicts.
+4. Evaluate a typed Nix module schema and apply global defaults. Expose the
+   validated inventory, origin fingerprints, resource ownership and secret
+   **references only**. Never evaluate secret *values* or put them in the Nix store.
+5. Record flake input lock hashes and reviewed source revision. A dynamically
+   discovered new directory must appear in the next evaluation and be visible
+   in the Web UI; it is **not auto-deployed** without review.
 
-[Incus Compose](https://incus-compose.org/) translates ordinary multi-service
-Compose definitions into separate Incus-managed OCI instances, networks and
-volumes. The web UI should manage project source, not replace native Incus UI:
+```sh
+nix eval --json path:/srv/nixlab/projects#nixlabProjects
+```
 
-- Create/import a project; edit Nix files, `flake.lock`, `compose.yaml` and
-  `compose.incus.yaml`, validate, preview changes and reauthenticate to apply.
-- Build/pull immutable images, deploy/restart/stop, show actual services, logs,
-  resource usage, backup coverage and consistency warnings.
-- Use Incus UI for advanced device, console, VM, storage and snapshot controls;
-  detect and refuse drift from declared Incus-owned fields.
-- No automatic `down --volumes`, `down --project`, guest destruction, privilege
-  escalation, network exposure or adoption of native resources.
-- Qualify the exact incus-compose/Incus combination, OCI network behavior,
-  volumes, bind mounts, GPU/USB attachments, build backend and image digests
-  before enabling it for production.
+The explicit `path:` reference can include newly created files without Git
+staging; source files in this mode become inputs to Nix/store evaluation, so
+**only ciphertext and public configuration** may appear in the workspace.
+The source must be snapshotted for approval to avoid eval-versus-apply races.
 
-An external `cloudflared` host service can remain optional NixOS policy; it
-does not justify a Docker/Arcane VM. Management endpoints remain private.
-
-## One-time declarative backup setup
-
-The Web UI wizard collects policy options **once**, writes a **reviewable Nix
-policy file** in the independent project root, and activates a scheduled
-systemd/restic workflow. It should not require users to edit a timer every time
-they add a project. A default such as `includeProjects = "all-managed"`
-automatically discovers the next managed project under the root (with a manifest
-of what was included, skipped or failed). Projects can opt out explicitly.
-
-The policy should have typed fields equivalent to:
+Illustrative project declaration (**not an implemented module**):
 
 ```nix
-# Illustrative desired policy; options are NOT implemented yet.
-{
-  version = 1;
-  includeProjects = "all-managed";
-  source = {
-    include = [ "flake.nix" "flake.lock" "modules" "compose.yaml"
-                "compose.incus.yaml" "project.json" ];
-  };
-  data = {
-    includeManagedIncusVolumes = true;
-    includeDeclaredBindMounts = true;
-    consistency = "stop-or-quiesce";
-  };
-  schedule = "daily";
-  retention = { daily = 7; weekly = 4; monthly = 6; };
-  destinations = {
-    github = { enable = true; purpose = "configuration-only"; };
-    googleDrive = { enable = true; purpose = "encrypted-data"; };
+# /srv/nixlab/projects/aiostreams/default.nix
+{ ... }: {
+  nixlab.project = {
+    name = "aiostreams";
+    enable = true;
+    backend = "incus-compose";
+    resources = { cpus = 2; memory = "2GiB"; };
+    secrets.file = ./secrets.enc.yaml;
+    backup = { enable = true; consistency = "stop"; };
   };
 }
 ```
 
-**This is a proposed schema, not a runnable current NixOS module.** The
-generator writes paths/identifiers/references, not passwords. Treat the
-reviewed policy revision as durable recovery input.
+Use **independent project revision deployments**, not `nix profile add`.
+A Nix user profile manages package outputs and is not an Incus service/volume/
+device reconciler. `nix build path:...#...` may produce reviewed artifacts;
+a separate NixLab broker operation executes the Incus changes. Project
+updates **never** implicitly run `nixos-rebuild`.
 
-Keep four separate backup classes:
+## 3. Incus ownership and deployment
 
-| Class | What is included | Preferred backend |
+Default **one NixLab project ↔ one Incus project**, using independent names,
+profiles, volumes and networks where Incus supports project isolation. The
+Incus project feature flags/restrictions need explicit initialization and
+qualification: a project name by itself does not confer complete security
+isolation. Keep native Incus edits possible and refuse drift on source-owned
+fields. Existing `lab` resources are not auto-adopted.
+
+Each managed resource has exactly **one** deployment owner:
+
+| Owner | Backend | May change |
 |---|---|---|
-| Declarative source | Every managed project flake, lock, Nix modules, Compose files, non-secret metadata and backup policy | Private GitHub Git repo via scoped SSH deploy key; optional encrypted off-host copy |
-| Mutable data | Selected Incus instance exports, named/custom volumes, declared bind mounts and app-consistent dumps | Existing NixLab staged exports and encrypted restic, delivered off-host |
-| Protected recovery | Decryption keys, secret identity and critical credentials only on explicit authorization | Separate age-encrypted recovery kit with independent key custody |
-| Host operating system | NixLab install source, hardware config and NixOS generations | **Not part of project backup**; recover/reinstall NixLab separately |
+| NixLab native reconciler | `incus-native` | Declared system containers, KVM VMs, resources, devices, profiles and storage |
+| Incus Compose | `incus-compose` | Declared OCI services, project-local Compose networks and volumes |
+| Incus operator | `native-unmanaged` | Anything not explicitly adopted into the above |
 
-A local Incus snapshot or `incus-compose backup` restore point is **not** an
-off-host backup: an SSD failure can lose the project and its local backup project
-together. Incus Compose named volumes have project backup support; bind mounts
-need explicit separate coverage. Host restic exports may use their existing safe
-cold-backup consistency machinery and data restore process. Never upload an
-incomplete generation and label it successful.
+A single project can contain resource references and status for a native guest
+**or** a Compose stack; it must not let both reconcilers mutate the same
+instance/volume. For complex mixed projects, model separate ownership domains
+and explicit references rather than shared mutation authority.
 
-### Remote onboarding
+Incus Compose provides project isolation, named volumes, Compose overrides,
+health dependencies and file-backed secrets, but implements only a **subset**
+of Docker Compose. Its health behavior uses a helper sidecar; network/image
+copying requires a properly configured HTTPS Incus endpoint. Test the **exact**
+Incus LTS and Incus Compose versions, image and persistent-volume behavior,
+build requirements, network APIs, authentication and failures before release.
 
-**GitHub:** create/use a dedicated private config repository, generate a
-dedicated scoped SSH deploy key under root-owned credentials, show **only the
-public key** for GitHub enrollment, pin SSH host identity and commit non-secret
-project source revisions. GitHub does not hold VM disk images, restic archives,
-large databases or plaintext secrets. A backup's Git commit is a *source
-checkpoint*, not evidence that guest data was backed up.
+### Project apply pipeline
 
-**Google Drive:** use an authenticated rclone-backed restic repository or other
-qualified encrypted object transfer, with OAuth/refresh material and restic
-password outside Nix store, Git, logs, process arguments, URLs and public
-diagnostics. Keep source/backup policy copies recoverable without a live host.
-Detect rate/quota/auth failures, support credential rotation and verify a real
-restore from the independent destination. Do not report a backup green solely
-because a local snapshot or remote directory exists.
+1. Stage and validate all source, referenced artifacts and typed inventory.
+2. Compare desired resources with live Incus state/ETags and last-applied owner.
+3. Show explicit effects: create/change/stop/restart, data migration, outage,
+   secret rotation and unresolved ownership/drift conflicts.
+4. Require reauthentication and approve a fixed candidate revision using the
+   **existing** NixLab guarded root broker, not browser-provided raw commands.
+5. Apply only whitelisted operations in dependency order, verify intended health
+   and persist exact source and observed deployment revision.
+6. On errors, report partial work and resume safely. Configuration rollback
+   does **not** roll back database/volume mutations.
 
-**Recovery:** start with a fresh ordinary NixOS installation, install NixLab,
-restore the project source/lock files, restore independent credentials securely,
-evaluate planned revisions, then import actual Incus volumes/guests. Confirm
-network/device remapping and test application data before declaring success.
-Backup verification, transport success, restore and real application health are
-distinct statuses.
+Reapply with no changes should be a no-op. Missing declarations must never
+implicitly destroy existing instances or volumes; migration, adoption, host
+network/device remapping and destructive operations need separate approval.
+Maintain the existing physical/USB reconnect and data-loss qualification gates.
 
-## Implementation and release gates
+## 4. SOPS + age secret lifecycle
 
-1. [#127](https://github.com/OmarDardery/nixlab/issues/127) — independent project root, Nix evaluation and transactional file/revision ownership.
-2. [#128](https://github.com/OmarDardery/nixlab/issues/128) — Incus/Incus Compose project Web UI and migration destination.
-3. [#129](https://github.com/OmarDardery/nixlab/issues/129) — generated declarative backup policy, all-managed discovery and restores.
-4. [#130](https://github.com/OmarDardery/nixlab/issues/130) — GitHub SSH source sync and encrypted Google Drive data transfer.
-5. [#126](https://github.com/OmarDardery/nixlab/issues/126) — finish Arcane/Docker apps-VM retirement **only after** protected migration and recovery are available.
-6. [#131](https://github.com/OmarDardery/nixlab/issues/131) — exact-revision, physical, legacy-upgrade and independent-restore qualification.
+The install Web UI offers two mutually exclusive choices:
 
-This target supersedes contrary Arcane, Docker-apps and Portainer statements
-in earlier roadmap text. Existing archived code, docs and release evidence
-continue to describe the present/legacy implementation until each migration
-stage actually lands; neither documentation changes nor a green docs CI run
-qualifies live data migration.
+- **New installation:** generate one cryptographically random age identity at
+  `/var/lib/nixlab/keys/projects.agekey`, atomically, root-owned mode 0400.
+  Record only the **public** recipient in `.sops.yaml`.
+- **Restore installation:** import and verify the previously saved age identity
+  **before** decrypting/activating restored project files.
+
+Never regenerate the private key on reboot, package/OS upgrade, installer retry,
+key read failure or a corrupt file. Support additional public recipients and
+explicit reviewable recipient rotation.
+
+Each project declares a `secrets.enc.yaml` containing **SOPS-encrypted**
+credential and environment values. For nonsecret environment settings, ordinary
+typed Nix/Compose fields remain appropriate.
+
+The Web UI should allow administrator-only add/change/remove of masked values,
+without offering an unrestricted plaintext dump. Broker encrypts and saves
+ciphertext atomically. Handle key/recipient errors as failures, not opportunities
+to overwrite existing secrets. Do not put plaintext in Git, Nix store,
+`environment.*`/readable `user.*` Incus config, plans, API JSON, process
+arguments or unredacted logs.
+
+Decrypted secrets should exist only in protected per-service runtime staging
+(`/run`/tmpfs, systemd credentials or tightly scoped root-controlled files);
+the host age private key **never** enters guests. NixOS system-container services
+may use sops-nix/systemd credentials where appropriate. OCI/Compose services
+may use its file-based secrets feature after qualifying its actual copy/ownership,
+persistence and deletion behavior. A Compose file's `secrets:` entry is not
+proof of runtime tmpfs isolation.
+
+### Independently stored recovery kit
+
+Produce an administrator-passphrase-encrypted portable kit containing the age
+identity, restic unlock credentials, remote backup tokens/SSH deployment
+material needed for recovery, manifest/schema and fingerprints. The kit is an
+**explicitly sensitive** artifact, encrypted with a reviewed strong KDF and
+format, saved in a **separate trust/failure domain** from the restic repository.
+Confirm the kit can actually be unlocked and decrypt a test project. A
+GitHub SOPS file or Google Drive restic repository is not a substitute for its
+own decryption key. Never emit the kit passphrase or private material in logs.
+
+## 5. One-time declarative backup policy
+
+Web UI collects policy once, writes/reviews `projects/backups.nix`, and
+automatically discovers managed projects added later. Source and mutable data
+are distinct protection classes.
+
+```nix
+# Illustrative API, NOT currently a NixLab module
+{
+  nixlab.backups = {
+    enable = true;
+    schedule = "daily";
+
+    configuration.github = {
+      enable = true;
+      repository = "git@github.com:USER/nixlab-config.git";
+      sshKeySecret = "github-deploy-key";
+    };
+
+    data.restic = {
+      enable = true;
+      repository = "rclone:gdrive:nixlab-backups";
+      passwordSecret = "restic-password";
+    };
+
+    retention = { daily = 7; weekly = 4; monthly = 6; };
+    includeProjects = "all";
+  };
+}
+```
+
+One-time means no manual list maintenance: the policy selects `all` for
+project **configuration**, and explicit per-project backup declarations
+determine **mutable data** coverage and consistency. New project discovery
+must not silently claim it is backed up until its data volumes and any
+host bind mounts are identified. Include all managed `flake.nix`,
+`flake.lock`, `default.nix`, recursive modules, Compose/override files,
+SOPS ciphertext, `.sops.yaml`, metadata and backup policy. Exclude all
+plaintext credentials, age private keys, SSH private keys, OAuth tokens,
+Nix store, caches and OS installation files from Git.
+
+| Backup destination | What it protects | What it does **not** protect |
+|---|---|---|
+| Private GitHub repository via dedicated deploy key | Non-secret Nix/Compose/metadata revisions and SOPS ciphertext | VM/OCI instance disks, Incus volumes, passwords/private decryption keys |
+| Google Drive via rclone-backed encrypted restic | Completed consistent guest/volume/bind mount exports and optionally project snapshots | Key material without an independent recovery kit |
+| Local Incus snapshots or staging | Fast local recovery point/immutable staging | Off-host disaster recovery by itself |
+| Independently stored encrypted recovery kit | Key/credential material to unlock source+data | Application state until combined with restic |
+
+Prefer **reusing** NixLab's existing grouped Incus exports, atomic generations,
+consistency/downtime and restic verification. Avoid a second backup engine,
+persistent database or scheduler. To honor **project changes do not rebuild
+the host**, install a stable host backup runner/timer once and let its privileged
+runtime read/evaluate the latest approved project policy and decide whether a
+scheduled run is due. Do not make every `backups.nix` edit a NixOS host
+`services.restic.backups` re-evaluation. Any timer tuning must be reconciled
+without conflicting with NixOS-owned unit files.
+
+GitHub deploy-key onboarding must show only the public key, require the
+administrator to add it with correct repository write access, verify SSH
+host-key identity and use the least possible privileges. GitHub remains an
+optional source checkpoint, not a database backup. Google Drive onboarding
+should use a qualified rclone remote and protected OAuth refresh material
+outside Git and Nix; restic repository `rclone:<remote>:<path>` syntax is
+supported. Users need a reliable reauthorization path if Google credentials
+expire or are revoked.
+
+### Backup state machine and evidence
+
+1. **Capture** the exact approved project source revision, SOPS ciphertext,
+   manifests and expected project/volume/secret coverage under a lock.
+2. **Preflight** permissions, quota, remote auth, free storage, data consistency
+   prerequisites and independent recovery-key availability.
+3. **Quiesce/export** grouped Incus instances/volumes or service-specific dumps
+   per declared policy. Always attempt restart after interruption.
+4. **Transfer** Git source separately from encrypted restic data generations.
+   Never publish an incomplete generation as complete.
+5. **Verify** project hashes, destination repository, actual included resources
+   and guest recovery; distinguish metadata/full repository checks and a real
+   isolated restore.
+6. **Retain/monitor** at least two complete local recovery generations plus
+   configured off-host retention; track success/failure for each destination.
+
+A successful Git push cannot mask a failed restic backup. Missing/offline or
+excluded workloads remain **partially covered**, never healthy/full. Default
+source discovery cannot infer database consistency; require per-project
+declarations and visible warnings.
+
+## 6. NixLab Web UI
+
+Web UI sections: **Projects, Backups, Host settings and Recovery**. Projects
+are editable/declarative, but deployment is always a reviewed action.
+
+- **Project list**: enabled backend (Native Incus/NixOS Guest/Incus Compose),
+  Incus project/instance identities, actual running status, drift and backup
+  coverage, with unknown/stale shown explicitly.
+- **Project editor**: raw Nix `default.nix`/recursive modules and associated
+  files, Compose, resource bindings and immutable revision diff; safe templates
+  for native guest, OCI app, USB/serial passthrough, storage and networking.
+- **Secrets editor**: masked write-only updates and controlled rotation;
+  clear distinction between encrypted source and runtime injection outcome.
+- **Deployment**: eval/build errors, impact plan, explicit approval, apply,
+  health, dependencies, last successful revision and recoverable partial state.
+- **Backups and restore**: one-time provider setup, generated `backups.nix`
+  preview, project/data coverage, local/Git/off-host status, restore drills and
+  independent recovery-kit export/import.
+- **Deep host/guest operations**: links to Cockpit and native Incus UI, rather
+  than duplicating those complete interfaces in NixLab.
+
+All browser operations use the existing authenticated NixLab backend, short
+transactions, role checks/CSRF and root-only broker, never an Incus socket or
+unbounded shell passed from the browser.
+
+## 7. Fresh-host disaster recovery
+
+Recovery from an independent copy must not need functioning previous NixLab
+control plane, GitHub SSH service or the failed host itself.
+
+1. Install ordinary NixOS, then initialize NixLab in **recovery mode**, with
+   no automatic project/Incus application activation.
+2. Import the independently stored encrypted recovery kit, unlock and verify
+   original age identity + restic access before attempted project decryption.
+3. Retrieve the projects workspace from GitHub or restic with exact
+   `flake.lock`, encrypted secrets and `backups.nix`.
+4. Restore Incus instances/volumes (or recreate from approved desired state
+   and restore actual application data) into explicitly mapped storage.
+5. Evaluate source in isolation, decrypt check, review duplicate identities,
+   compatibility, source revision, networking/storage paths and USB devices.
+6. Apply approved plan, inject only each project's secrets, start dependent
+   services, verify actual health and evidence from the restored data.
+7. Persist a restore report; do not conflate host install success, project
+   configuration evaluation, backup transport and successful app recovery.
+
+## 8. Implementation order and hard gates
+
+1. [#127](https://github.com/OmarDardery/nixlab/issues/127):
+   top-level workspace flake, recursive typed project discovery and immutable sources.
+2. [#135](https://github.com/OmarDardery/nixlab/issues/135):
+   project-only review/apply/recovery transactions without host rebuild.
+3. [#133](https://github.com/OmarDardery/nixlab/issues/133):
+   exclusive project-scoped Native Incus/Incus Compose reconciliation.
+4. [#134](https://github.com/OmarDardery/nixlab/issues/134):
+   install/import age identity, SOPS project secrets and scoped delivery.
+5. [#128](https://github.com/OmarDardery/nixlab/issues/128):
+   Web UI project/Nix/Compose/secrets/deployment workflows.
+6. [#129](https://github.com/OmarDardery/nixlab/issues/129):
+   one-time backup wizard, source/data discovery and existing restic integration;
+   [#130](https://github.com/OmarDardery/nixlab/issues/130):
+   GitHub deploy keys and Google Drive rclone storage.
+7. [#131](https://github.com/OmarDardery/nixlab/issues/131):
+   independent key/source/data restore qualification; complete safe legacy
+   [#126](https://github.com/OmarDardery/nixlab/issues/126) Arcane retirement
+   only once the replacement is proven for migrated workloads.
+
+Acceptance requires: new project appears on next `nix eval`; project-only
+update does not rebuild host; idempotent reapply; drift refusal; secret-free
+Nix store/logs/plans; persistent key surviving retries; separate-host decrypt
+and full data restore (database-backed multi-service workload); no destructive
+partial deploy or silent Arcane volume deletion; exact-version CI, reboot,
+live container/VM and hardware-USB evidence.
+
+The product goal is a **declarative controller for Incus projects with ordinary
+portable Nix source**, not another Docker/VM engine. Source, encrypted secrets,
+persistent data and unlock keys have distinct owners and recovery lifecycles.
