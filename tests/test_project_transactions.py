@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import runtime as rt
 import project_transactions as tx
+import project_plans
 
 
 class ProjectSourceTransactionsTests(unittest.TestCase):
@@ -43,6 +44,15 @@ class ProjectSourceTransactionsTests(unittest.TestCase):
         self.parse_patch = patch.object(tx, "_parse_nix", return_value=None)
         self.parse_patch.start()
         self.addCleanup(self.parse_patch.stop)
+        self.inventory = {"schemaVersion": 1, "projects": {
+            "alpha": {"name": "alpha", "source": "alpha", "enable": True,
+                      "backend": "incus-native", "incusProject": "alpha",
+                      "resources": {"cpus": 2, "memory": "2GiB"},
+                      "secrets": {"file": None}, "backup": {"enable": True, "consistency": "stop"},
+                      "claims": [], "modules": ["modules/network.nix"]}}}
+        self.eval_patch = patch.object(tx.project_plans, "evaluate", return_value=self.inventory)
+        self.eval_patch.start()
+        self.addCleanup(self.eval_patch.stop)
         self.manager = tx.ProjectTransactions(workspace=self.workspace, state=self.state)
 
     def edit(self, **patches):
@@ -55,7 +65,7 @@ class ProjectSourceTransactionsTests(unittest.TestCase):
         with patch.object(tx.subprocess, "run", side_effect=AssertionError("No host commands during review")):
             reviewed = self.review()
         self.assertEqual(reviewed["status"], "ready")
-        self.assertEqual(reviewed["deployment"], "not-implemented")
+        self.assertEqual(reviewed["deployment"], "not-started")
         self.assertTrue(reviewed["sourceOnly"])
         self.assertEqual(tx.validate_workspace(self.workspace)["sourceHash"], self.before)
         self.assertEqual(self.manager.status()["id"], reviewed["id"])
@@ -210,6 +220,51 @@ class ProjectSourceTransactionsTests(unittest.TestCase):
         os.link(self.workspace / "flake.nix", self.workspace / "alias.nix")
         with self.assertRaisesRegex(ValueError, "Hardlinked"):
             self.review()
+
+    def test_noop_deploy_uses_same_broker_and_never_touches_guest(self):
+        review = self.review()
+        self.manager.publish(review["id"], review["planHash"])
+        with patch.object(tx.subprocess, "run", return_value=None) as spawned:
+            queued = self.manager.deploy(review["id"], review["planHash"])
+        self.assertEqual(queued["deployment"], "queued")
+        self.assertTrue(any("project-deploy-job" in str(c) for c in spawned.call_args_list))
+        finished = self.manager.run_deployment(review["id"])
+        self.assertEqual(finished["deployment"], "verified")
+        self.assertEqual(finished["deploymentResources"], {})
+        self.assertEqual(self.manager.deploy(review["id"], review["planHash"])["deployment"], "verified")
+
+    def test_project_deployment_blocks_host_transaction_until_verified(self):
+        review = self.review()
+        self.manager.publish(review["id"], review["planHash"])
+        with patch.object(tx.subprocess, "run", return_value=None):
+            self.manager.deploy(review["id"], review["planHash"])
+        with self.assertRaisesRegex(ValueError, "active project deployment"):
+            self.edit(**{"alpha/modules/extra.nix": "{ ... }: {}"})
+        self.manager.run_deployment(review["id"])
+        self.assertEqual(self.edit(**{"alpha/modules/extra.nix": "{ ... }: {}"})["status"], "ready")
+
+    def test_native_deployment_failure_requires_explicit_resume(self):
+        owned = dict(self.inventory["projects"]["alpha"])
+        owned["claims"] = ["instance/printer"]
+        self.inventory["projects"]["alpha"] = owned
+        watched = {
+            "project": "alpha", "name": "printer", "action": "update",
+            "etag": "abc", "fingerprint": "abcd", "desiredHash": "def"
+        }
+        with patch.object(project_plans, "_observation", return_value=watched):
+            planned = self.review()
+            self.manager.publish(planned["id"], planned["planHash"])
+        with patch.object(tx.subprocess, "run", return_value=None), patch.object(project_plans, "_observation", return_value=watched):
+            self.manager.deploy(planned["id"], planned["planHash"])
+        with patch.object(project_plans, "recheck_and_apply", side_effect=ValueError("transient denied")):
+            failed = self.manager.run_deployment(planned["id"])
+        self.assertEqual(failed["deployment"], "partial")
+        with patch.object(tx.subprocess, "run", return_value=None):
+            self.manager.deploy(planned["id"], planned["planHash"], resume=True)
+        with patch.object(project_plans, "recheck_and_apply", return_value={"status": "verified", "newEtag": "new"}):
+            done = self.manager.run_deployment(planned["id"])
+        self.assertEqual(done["deployment"], "verified")
+        self.assertEqual(done["deploymentResources"]["alpha/printer"]["phase"], "verified")
 
     def test_status_contains_only_hashes_and_paths_not_source_bytes(self):
         reviewed = self.review()
