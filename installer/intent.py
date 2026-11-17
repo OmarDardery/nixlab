@@ -125,7 +125,7 @@ def plan(answers, host, settings, *, remote=False):
         pending.append("Review an existing Ethernet bridge/VLAN and switch configuration in Connectivity; no host NIC is modified by this installer")
     pending.append("Create and manage workload-agnostic Incus guests using Incus UI or reviewed helper scripts; configure persistent storage and resource limits separately")
     if a["workloads"] in ("compose", "both"):
-        pending.append("Use Incus OCI and a qualified Incus Compose project after setup; Docker/Arcane apps VM is not installed")
+        pending.append("Use Incus OCI and a qualified Incus Compose project after setup; Docker/Arcane apps VM is not installed; verify data persistence and an independent restore")
     pending.append("For guests needing physical USB/serial devices, inspect stable device IDs and explicitly review Incus passthrough; do not assume a particular peripheral")
     pending.append("For LAN-facing services such as DNS, validate stable guest reachability and firewall rules before changing router or client settings")
     if a["access"] == "private":
