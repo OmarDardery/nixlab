@@ -14,6 +14,7 @@ let
     ../scripts/backup_health.py
     ../scripts/backup_verification.py
     ../scripts/incus_client.py
+    ../scripts/legacy_apps.py
   ];
 in pkgs.runCommand "nixlab-admin-runtime" { } ''
   mkdir -p "$out"
