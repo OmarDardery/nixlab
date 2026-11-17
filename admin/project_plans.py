@@ -74,7 +74,7 @@ def evaluate(source, identity):
             "--property=TasksMax=32",
             "--property=RuntimeMaxSec=90",
             "--property=UMask=0077",
-            "--property=InaccessiblePaths=/var/lib/incus /var/lib/nixlab-secrets /etc/nixlab /run/nix /nix/var/nix/daemon-socket",
+            "--property=InaccessiblePaths=-/var/lib/incus -/var/lib/nixlab-secrets -/etc/nixlab -/run/nix -/nix/var/nix/daemon-socket",
             "--property=BindReadOnlyPaths=" + str(path) + ":/workspace",
             "--setenv=HOME=/tmp",
             "--setenv=NIX_REMOTE=local",
