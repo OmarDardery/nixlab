@@ -261,6 +261,9 @@ class ProjectSourceTransactionsTests(unittest.TestCase):
         self.inventory["projects"]["alpha"] = owned
         watched = {
             "project": "alpha", "name": "printer", "action": "update",
+            "observedStatus": "Running",
+            "before": {"cpus": "2", "memory": "2GiB"},
+            "after": {"cpus": "3", "memory": "2GiB"},
             "etag": "abc", "fingerprint": "abcd", "desiredHash": "def"
         }
         with patch.object(project_plans, "_observation", return_value=watched):
