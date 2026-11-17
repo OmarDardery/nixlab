@@ -34,6 +34,8 @@ def _cached_source(source):
     do not pass decrypted credentials or private key material here.
     """
     source = Path(source)
+    if (source / ".git").exists() or (source / ".git").is_symlink():
+        raise ValueError("Unreviewed Git metadata cannot be copied into the public Nix store")
     before = validate_workspace(source)
     try:
         result = subprocess.run(
