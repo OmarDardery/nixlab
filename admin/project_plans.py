@@ -13,6 +13,7 @@ import re
 import subprocess
 
 import reconcile
+from project_workspace import validate_workspace
 
 NAME = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
 MEMORY = re.compile(r"[1-9][0-9]*(?:KiB|MiB|GiB)\Z")
@@ -31,6 +32,8 @@ def _cached_source(source):
     project_workspace.validate_workspace(). Nix store paths are world-readable:
     do not pass decrypted credentials or private key material here.
     """
+    source = Path(source)
+    before = validate_workspace(source)
     try:
         result = subprocess.run(
             ["nix-store", "--add", str(source)],
@@ -45,6 +48,8 @@ def _cached_source(source):
     if (result.returncode != 0 or len(result.stdout) > 256 or
         not re.fullmatch(r"/nix/store/[0-9a-z]{32}-[A-Za-z0-9+._?=-]+", path)):
         raise ValueError("Could not pin project source in the Nix store")
+    if validate_workspace(Path(path))["sourceHash"] != before["sourceHash"]:
+        raise ValueError("Nix store project snapshot differs from reviewed source")
     return path
 
 
