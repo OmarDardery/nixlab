@@ -447,7 +447,7 @@ function formatBytes(v) {
 function login(message = "") {
   clearInterval(state.timer);
   state.timer = null;
-  app.innerHTML = `<main id="main" class="login"><section class="login-card">${brandLogo()}<h1>Sign in to your host.</h1><p>Use your NixLab portal account. Hosts with browser enrollment enabled will show console approval here. If you need a new portal password, use <code>sudo nixlab-admin reset-password</code> from an authorized host terminal.</p><form id="login-form"><label class="field"><span>Account</span><input name="username" value="admin" autocomplete="username" required></label><label class="field"><span>Portal password</span><input name="password" type="password" autocomplete="current-password" required autofocus></label><p class="error" id="login-error">${esc(message)}</p><button class="primary">Sign in →</button></form><p class="note">SSH, Cockpit and Arcane use separate identities. Verify the local CA fingerprint before signing in. <a href="/ca.crt">Download the management CA</a>.</p></section></main>`;
+  app.innerHTML = `<main id="main" class="login"><section class="login-card">${brandLogo()}<h1>Sign in to your host.</h1><p>Use your NixLab portal account. Hosts with browser enrollment enabled will show console approval here. If you have lost your portal password, use browser-bound recovery with approval from a local sudo administrator.</p><form id="login-form"><label class="field"><span>Account</span><input name="username" value="admin" autocomplete="username" required></label><label class="field"><span>Portal password</span><input name="password" type="password" autocomplete="current-password" required autofocus></label><p class="error" id="login-error">${esc(message)}</p><button class="primary">Sign in →</button></form><p><button type="button" id="recover-access">Recover access</button></p><p class="note">SSH, Cockpit and Arcane use separate identities. Verify the local CA fingerprint before signing in. <a href="/ca.crt">Download the management CA</a>.</p></section></main>`;
   document.querySelector("#login-form").onsubmit = async (e) => {
     e.preventDefault();
     const button = e.target.querySelector("button");
@@ -465,11 +465,80 @@ function login(message = "") {
     }
   };
   const form = document.querySelector("#login-form");
+  document.querySelector("#recover-access").onclick = () => showRecovery(form.elements.username.value);
   api("enrollment").then(({available, recoveryRequired}) => {
     if (!form.isConnected) return;
     if (available) showEnrollment();
     else if (recoveryRequired) document.querySelector("#login-error").textContent = "First-admin enrollment is locked. Use sudo nixlab-admin reset-password from a private host terminal or restore supported account state.";
   }).catch(() => {});
+}
+
+async function showRecovery(username) {
+  app.innerHTML = `<main id="main" class="login"><section class="login-card">${brandLogo()}
+    <h1>Recover portal access</h1>
+    <p>Approve this exact browser from Cockpit Terminal, SSH with sudo, or the physical host console.
+    Only the selected portal account changes; Linux, Incus and Arcane credentials remain separate.</p>
+    <p>Account: <strong>${esc(username)}</strong></p>
+    <p>Run <code>sudo nixlab-admin recovery approve REQUEST_ID</code>, replacing REQUEST_ID with:</p>
+    <label class="field"><span>Recovery request ID (not a password)</span><input id="recovery-request-id" readonly></label>
+    <p role="status" id="recovery-status">Creating a browser-bound request…</p>
+    <form id="recovery-reset"><label class="field"><span>New portal password</span>
+    <input name="password" type="password" autocomplete="new-password" minlength="16" maxlength="256" required>
+    </label><p class="error" id="recovery-error" aria-live="polite"></p>
+    <button class="primary" disabled>Set new password</button></form>
+    <button type="button" id="recovery-back">Back to sign in</button>
+    <p class="note">Requests expire after five minutes. Neither terminal approval nor its output contains your password.</p>
+    </section></main>`;
+  const form = document.querySelector("#recovery-reset");
+  document.querySelector("#recovery-back").onclick = () => login();
+  let request;
+  let busy = false;
+  const update = result => {
+    if (!form.isConnected) return;
+    document.querySelector("#recovery-request-id").value = result.requestId;
+    document.querySelector("#recovery-status").textContent = result.approved
+      ? "Approved. This browser can set a new password once."
+      : "Awaiting local sudo approval (" + result.expiresIn + " seconds left).";
+    form.querySelector("button").disabled = busy || !result.approved;
+  };
+  try {
+    request = await api("recovery/request", {username});
+    update(request);
+  } catch {
+    if (form.isConnected) document.querySelector("#recovery-status").textContent =
+      "Request unavailable. Check the management connection, then return to sign in.";
+    return;
+  }
+  form.onsubmit = async event => {
+    event.preventDefault();
+    busy = true;
+    form.querySelector("button").disabled = true;
+    const password = form.elements.password;
+    try {
+      await api("recovery/reset", {password: password.value}, request.csrf);
+      password.value = "";
+      login("Password updated. Sign in with your new portal password.");
+    } catch {
+      password.value = "";
+      busy = false;
+      if (form.isConnected) document.querySelector("#recovery-error").textContent =
+        "Reset was not completed. Check approval and account state; request fresh approval if needed.";
+    }
+  };
+  const timer = setInterval(async () => {
+    if (!form.isConnected) return clearInterval(timer);
+    try {
+      const current = await api("recovery/status", {}, request.csrf);
+      update(current);
+    } catch {
+      if (form.isConnected) {
+        document.querySelector("#recovery-status").textContent =
+          "Request expired or unavailable. Return to sign in to request a new approval.";
+        form.querySelector("button").disabled = true;
+      }
+      clearInterval(timer);
+    }
+  }, 3000);
 }
 
 async function showEnrollment() {
