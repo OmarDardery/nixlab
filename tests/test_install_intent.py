@@ -29,7 +29,7 @@ class IntentTests(unittest.TestCase):
         answers = intent.normalize(dict(workloads="both", access="private",
                                         laptop=True, backup=True))
         proposal = intent.plan(answers, host(), settings())
-        self.assertTrue(proposal["apps"])
+        self.assertFalse(proposal["apps"])
         self.assertTrue(proposal["laptop"])
         self.assertTrue(proposal["monitoring"])
         description = "\n".join(proposal["pending"])
@@ -37,6 +37,8 @@ class IntentTests(unittest.TestCase):
                         "USB/serial", "LAN", "restore"):
             self.assertIn(feature, description)
         self.assertTrue(any("NAT guests" in reason for reason in proposal["reasons"]))
+        self.assertEqual(proposal["estimatedAppMemoryMiB"], 0)
+        self.assertTrue(any("no Docker/Arcane VM" in reason for reason in proposal["reasons"]))
         for deprecated in ("klipper", "aiostreams", "adguard"):
             self.assertNotIn(deprecated, repr(proposal).lower())
 
@@ -46,7 +48,7 @@ class IntentTests(unittest.TestCase):
         h = dict(memoryKiB=8 * 1024 * 1024, interfaces=[
             dict(name="wlan0", wireless=True, addresses=["192.168.1.240/24"])])
         p = intent.plan({"workloads": "compose", "access": "private"}, h, s, remote=True)
-        self.assertTrue(p["apps"])
+        self.assertFalse(p["apps"])
         self.assertFalse(p["networkRequiresReview"])
         self.assertTrue(any("Tailscale" in x for x in p["pending"]))
         for kind in ("lan", "vlan"):
@@ -65,8 +67,9 @@ class IntentTests(unittest.TestCase):
         self.assertTrue(any("never SSH/Incus/Cockpit/NixLab" in x for x in p["pending"]))
 
     def test_insufficient_ram_and_network_collision_fail_before_apply(self):
-        with self.assertRaisesRegex(ValueError, "RAM"):
-            intent.plan({"workloads": "both"}, host(memory=2 * 1024 * 1024), settings())
+        # Incus Compose workloads no longer provision a heavyweight apps VM,
+        # so low RAM cannot trigger an Arcane-specific installer rejection.
+        self.assertFalse(intent.plan({"workloads": "both"}, host(memory=2 * 1024 * 1024), settings())["apps"])
         with self.assertRaisesRegex(ValueError, "overlaps"):
             intent.plan({"guestSubnet": "192.168.1.0/24"}, host(), settings())
         with self.assertRaisesRegex(ValueError, "local-console"):
