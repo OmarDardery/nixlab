@@ -190,15 +190,10 @@ def backend():
                     # forwards an unbound browser claim to this legacy route.
                     import accounts
                     result = accounts.claim_enrollment(body.get('code'), body.get('password'))
-                elif self.path == '/arcane/reset':
-                    import accounts, arcane
-                    if not accounts.matches(actor,body.get('current')):
-                        raise rt.PublicError('Reauthenticate before resetting Arcane')
-                    with rt.locked(blocking=False):
-                        result=arcane.supplied_password(manager.effective_settings(),body.get('password'),'reset')
                 elif self.path == '/review':
-                    import arcane
-                    secret_values=arcane.review_secrets(body,actor)
+                    if 'reuseArcanePassword' in body or 'arcaneCurrent' in body:
+                        raise rt.PublicError('Legacy application-manager credentials are unsupported by Incus-native')
+                    secret_values = body.get('secrets', {})
                     result = manager.review(body['settings'], secret_values, body.get('updateInputs', False), body.get('modules', {}), body.get('revision'), principal=actor)
                 elif self.path == '/apply':
                     result = manager.apply(body['id'])
@@ -259,7 +254,7 @@ class UnixConnection(http.client.HTTPConnection):
 
 
 def broker_request(method, path, value=None):
-    connection = UnixConnection('localhost', timeout=360 if path == '/arcane/reset' else 150)
+    connection = UnixConnection('localhost', timeout=150)
     try:
         body = json.dumps(value).encode() if value is not None else None
         connection.request(method, path, body=body, headers={'Content-Type': 'application/json'})
@@ -618,12 +613,7 @@ def web():
                     return reply(self, 200, result)
                 if self.path == '/api/migrate-layout' and not accounts.matches(session['username'], body.get('current')):
                     raise rt.PublicError('Reauthenticate to migrate the machine layout')
-                if self.path == '/api/arcane/reset':
-                    if not accounts.matches(session['username'],body.get('current')):
-                        raise rt.PublicError('Reauthenticate before resetting Arcane')
                 if self.path == '/api/review':
-                    if body.get('reuseArcanePassword') is True and not accounts.matches(session['username'],body.get('arcaneCurrent')):
-                        raise rt.PublicError('Enter your current portal password to reuse it for initial Arcane setup')
                     password = body.pop('adminPassword', None)
                     if body.get('modules') or body.get('revision'):
                         if body.get('acknowledgePrivilegedModules') is not True:
@@ -640,7 +630,7 @@ def web():
                 if self.path in ('/api/recovery-export', '/api/users'):
                     if not accounts.matches(session['username'], body.pop('current', None)):
                         raise rt.PublicError('Reauthenticate before exporting recovery material or changing accounts')
-                actions = {'/api/arcane/reset', '/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests'}
+                actions = {'/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests'}
                 if self.path not in actions:
                     return reply(self, 404, {'error': 'Unknown action'})
                 body['_actor'] = session['username']
@@ -849,12 +839,6 @@ def enroll_key(manager, public_key_file, settings):
     return record
 
 
-def reset_arcane(settings):
-    import arcane
-    with rt.locked(blocking=False): result = arcane.reset(settings)
-    print('Arcane recovered: ' + result['url'])
-
-
 def approve_browser_console():
     import getpass
     import warnings
@@ -889,7 +873,7 @@ def reset_portal_password():
 if __name__ == '__main__':
     os.umask(0o027)
     action = sys.argv[1] if len(sys.argv) > 1 else ''
-    if action in ('doctor', 'identity', 'enroll-key', 'arcane') and os.geteuid() == 0:
+    if action in ('doctor', 'identity', 'enroll-key') and os.geteuid() == 0:
         from controller import Manager
         import diagnostics
         try:
@@ -914,11 +898,6 @@ if __name__ == '__main__':
             elif action == 'enroll-key':
                 if len(sys.argv) != 3: raise rt.PublicError('Usage: sudo nixlab enroll-key laptop.pub')
                 enroll_key(manager, sys.argv[2], settings)
-            else:
-                if sys.argv[2:] == ['reset-password']:
-                    reset_arcane(settings)
-                else:
-                    raise rt.PublicError('Usage: sudo nixlab arcane reset-password')
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
             sys.exit('Command failed; check inputs and host status before retrying')
     elif action == 'backend':
@@ -1001,5 +980,5 @@ if __name__ == '__main__':
     elif action == 'reset-password' and os.geteuid() == 0:
         reset_portal_password()
     else:
-        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|arcane reset-password|legacy-apps inventory|backend|web|guard|renew|approve-enrollment|reset-password|config|deploy|guests|recovery|commissioning|install-plan|prune-jobs|disk prepare}')
+        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|legacy-apps inventory|backend|web|guard|renew|approve-enrollment|reset-password|config|deploy|guests|recovery|commissioning|install-plan|prune-jobs|disk prepare}')
 

@@ -99,15 +99,8 @@ class CredentialContractTests(unittest.TestCase):
                     installer.report_failure()
             assert_public_clean(self, [output.getvalue(), rt.read_json(rt.STATE / 'installation-failure.json')])
 
-    def test_arcane_cli_prints_status_and_private_delivery_path_only(self):
-        result = {'url': 'https://192.0.2.20:9443', 'backup': '/private/backup',
-                  'username': SECRETS['operator'], 'password': SECRETS['arcane']}
-        output = io.StringIO()
-        with patch.object(rt, 'locked'), patch.object(arcane, 'reset', return_value=result), \
-                contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
-            main.reset_arcane(initial())
-        assert_public_clean(self, output.getvalue())
-        self.assertIn('Arcane recovered', output.getvalue())
+    def test_legacy_arcane_cli_is_not_exposed(self):
+        self.assertFalse(hasattr(main, 'reset_arcane'))
 
     def test_arcane_success_has_status_only_and_protected_private_delivery(self):
         cfg = initial(); cfg['apps']['enable'] = True

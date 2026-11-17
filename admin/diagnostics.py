@@ -92,8 +92,6 @@ def probe(settings):
         targets.append(('Nixlab', settings['setup']['port'], '/', {200}))
     if settings['ready'] and settings['cockpit']['enable']:
         targets.append(('Cockpit', settings['cockpit']['port'], '/ping', {200}))
-    if settings['ready'] and settings['apps']['enable']:
-        targets += [('Arcane', settings['apps']['arcanePort'], '/api/health', {200})]
     checks = []
     for name, port, path, expected in targets:
         try:
@@ -161,7 +159,7 @@ def doctor(settings):
     report['services'] = []
     for unit in ('incus', 'incus-preseed', 'nixlab-instances', 'nixlab-management-identity',
                  'nixlab-admin-backend', 'nixlab-ui', 'nixlab-rollback-guard.service',
-                 'cockpit.socket', 'cockpit.service', 'nixlab-apps-onboarding', 'nginx'):
+                 'cockpit.socket', 'cockpit.service'):
         result = subprocess.run(['systemctl', 'show', unit, '-p',
                                  'Id,LoadState,ActiveState,SubState,Result,ExecMainStatus'],
                                 capture_output=True, text=True, timeout=10)
