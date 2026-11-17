@@ -194,6 +194,9 @@ class ProjectTransactions:
                 raise ValueError("Finish the active host transaction first")
         from deployments import check_idle
         check_idle(self.state, allow_project=deployment)
+        from operations import Operations
+        if any(job.get('status') in ('queued', 'running') for job in Operations(state=self.state).status(limit=None)):
+            raise ValueError('Finish the queued or running guest operation before project changes')
 
     def _active(self):
         active = rt.read_json(self.state / "project-active.json", {})
