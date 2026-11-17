@@ -64,7 +64,7 @@ class ProjectInventoryTests(unittest.TestCase):
                 self.assertFalse(any("nixos-rebuild" in part or "incus" == part or "docker" == part for part in arguments))
                 self.assertFalse(any(part.startswith("--property=BindPaths") for part in arguments))
                 return CompletedProcess(arguments, 0, json.dumps(expected).encode(), b"")
-            with patch.object(pp.subprocess, "run", side_effect=observe):
+            with patch.object(pp, "validate_workspace", return_value={"sourceHash": "same"}), patch.object(pp.subprocess, "run", side_effect=observe):
                 actual = pp.evaluate(base, "a" * 32)
             self.assertEqual(actual, expected)
             self.assertEqual(len(observed), 2)
@@ -77,10 +77,22 @@ class ProjectInventoryTests(unittest.TestCase):
                 if arguments[0] == "nix-store":
                     return CompletedProcess(arguments, 0, (pinned + "\n").encode(), b"")
                 return CompletedProcess(arguments, 1, b"", b"private data")
-            with patch.object(pp.subprocess, "run", side_effect=fail_rootless) as called:
+            with patch.object(pp, "validate_workspace", return_value={"sourceHash": "same"}), patch.object(pp.subprocess, "run", side_effect=fail_rootless) as called:
                 with self.assertRaisesRegex(ValueError, "Restricted project evaluation failed"):
                     pp.evaluate(temp, "b" * 32)
             self.assertEqual(called.call_count, 2)
+
+    def test_modified_store_source_is_rejected_before_untrusted_nix_runs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            pinned = "/nix/store/" + ("a" * 32) + "-source"
+            with patch.object(pp, "validate_workspace", side_effect=[
+                {"sourceHash": "candidate"}, {"sourceHash": "tampered"}
+            ]), patch.object(pp.subprocess, "run", return_value=CompletedProcess(
+                ["nix-store"], 0, (pinned + "\n").encode(), b""
+            )) as run:
+                with self.assertRaisesRegex(ValueError, "differs from reviewed"):
+                    pp.evaluate(temp, "b" * 32)
+                self.assertEqual(run.call_count, 1)
 
     def test_inventory_rejects_unknown_fields_unbounded_values_and_resource_collisions(self):
         good = inventory()
