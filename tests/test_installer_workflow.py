@@ -288,23 +288,33 @@ class ReadinessTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'no usable address'):
                 diagnostics.management_address(cfg)
 
-    def test_arcane_unhealthy_backend_fails_health_even_with_live_proxy(self):
+    def test_legacy_apps_settings_do_not_probe_a_retired_arcane_port(self):
         cfg = initial(); cfg['ready'] = True; cfg['apps']['enable'] = True
-        with patch('diagnostics.management_address', return_value='192.0.2.20'), patch('diagnostics.request', side_effect=lambda address, port, path: (503 if path == '/api/health' else 200, b'{}')), patch('diagnostics.http_entry', return_value=(308, True)):
+        calls = []
+        def response(address, port, path):
+            calls.append((port, path))
+            return (503 if port == cfg['apps']['arcanePort'] else 200), b'{}'
+        with patch('diagnostics.management_address', return_value='192.0.2.20'), \
+             patch('diagnostics.request', side_effect=response), \
+             patch('diagnostics.http_entry', return_value=(308, True)):
+            report = diagnostics.probe(cfg)
+        self.assertTrue(report['ok'], report)
+        self.assertFalse(any(port == cfg['apps']['arcanePort'] for port, _ in calls))
+        self.assertTrue(any(path == '/1.0' for _, path in calls))
+
+    def test_incus_health_failures_remain_blocking_when_old_app_flags_exist(self):
+        cfg = initial(); cfg['ready'] = True; cfg['apps']['enable'] = True
+        calls = []
+        def response(address, port, path):
+            calls.append((port, path))
+            return (503 if path == '/1.0' else 200), b'{}'
+        with patch('diagnostics.management_address', return_value='192.0.2.20'), \
+             patch('diagnostics.request', side_effect=response), \
+             patch('diagnostics.http_entry', return_value=(308, True)):
             report = diagnostics.probe(cfg)
         self.assertFalse(report['ok'])
-        self.assertEqual([c['name'] for c in report['checks'] if not c['ok']], ['Arcane'])
-
-    def test_arcane_health_never_falls_back_to_retired_provider_apis(self):
-        cfg = initial(); cfg['ready'] = True; cfg['apps']['enable'] = True
-        for status in (200, 404, 401, 500):
-            calls = []
-            def response(address, port, path):
-                if port == cfg['apps']['arcanePort']: calls.append(path); return status, b'{}'
-                return 200, b'{}'
-            with patch('diagnostics.management_address', return_value='192.0.2.20'), patch('diagnostics.request', side_effect=response), patch('diagnostics.http_entry', return_value=(308, True)):
-                self.assertEqual(diagnostics.probe(cfg)['ok'], status == 200)
-            self.assertEqual(calls, ['/api/health'])
+        self.assertEqual([item['name'] for item in report['checks'] if not item['ok']], ['Incus API'])
+        self.assertFalse(any(port == cfg['apps']['arcanePort'] for port, _ in calls))
 
     def test_resume_checks_health_but_cannot_confirm_remote_access(self):
         manager = Mock()
