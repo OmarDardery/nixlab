@@ -136,6 +136,9 @@ def backend():
                 elif self.path == '/project-sources':
                     import native_projects
                     result = native_projects.overview()
+                elif self.path == '/project-imports':
+                    import native_imports
+                    result = native_imports.PublishedSources().inventory()
                 elif self.path.startswith('/deployment/'):
                     from deployments import Deployments
                     result = Deployments().status(self.path.removeprefix('/deployment/'))
@@ -190,7 +193,8 @@ def backend():
                     # forwards an unbound browser claim to this legacy route.
                     import accounts
                     result = accounts.claim_enrollment(body.get('code'), body.get('password'))
-                elif self.path in ('/project-import/prepare', '/project-import/chunk', '/project-import/finish'):
+                elif self.path in ('/project-import/prepare', '/project-import/chunk', '/project-import/finish',
+                                   '/project-import/review', '/project-import/publish'):
                     import native_imports
                     with rt.locked(blocking=False):
                         staging = native_imports.ImportStaging()
@@ -199,8 +203,15 @@ def backend():
                         elif self.path == '/project-import/chunk':
                             result = staging.chunk(body.get('id'), actor, body.get('path'),
                                                    body.get('offset'), body.get('data'))
-                        else:
+                        elif self.path == '/project-import/finish':
                             result = staging.finish(body.get('id'), actor, body.get('manifestHash'))
+                        elif self.path == '/project-import/review':
+                            result = native_imports.PublishedSources().review(
+                                staging, body.get('id'), actor, body.get('manifestHash'))
+                        else:
+                            result = native_imports.PublishedSources().publish(
+                                staging, body.get('id'), actor, body.get('reviewId'),
+                                acknowledge=body.get('acknowledge') is True)
                 elif self.path == '/review':
                     if 'reuseArcanePassword' in body or 'arcaneCurrent' in body:
                         raise rt.PublicError('Legacy application-manager credentials are unsupported by Incus-native')
@@ -529,7 +540,7 @@ def web():
                 if path == '/api/browser-certificates':
                     if session['role'] != 'admin': raise access_accounts.AuthorizationError('Administrator account required')
                     return reply(self, 200, broker_request('GET', '/browser-certificates'))
-                if path in ('/api/releases', '/api/main-revision'):
+                if path in ('/api/releases', '/api/main-revision', '/api/project-imports'):
                     if session['role'] != 'admin': raise access_accounts.AuthorizationError('Administrator account required')
                     return reply(self, 200, broker_request('GET', path[4:]))
                 if path.startswith('/api/deployment/'):
@@ -584,12 +595,11 @@ def web():
                 body = json_body(self)
                 import accounts
                 accounts.authorize(session, self.path, body)
-                if self.path == '/api/project-import/prepare':
-                    # User-controlled source becomes privileged infrastructure
-                    # only after a separate reviewed publish/deploy transaction.
-                    # Staging itself still requires an administrator reauth.
+                if self.path in ('/api/project-import/prepare', '/api/project-import/publish'):
+                    # Import and publication use separate, fresh password checks.
+                    # Review alone never writes persistent project source.
                     if not accounts.matches(session['username'], body.pop('current', None)):
-                        raise rt.PublicError('Reauthenticate before staging project source')
+                        raise rt.PublicError('Reauthenticate before changing project source')
                 if self.path == '/api/browser-certificate/download':
                     pending = auth.take_certificate(session)
                     # Consume before writing the response. A disconnect cannot
@@ -647,7 +657,7 @@ def web():
                 if self.path in ('/api/recovery-export', '/api/users'):
                     if not accounts.matches(session['username'], body.pop('current', None)):
                         raise rt.PublicError('Reauthenticate before exporting recovery material or changing accounts')
-                actions = {'/api/project-import/prepare', '/api/project-import/chunk', '/api/project-import/finish', '/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests'}
+                actions = {'/api/project-import/prepare', '/api/project-import/chunk', '/api/project-import/finish', '/api/project-import/review', '/api/project-import/publish', '/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests'}
                 if self.path not in actions:
                     return reply(self, 404, {'error': 'Unknown action'})
                 body['_actor'] = session['username']
