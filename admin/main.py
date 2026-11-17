@@ -190,6 +190,17 @@ def backend():
                     # forwards an unbound browser claim to this legacy route.
                     import accounts
                     result = accounts.claim_enrollment(body.get('code'), body.get('password'))
+                elif self.path in ('/project-import/prepare', '/project-import/chunk', '/project-import/finish'):
+                    import native_imports
+                    with rt.locked(blocking=False):
+                        staging = native_imports.ImportStaging()
+                        if self.path == '/project-import/prepare':
+                            result = staging.prepare(actor, body.get('project'), body.get('files'))
+                        elif self.path == '/project-import/chunk':
+                            result = staging.chunk(body.get('id'), actor, body.get('path'),
+                                                   body.get('offset'), body.get('data'))
+                        else:
+                            result = staging.finish(body.get('id'), actor, body.get('manifestHash'))
                 elif self.path == '/review':
                     if 'reuseArcanePassword' in body or 'arcaneCurrent' in body:
                         raise rt.PublicError('Legacy application-manager credentials are unsupported by Incus-native')
@@ -573,6 +584,12 @@ def web():
                 body = json_body(self)
                 import accounts
                 accounts.authorize(session, self.path, body)
+                if self.path == '/api/project-import/prepare':
+                    # User-controlled source becomes privileged infrastructure
+                    # only after a separate reviewed publish/deploy transaction.
+                    # Staging itself still requires an administrator reauth.
+                    if not accounts.matches(session['username'], body.pop('current', None)):
+                        raise rt.PublicError('Reauthenticate before staging project source')
                 if self.path == '/api/browser-certificate/download':
                     pending = auth.take_certificate(session)
                     # Consume before writing the response. A disconnect cannot
@@ -630,7 +647,7 @@ def web():
                 if self.path in ('/api/recovery-export', '/api/users'):
                     if not accounts.matches(session['username'], body.pop('current', None)):
                         raise rt.PublicError('Reauthenticate before exporting recovery material or changing accounts')
-                actions = {'/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests'}
+                actions = {'/api/project-import/prepare', '/api/project-import/chunk', '/api/project-import/finish', '/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests'}
                 if self.path not in actions:
                     return reply(self, 404, {'error': 'Unknown action'})
                 body['_actor'] = session['username']
