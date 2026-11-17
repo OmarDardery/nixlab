@@ -209,7 +209,15 @@ class ProjectTransactions:
         if not identity:
             return {"active": None, "deployment": "not-implemented"}
         record = self._record(identity)
-        deployment = rt.read_json(self._job(identity) / "deployment.json", {})
+        deployment_path = self._job(identity) / "deployment.json"
+        deployment = rt.read_json(deployment_path, {})
+        if deployment.get("status") in ("queued", "applying") and (
+            time.time() - deployment.get("updatedAt", deployment.get("createdAt", time.time())) > 30
+        ):
+            if not rt.worker_active("nixlab-project-deploy-" + identity):
+                deployment.update(status="interrupted", errorCode="worker-interrupted",
+                                  updatedAt=time.time())
+                rt.write_json(deployment_path, deployment)
         return {key: record.get(key) for key in
                 ("id", "status", "created", "expires", "baseHash", "candidateHash",
                  "planHash", "changes", "principal", "sourceOnly", "errorCode",
