@@ -220,8 +220,9 @@ def recheck_and_apply(project, approved, *, verify_only=False):
     name = approved["name"]
     actual = _observation(project, name)
     if actual != approved:
-        if verify_only and actual["action"] == "noop":
-            return {"status": "verified", "newEtag": actual["etag"]}
+        if (verify_only and actual["action"] == "noop" and
+            not (approved["observedStatus"] == "Running" and actual["observedStatus"] != "Running")):
+            return {"status": "verified", "newEtag": actual["etag"], "health": actual["observedStatus"]}
         raise ValueError("Incus state changed since project review; re-review before deployment")
     if approved["action"] == "noop":
         return {"status": "verified", "newEtag": approved["etag"]}
