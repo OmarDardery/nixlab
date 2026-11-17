@@ -10,9 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
-import tempfile
 
 import reconcile
 
@@ -26,77 +24,83 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def _public_source(source):
-    # Materialize a throwaway, unprivileged-reader copy of previously checked
-    # ciphertext/public source. Its host ancestors remain root-only.
-    temporary = Path(tempfile.mkdtemp(prefix="nixlab-project-eval-"))
+def _cached_source(source):
+    """Add checked nonsecret/SOPS source to the public Nix store, without eval.
+
+    The workspace is already reviewed for prohibited plaintext file paths by
+    project_workspace.validate_workspace(). Nix store paths are world-readable:
+    do not pass decrypted credentials or private key material here.
+    """
     try:
-        shutil.copytree(source, temporary / "workspace", symlinks=False)
-        for directory, folders, files in os.walk(temporary / "workspace"):
-            for name in folders:
-                os.chmod(Path(directory) / name, 0o555)
-            for name in files:
-                os.chmod(Path(directory) / name, 0o444)
-        os.chmod(temporary / "workspace", 0o555)
-        yield temporary
-    finally:
-        shutil.rmtree(temporary, ignore_errors=True)
+        result = subprocess.run(
+            ["nix-store", "--add", str(source)],
+            capture_output=True, check=False, timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        raise ValueError("Could not pin project source in the Nix store") from None
+    try:
+        path = result.stdout.decode("ascii").strip()
+    except UnicodeError:
+        path = ""
+    if (result.returncode != 0 or len(result.stdout) > 256 or
+        not re.fullmatch(r"/nix/store/[0-9a-z]{32}-[A-Za-z0-9+._?=-]+", path)):
+        raise ValueError("Could not pin project source in the Nix store")
+    return path
 
 
 def evaluate(source, identity):
-    """Run a locked, offline flake in a resource-limited systemd transient unit.
+    """Evaluate pinned source as an unprivileged offline systemd workload.
 
-    Does not use the host Incus socket or root evaluator permissions. Uncached
-    flake inputs FAIL; a separate administrator bootstrap must populate them.
+    The broker may COPY validated nonsecret files to the world-readable
+    Nix store but never executes their Nix expressions with root privileges.
+    Locked inputs must already exist locally; missing inputs fail closed.
+    No Nix daemon/Incus socket or network is available to the evaluator.
     """
     if not isinstance(identity, str) or not re.fullmatch(r"[0-9a-f]{32}", identity):
         raise ValueError("Invalid reviewed source identity")
-    import contextlib
-    with contextlib.contextmanager(_public_source)(Path(source)) as temporary:
-        path = temporary / "workspace"
-        unit = "nixlab-project-eval-" + identity
-        command = [
-            "systemd-run", "--pipe", "--wait", "--collect", "--quiet",
-            "--unit=" + unit,
-            "--property=Type=exec",
-            "--property=DynamicUser=yes",
-            "--property=ProtectSystem=strict",
-            "--property=ProtectHome=yes",
-            "--property=PrivateTmp=yes",
-            "--property=PrivateDevices=yes",
-            "--property=PrivateNetwork=yes",
-            "--property=IPAddressDeny=any",
-            "--property=RestrictAddressFamilies=AF_UNIX",
-            "--property=NoNewPrivileges=yes",
-            "--property=CapabilityBoundingSet=",
-            "--property=SystemCallFilter=~@mount",
-            "--property=MemoryMax=536870912",
-            "--property=TasksMax=32",
-            "--property=RuntimeMaxSec=90",
-            "--property=UMask=0077",
-            "--property=InaccessiblePaths=-/var/lib/incus -/var/lib/nixlab-secrets -/etc/nixlab -/run/nix -/nix/var/nix/daemon-socket",
-            "--property=BindReadOnlyPaths=" + str(path) + ":/workspace",
-            "--setenv=HOME=/tmp",
-            "--setenv=NIX_REMOTE=local",
-            "--", "nix", "--extra-experimental-features", "nix-command flakes",
-            "eval", "--json", "--offline", "--no-write-lock-file",
-            "--no-accept-flake-config",
-            "--option", "restrict-eval", "true",
-            "--option", "read-only-local-store", "true",
-            "--option", "allow-import-from-derivation", "false",
-            "path:/workspace#nixlabProjects",
-        ]
-        try:
-            result = subprocess.run(command, capture_output=True, timeout=110, check=False)
-        except (OSError, subprocess.TimeoutExpired):
-            raise ValueError("Restricted project evaluation could not start or timed out") from None
-        if result.returncode != 0 or len(result.stdout) > MAX_OUTPUT:
-            raise ValueError("Restricted project evaluation failed; inspect offline input availability and Nix source")
-        try:
-            raw = json.loads(result.stdout)
-        except (ValueError, UnicodeError, RecursionError):
-            raise ValueError("Invalid project evaluation output") from None
-        return validate_inventory(raw)
+    store_path = _cached_source(Path(source))
+    unit = "nixlab-project-eval-" + identity
+    command = [
+        "systemd-run", "--pipe", "--wait", "--collect", "--quiet",
+        "--unit=" + unit,
+        "--property=Type=exec",
+        "--property=DynamicUser=yes",
+        "--property=ProtectSystem=strict",
+        "--property=ProtectHome=yes",
+        "--property=PrivateTmp=yes",
+        "--property=PrivateDevices=yes",
+        "--property=PrivateNetwork=yes",
+        "--property=IPAddressDeny=any",
+        "--property=RestrictAddressFamilies=AF_UNIX",
+        "--property=NoNewPrivileges=yes",
+        "--property=CapabilityBoundingSet=",
+        "--property=SystemCallFilter=~@mount",
+        "--property=MemoryMax=536870912",
+        "--property=TasksMax=32",
+        "--property=RuntimeMaxSec=90",
+        "--property=UMask=0077",
+        "--property=InaccessiblePaths=-/var/lib/incus -/var/lib/nixlab-secrets -/etc/nixlab -/run/nix -/nix/var/nix/daemon-socket",
+        "--setenv=HOME=/tmp",
+        "--setenv=NIX_REMOTE=local",
+        "--", "nix", "--extra-experimental-features", "nix-command flakes",
+        "eval", "--json", "--offline", "--no-write-lock-file",
+        "--no-accept-flake-config",
+        "--option", "restrict-eval", "true",
+        "--option", "read-only-local-store", "true",
+        "--option", "allow-import-from-derivation", "false",
+        "path:" + store_path + "#nixlabProjects",
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, timeout=110, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        raise ValueError("Restricted project evaluation could not start or timed out") from None
+    if result.returncode != 0 or len(result.stdout) > MAX_OUTPUT:
+        raise ValueError("Restricted project evaluation failed; check offline flake inputs and Nix source")
+    try:
+        raw = json.loads(result.stdout)
+    except (ValueError, UnicodeError, RecursionError):
+        raise ValueError("Invalid project evaluation output") from None
+    return validate_inventory(raw)
 
 
 def validate_inventory(raw):
