@@ -15,7 +15,7 @@ import runtime as rt
 NAME = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
 ID = re.compile(r"[0-9a-f]{32}\Z")
 HEX = re.compile(r"[0-9a-f]{64}\Z")
-PART = re.compile(r"(?:[A-Za-z0-9][A-Za-z0-9_.-]*|\.[A-Za-z0-9_-]+)\Z")
+PART = re.compile(r"(?:[A-Za-z0-9][A-Za-z0-9_.-]*|\.[A-Za-z0-9][A-Za-z0-9._-]*)\Z")
 MAX_FILES = 64
 MAX_FILE = 8 * 1024 * 1024
 MAX_TOTAL = 32 * 1024 * 1024
