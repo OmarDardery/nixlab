@@ -2,6 +2,13 @@
 
 Nixlab is the NixOS host foundation for Incus, not a second virtualization UI.
 
+**Target decision (2026-11-17):** [Arcane-free Web UI, Incus, Cockpit and
+declarative project/backup ownership](target-architecture.md) supersedes
+Arcane/Docker assignments below. The following tables document the *current
+legacy implementation*, not a new promise to continue Arcane. Full removal
+and non-destructive preservation are tracked in
+[#126](https://github.com/OmarDardery/nixlab/issues/126).
+
 | Layer | Authoritative owner |
 |---|---|
 | Installation, physical interfaces, bridges/VLANs, host firewall, mounts, drivers, updates | Reviewed NixOS configuration |
