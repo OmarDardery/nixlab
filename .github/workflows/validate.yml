@@ -85,6 +85,8 @@ jobs:
               'alpha/modules/nested/resources.nix', 'alpha/modules/network.nix']
           assert all(negative.values()), negative
           PY
+      - name: Qualify rootless offline project evaluator in a real NixOS VM
+        run: nix build .#checks.x86_64-linux.project-evaluator --no-link -L
       # Fail native lifecycle/network recovery early, before larger guest images.
       - name: Qualify the actual pinned Arcane runtime and persisted Compose data
         run: |
