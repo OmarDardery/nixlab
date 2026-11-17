@@ -20,6 +20,7 @@ NAME = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
 MEMORY = re.compile(r"[1-9][0-9]*(?:KiB|MiB|GiB)\Z")
 CLAIM = re.compile(r"(instance|volume|network)/([A-Za-z0-9_.-]+)\Z")
 MAX_OUTPUT = 1024 * 1024
+HOST_DESIRED = Path("/etc/nixlab/desired-instances.json")
 
 
 def digest(value):
@@ -205,9 +206,30 @@ def _observation(project, guest):
     }
 
 
+def _host_claims():
+    """Never double-own instances controlled by the NixOS host reconciler."""
+    try:
+        if HOST_DESIRED.is_symlink():
+            # /etc/NixOS symlinks into the immutable Nix store are expected.
+            if not str(HOST_DESIRED.resolve()).startswith("/nix/store/"):
+                raise ValueError("Unexpected host Incus inventory symlink")
+        raw = json.loads(HOST_DESIRED.read_text())
+    except (OSError, ValueError, TypeError):
+        raise ValueError("Host-owned Incus inventory unavailable; refusing project adoption") from None
+    if not isinstance(raw, list):
+        raise ValueError("Invalid host-owned Incus inventory")
+    owners = set()
+    for item in raw:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not isinstance(item.get("project"), str):
+            raise ValueError("Invalid host-owned instance declaration")
+        owners.add((item["project"], item["name"]))
+    return owners
+
+
 def plan(inventory):
     """Fail closed on resource types the #133 adapter cannot yet manage."""
     items = []
+    host_owned = None
     for key, project in inventory["projects"].items():
         if not project["enable"]:
             continue
@@ -215,6 +237,12 @@ def plan(inventory):
             kind, name = CLAIM.fullmatch(claim).groups()
             if project["backend"] != "incus-native" or kind != "instance":
                 raise ValueError("Unsupported Incus resource claim; #133 adapter required")
+            if project["incusProject"] == "lab":
+                raise ValueError("Legacy lab project is host-owned; explicit #133 migration required")
+            if host_owned is None:
+                host_owned = _host_claims()
+            if (project["incusProject"], name) in host_owned:
+                raise ValueError("Instance is already host-flake owned; explicit #133 migration required")
             items.append(_observation(project, name))
     return {"format": 1, "inventoryHash": digest(inventory), "resources": items,
             "actions": [{
