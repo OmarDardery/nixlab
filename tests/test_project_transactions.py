@@ -123,22 +123,26 @@ class ProjectSourceTransactionsTests(unittest.TestCase):
         next_job = self.edit(**{"alpha/modules/another.nix": "{ ... }: { }"})
         self.assertEqual(next_job["status"], "ready")
 
-    def test_recovery_restores_source_after_interrupted_rename(self):
+    def test_recovery_after_exchange_failure_keeps_live_source_accessible(self):
         reviewed = self.review()
-        real_rename = os.rename
-        counter = {"calls": 0}
-        def crash_after_old(source, target):
-            counter["calls"] += 1
-            if counter["calls"] == 2:
-                raise OSError("simulated crash before new project is installed")
-            return real_rename(source, target)
-        with patch.object(tx.os, "rename", side_effect=crash_after_old):
+        with patch.object(tx, "_exchange", side_effect=OSError("simulated swap failure")):
             with self.assertRaises(OSError):
                 self.manager.publish(reviewed["id"], reviewed["planHash"])
-        self.assertFalse(self.workspace.exists())
+        # A failed atomic swap never leaves the workspace absent.
+        self.assertTrue(self.workspace.is_dir())
         recovered = self.manager.recover(reviewed["id"])
         self.assertEqual(recovered["status"], "recovered")
         self.assertEqual(tx.validate_workspace(self.workspace)["sourceHash"], self.before)
+
+    def test_recovery_finalizes_swapped_source_after_archive_failure(self):
+        reviewed = self.review()
+        with patch.object(tx.os, "rename", side_effect=OSError("simulated archive failure")):
+            with self.assertRaises(OSError):
+                self.manager.publish(reviewed["id"], reviewed["planHash"])
+        self.assertTrue(self.workspace.is_dir())
+        recovered = self.manager.recover(reviewed["id"])
+        self.assertEqual(recovered["status"], "published-source")
+        self.assertEqual(tx.validate_workspace(self.workspace)["sourceHash"], reviewed["candidateHash"])
 
     def test_recovery_finalizes_completed_rename_after_journal_write_failure(self):
         reviewed = self.review()
