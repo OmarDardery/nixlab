@@ -94,12 +94,11 @@ def evaluate(source, identity):
         "--property=UMask=0077",
         "--property=InaccessiblePaths=-/var/lib/incus -/var/lib/nixlab-secrets -/etc/nixlab -/run/nix -/nix/var/nix/daemon-socket",
         "--setenv=HOME=/tmp",
-        "--setenv=NIX_REMOTE=local",
+        "--setenv=NIX_REMOTE=local?read-only=true",
         "--", nix_binary, "--extra-experimental-features", "nix-command flakes",
         "eval", "--json", "--offline", "--no-write-lock-file",
         "--no-accept-flake-config",
         "--option", "restrict-eval", "true",
-        "--option", "read-only-local-store", "true",
         "--option", "allow-import-from-derivation", "false",
         "path:" + store_path + "#nixlabProjects",
     ]
