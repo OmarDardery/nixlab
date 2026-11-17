@@ -7,7 +7,6 @@ let
   fail = message: throw "NixLab projects: ${message}";
   sorted = names: lib.sort builtins.lessThan names;
   isIgnored = name: lib.hasPrefix "_" name || lib.hasPrefix "." name;
-  validName = name: builtins.match "[a-z][a-z0-9-]{0,62}" name != null;
 
   # A path reference in a manifest is never allowed to escape a project.
   validRelative = value:
@@ -26,6 +25,28 @@ let
           (builtins.attrNames entries);
     in if links != [] then fail "Symlink forbidden in ${toString dir}: ${builtins.head links}"
        else entries;
+
+  # Validate the *whole* project source tree, even inert resource files.
+  # The later isolated evaluator must still use the Python preflight and a
+  # frozen candidate: pure Nix cannot prevent arbitrary explicit imports.
+  scanTree = directory: depth:
+    if depth > 16 then fail "Project source exceeds 16 directory levels"
+    else let
+      entries = entriesAt directory;
+      names = sorted (builtins.attrNames entries);
+      forbidden = builtins.filter (name:
+        name == ".env" || lib.hasPrefix ".env." name ||
+        lib.hasSuffix ".agekey" name ||
+        builtins.elem name [ "id_rsa" "id_ed25519" "id_ecdsa" ]
+      ) names;
+      childDirs = builtins.filter (name:
+        entries.${name} == "directory" && name != ".git"
+      ) names;
+    in if forbidden != [] then
+      fail "Potential plaintext credential in project source: ${builtins.head forbidden}"
+    else builtins.deepSeq
+      (map (name: scanTree (directory + "/${name}") (depth + 1)) childDirs)
+      true;
 
   # Deterministic recursion, with disabled/hidden subtrees ignored. Paths in
   # files/ (including .nix files) are never discovered as modules.
@@ -101,7 +122,9 @@ let
         };
         p = evaluated.config.nixlab.project;
         secret = p.secrets.file;
-    in if !validRelative secret then
+    in if !(scanTree directory 0) then
+      fail "Unsafe project source directory"
+    else if !validRelative secret then
       fail "Project ${directoryName} has an unsafe ciphertext reference"
     else if builtins.length sources > 256 then
       fail "Project ${directoryName} exceeds 256 Nix module files"
