@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
 const bootstrap = source.lastIndexOf('\n(async () =>');
 assert.ok(bootstrap > 0);
 const context = vm.createContext({document:{querySelector:()=>({})},setInterval:()=>0,URL});
-for (const name of ['projects.js', 'foundation.js', 'operations.js', 'commands.js'])
+for (const name of ['projects.js', 'foundation.js', 'operations.js', 'incus-projects.js', 'commands.js'])
   vm.runInContext(fs.readFileSync(path.join(root, name), 'utf8'), context);
 vm.runInContext(source.slice(0, bootstrap), context);
 const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/defaults.json'), 'utf8'));
@@ -22,7 +22,7 @@ state.principal = {username:'admin',role:'admin'};
 state.page = 'overview';
 `, context);
 const ids = JSON.parse(vm.runInContext('JSON.stringify(pages.map(([id])=>id))', context));
-for (const id of ['overview','guests','network','storage','hardware','integrations','security','accounts','ingress','operations','review','system','files','commands'])
+for (const id of ['overview','projects','guests','network','storage','hardware','integrations','security','accounts','ingress','operations','review','system','files','commands'])
   assert.ok(ids.includes(id), 'Missing redesigned route: ' + id);
 const nav = vm.runInContext('navigationHtml()', context);
 for (const id of ids) assert.ok(nav.includes('data-go="' + id + '"'));
