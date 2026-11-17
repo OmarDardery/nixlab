@@ -528,6 +528,7 @@ class ProjectTransactions:
                         project, resource, verify_only=phase == "applying")
                     journal["resources"][key].update(phase="verified",
                                                      newEtag=result["newEtag"])
+                    journal["updatedAt"] = time.time()
                     rt.write_json(directory / "deployment.json", journal)
                 journal["status"] = "verified"
                 journal["completedAt"] = time.time()
