@@ -25,10 +25,6 @@ let
       root = { type = "disk"; path = "/"; pool = site.storage.pool; size = site.apps.disk; };
       eth0 = { type = "nic"; name = "eth0"; network = site.guests.bridge; "ipv4.address" = site.guests.appsAddress; };
     };
-  } ++ lib.optional (!site.apps.enable) {
-    name = "apps"; project = "lab"; type = "virtual-machine";
-    manageExistingOnly = true; start = false; stop = true; profiles = [ "base" ];
-    config."boot.autostart" = "false";
   } ++ declared;
   inventory = pkgs.writeText "inventory.json" (builtins.toJSON (site // { instances = declared; }));
   desired = pkgs.writeText "instances.json" (builtins.toJSON instances);
