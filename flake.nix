@@ -54,6 +54,10 @@
         hardware.serialAliases = [ { name = "example"; vendorId = "1234"; productId = "5678"; serial = "FIXTURE-ONLY"; } ];
       };
     in {
+      # Reusable pure evaluator for a separate /srv/nixlab/projects flake.
+      # No system, Incus instance or host service is changed by this export.
+      lib.evalProjects = import ./lib/project-workspace.nix { lib = nixpkgs.lib; };
+      nixlabProjectChecks = self.lib.evalProjects { root = ./tests/project-workspace; };
       nixosModules = import ./lib/platform.nix;
       nixosConfigurations = {
         hypervisor = mkHost site apps [ ];
