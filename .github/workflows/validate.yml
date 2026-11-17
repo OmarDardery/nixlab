@@ -49,7 +49,6 @@ jobs:
           node tests/test_operations_ui.js
           node tests/test_foundation_ui.js
           node tests/test_deployments_ui.js
-          node tests/test_proxy_cookies.js
       - name: Browser workflow checks
         run: |
           python3 -m venv "$RUNNER_TEMP/nixlab-browser"
@@ -108,51 +107,21 @@ jobs:
         run: nix build .#checks.x86_64-linux.guest-deployments --no-link -L
       - name: Evaluate direct conversion from an installed NixOS configuration
         run: python3 tests/evaluate_direct_install.py
-      - name: Evaluate optional nested apps test wiring (no integration claim)
-        run: |
-          nix eval --impure --raw --expr '
-            let flake = builtins.getFlake (builtins.getEnv "PWD");
-                pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; };
-                fixture = trial: import ./tests/apps-integration.nix {
-              inherit pkgs trial;
-              apps = flake.nixosConfigurations.validation-setup-apps;
-              sopsModule = flake.inputs.sops-nix.nixosModules.sops;
-              arcaneArchive = pkgs.dockerTools.buildLayeredImage { name = "evaluation-only"; };
-              arcaneImage = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
-              cpuVendor = "intel";
-              revision = "0000000000000000000000000000000000000000";
-            };
-            in assert (fixture "evaluation-1").drvPath != (fixture "evaluation-2").drvPath;
-               (fixture "evaluation-1").drvPath'
-      - name: Evaluate dedicated KVM deployment fixture (no integration claim)
-        run: |
-          nix eval --impure --raw --expr '
-            let flake = builtins.getFlake (builtins.getEnv "PWD");
-                pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; };
-                fixture = trial: import ./tests/guest-deployments-kvm.nix {
-              inherit pkgs trial;
-              apps = flake.nixosConfigurations.validation-setup-apps;
-              arcaneArchive = pkgs.dockerTools.buildLayeredImage { name = "evaluation-only"; };
-              arcaneImage = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
-              cpuVendor = "intel";
-            };
-            in assert (fixture "evaluation-1").drvPath != (fixture "evaluation-2").drvPath;
-               (fixture "evaluation-1").drvPath'
       - name: Verify production firewall and DHCP management across reboot
         run: nix build .#checks.x86_64-linux.startup --no-link -L
-      - name: Verify management services and Docker forwarding boundary
+      - name: Verify management services and native Incus isolation
         run: |
           nix eval .#nixosConfigurations.validation-management.config.system.build.toplevel.drvPath
           nix build .#checks.x86_64-linux.management --no-link -L
       - name: Evaluate configuration variants
         run: |
-          for target in validation-minimal validation-file-disk validation-recipes validation-host validation-ethernet validation-ethernet-nm validation-ethernet-wifi validation-coupled-apps validation-apps validation-services validation-demo validation-zfs validation-inherited validation-bootstrap validation-setup validation-setup-apps; do
+          for target in validation-minimal validation-file-disk validation-recipes validation-host validation-ethernet validation-ethernet-nm validation-ethernet-wifi validation-services validation-zfs validation-inherited validation-bootstrap validation-setup; do
             nix eval ".#nixosConfigurations.$target.config.system.build.toplevel.drvPath"
           done
       - name: Verify replacement recovery suppresses ordinary guest automation
         run: |
           nix eval .#nixosConfigurations.validation-recovery.config.system.build.toplevel.drvPath
-          for unit in nixlab-instances nixlab-apps-onboarding nixlab-backup-recover restic-backups-nixlab; do
+          for unit in nixlab-instances nixlab-backup-recover restic-backups-nixlab; do
             test "$(nix eval --json ".#nixosConfigurations.validation-recovery.config.systemd.services.$unit.enable")" = false
           done
           test "$(nix eval --json .#nixosConfigurations.validation-recovery.config.systemd.timers.restic-backups-nixlab.enable)" = false
@@ -175,7 +144,6 @@ jobs:
           nix eval --json .#nixlabManagementChecks > /tmp/nixlab-management.json
           python3 -c 'import json; checks=json.load(open("/tmp/nixlab-management.json")); assert checks and all(checks.values()), checks'
           test "$(nix eval --raw .#nixosConfigurations.validation-file-disk.config.time.timeZone)" = "UTC"
-          test "$(nix eval --raw .#nixosConfigurations.validation-coupled-apps.config.time.timeZone)" = "UTC"
           test "$(nix eval --raw .#nixosConfigurations.validation-file-disk.config.nixlab.incus.instances.fixture.project)" = "lab"
       - name: Check typed legacy mount projection
         run: |
@@ -185,10 +153,8 @@ jobs:
           nix eval --json .#nixosConfigurations.validation-file-disk.config.virtualisation.incus.preseed.storage_pools > /tmp/nixlab-file-pools.json
           python3 -c 'import json; assert any(p["name"] == "disk-archive" and p["config"]["source"] == "/srv/nixlab/archive/incus" for p in json.load(open("/tmp/nixlab-file-pools.json")))'
 
-      - name: Build helper and apps system
-        run: |
-          nix build .#packages.x86_64-linux.homelab --no-link
-          nix build .#nixosConfigurations.validation-apps.config.system.build.toplevel --no-link
+      - name: Build native host and guest-management helper
+        run: nix build .#packages.x86_64-linux.homelab --no-link
       - name: Build setup tools and bootstrap OS
         run: |
           nix build .#packages.x86_64-linux.admin .#packages.x86_64-linux.installer --no-link
@@ -204,13 +170,5 @@ jobs:
           nix build .#packages.x86_64-linux.helpers -o result-helpers
           result-helpers/bin/nixlab-helpers list > /tmp/nixlab-helpers.json
           python3 -c 'import json; d=json.load(open("/tmp/nixlab-helpers.json")); assert d["scripts"]; assert all(len(v["revision"]) == 40 for v in d["sources"].values())'
-      - name: Validate Compose project
-        run: nix develop --command docker-compose -f examples/demo/compose.yaml config --quiet
-      - name: Build complete hypervisor and verify guest image artifacts
-        run: |
-          nix build .#nixosConfigurations.validation-host.config.system.build.toplevel --no-link -L
-          nix build .#nixosConfigurations.validation-apps.config.system.build.qemuImage -o result-app-image
-          nix build .#nixosConfigurations.validation-apps.config.system.build.metadata -o result-app-metadata
-          test -s result-app-image/nixos.qcow2
-          metadata_name="$(nix eval --raw .#nixosConfigurations.validation-apps.config.image.fileName)"
-          test -s "result-app-metadata/tarball/$metadata_name"
+      - name: Build complete Incus-native hypervisor
+        run: nix build .#nixosConfigurations.validation-host.config.system.build.toplevel --no-link -L
