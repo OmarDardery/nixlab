@@ -172,6 +172,10 @@ def validate_settings(candidate, current, host, require_devices=True):
     zone = Path('/etc/zoneinfo', candidate['maintenance']['timeZone'])
     if require_devices and not zone.exists() and not Path('/usr/share/zoneinfo', candidate['maintenance']['timeZone']).exists():
         raise ValueError('Time zone is not installed on this host')
+    # Freeze new Arcane adoption but never invalidate an existing legacy host.
+    # Actual migration, volume export and deletion remain separate explicit work.
+    if candidate['apps']['enable'] and not current['apps']['enable']:
+        raise ValueError('Docker/Arcane apps VM is retired for new installations; use Incus/Incus Compose. Existing workloads need an explicit migration.')
     listeners = [('setup', candidate['setup']['port'])]
     if candidate['cockpit']['enable']: listeners.append(('Cockpit', candidate['cockpit']['port']))
     if candidate['apps']['enable']: listeners.append(('Arcane', candidate['apps']['arcanePort']))
