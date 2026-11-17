@@ -33,7 +33,6 @@
     ../modules/cloudflared.nix
     ../modules/backups.nix
     ../modules/admin-ui.nix
-    ../modules/apps-onboarding.nix
     ../modules/security.nix
     ../modules/secrets.nix
   ];

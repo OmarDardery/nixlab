@@ -106,10 +106,6 @@ in {
       requires = [ "nixlab-management-identity.service" ];
       after = [ "nixlab-management-identity.service" ];
     };
-    systemd.services.nginx = lib.mkIf site.apps.enable {
-      requires = [ "nixlab-management-identity.service" ];
-      after = [ "nixlab-management-identity.service" ];
-    };
     systemd.services.nixlab-tls-renew = {
       environment.NIXLAB_ROOT = "/var/lib/nixlab/config";
       serviceConfig = { Type = "oneshot"; ExecStart = "${tool}/bin/nixlab-admin renew"; };
@@ -117,9 +113,8 @@ in {
     systemd.services.nixlab-management-health = lib.mkIf site.ready {
       description = "Verify enabled management interfaces after boot";
       wantedBy = [ "multi-user.target" ];
-      after = [ "nixlab-management-identity.service" "nixlab-ui.service" "nginx.service" ]
-        ++ lib.optional site.cockpit.enable "cockpit.socket"
-        ++ lib.optional site.apps.enable "nixlab-apps-onboarding.service";
+      after = [ "nixlab-management-identity.service" "nixlab-ui.service" ]
+        ++ lib.optional site.cockpit.enable "cockpit.socket";
       path = [ pkgs.iproute2 ];
       serviceConfig = {
         Type = "oneshot"; RemainAfterExit = true;
