@@ -95,7 +95,7 @@ def evaluate(source, identity):
         "--property=InaccessiblePaths=-/var/lib/incus -/var/lib/nixlab-secrets -/etc/nixlab -/run/nix -/nix/var/nix/daemon-socket",
         "--setenv=HOME=/tmp",
         "--setenv=NIX_REMOTE=local?read-only=true",
-        "--", nix_binary, "--extra-experimental-features", "nix-command flakes",
+        "--", nix_binary, "--extra-experimental-features", "nix-command flakes read-only-local-store",
         "eval", "--json", "--offline", "--no-write-lock-file",
         "--no-accept-flake-config",
         "--option", "restrict-eval", "true",
