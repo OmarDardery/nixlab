@@ -172,8 +172,19 @@ def backend():
                 actor = body.pop('_actor', 'root')
                 if not isinstance(actor, str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,31}', actor):
                     raise rt.PublicError('Invalid audit identity')
-                rt.audit('broker-request', principal=actor, operation=self.path)
-                if self.path in ('/bootstrap-start', '/bootstrap-verify', '/bootstrap-claim'):
+                if self.path != '/account-recovery/status':
+                    rt.audit('broker-request', principal=actor, operation=self.path)
+                if self.path in ('/account-recovery/start', '/account-recovery/status', '/account-recovery/reset'):
+                    import account_recovery
+                    fields = (body.get('token'), body.get('csrf'), body.get('address'), body.get('origin'))
+                    if self.path == '/account-recovery/start':
+                        result = account_recovery.start(body.get('token'), body.get('username'),
+                                                        body.get('address'), body.get('origin'))
+                    elif self.path == '/account-recovery/status':
+                        result = account_recovery.status(*fields)
+                    else:
+                        result = account_recovery.reset(*fields, body.get('password'))
+                elif self.path in ('/bootstrap-start', '/bootstrap-verify', '/bootstrap-claim'):
                     import browser_bootstrap as bootstrap
                     shared = (body.get('token'), body.get('csrf'), body.get('address'), body.get('origin'))
                     if self.path == '/bootstrap-start':
@@ -412,6 +423,12 @@ def bootstrap_cookie(header):
     return values[0] if len(values) == 1 else None
 
 
+def recovery_cookie(header):
+    values = [part.strip().split('=', 1)[1] for part in header.split(';')
+              if part.strip().startswith('__Host-nixlab_recovery=')]
+    return values[0] if len(values) == 1 else None
+
+
 def web():
     auth = Auth()
     class Frontend(BaseHTTPRequestHandler):
@@ -541,6 +558,27 @@ def web():
                 host = self.access()
                 if self.headers.get('Origin') != 'https://' + host:
                     raise PermissionError('Same-origin request required')
+                if self.path in ('/api/recovery/request', '/api/recovery/status', '/api/recovery/reset'):
+                    body = json_body(self)
+                    token = recovery_cookie(self.headers.get('Cookie', ''))
+                    fields = {'token': token, 'address': self.client_address[0],
+                              'origin': 'https://' + host}
+                    if self.path == '/api/recovery/request':
+                        fields['username'] = body.get('username')
+                        result = broker_request('POST', '/account-recovery/start', fields)
+                        token = result.pop('token')
+                        return reply(self, 200, result, extra={'Set-Cookie':
+                            '__Host-nixlab_recovery=' + token + '; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=300'})
+                    csrf = self.headers.get('X-Nixlab-CSRF', '')
+                    if not token or not csrf:
+                        raise PermissionError('This browser must first request account recovery')
+                    fields['csrf'] = csrf
+                    if self.path == '/api/recovery/status':
+                        return reply(self, 200, broker_request('POST', '/account-recovery/status', fields))
+                    fields['password'] = body.get('password')
+                    result = broker_request('POST', '/account-recovery/reset', fields)
+                    return reply(self, 200, result, extra={'Set-Cookie':
+                        '__Host-nixlab_recovery=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0'})
                 if self.path in ('/api/enrollment', '/api/bootstrap/verify', '/api/bootstrap/claim'):
                     body = json_body(self)
                     token = bootstrap_cookie(self.headers.get('Cookie', ''))
@@ -866,6 +904,18 @@ def approve_browser_console():
     print('Browser approved for up to ten minutes. Return to that browser to create its independent portal account.')
 
 
+def approve_account_recovery(request_id):
+    """Only sudo on a private host terminal may approve a browser request."""
+    if os.geteuid() != 0 or not sys.stdin.isatty():
+        raise SystemExit('Use sudo nixlab-admin recovery approve REQUEST_ID from a private host terminal')
+    try:
+        import account_recovery
+        account_recovery.approve(request_id)
+    except (ValueError, OSError):
+        raise SystemExit('Recovery request unavailable; check the account and browser request') from None
+    print('Approved; return to the browser')
+
+
 def reset_portal_password():
     """Supplied-password console recovery; never accept an echoing fallback."""
     import getpass
@@ -939,8 +989,13 @@ if __name__ == '__main__':
         except (ValueError, OSError) as exc:
             sys.exit('Command failed; check inputs and host status before retrying')
     elif action == 'recovery' and os.geteuid() == 0:
-        import recovery
-        recovery.cli(sys.argv[2:])
+        if sys.argv[2:4] == ['approve'] or (sys.argv[2:3] == ['approve']):
+            if len(sys.argv) != 4:
+                sys.exit('Usage: sudo nixlab-admin recovery approve REQUEST_ID')
+            approve_account_recovery(sys.argv[3])
+        else:
+            import recovery
+            recovery.cli(sys.argv[2:])
     elif action == 'install-plan' and os.geteuid() == 0:
         installation = rt.read_json(rt.machine_path(rt.ROOT, 'installation'), {})
         print(json.dumps({'intent': installation.get('intent'),
