@@ -538,6 +538,7 @@ class ProjectTransactions:
                 # Never reissue it blindly; resume verifies actual desired
                 # state and re-reviews any inconclusive outcome.
                 journal["status"] = "partial"
+                journal["updatedAt"] = time.time()
                 journal["errorCode"] = "resource-review-required"
                 rt.write_json(directory / "deployment.json", journal)
                 rt.audit("project-deploy-partial", identity=identity)
