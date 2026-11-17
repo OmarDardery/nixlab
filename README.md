@@ -9,9 +9,9 @@ It brings together established tools rather than inventing another virtualizatio
 **For:** self-hosters who want declarative infrastructure with a browser-based way in.
 **Status:** [0.1.0-beta.1 candidate](docs/beta.md); physical qualification and beta publication remain pending.
 
-> **New product goal (2026-11-17):** NixLab manages the NixOS host through its own reviewed **Web UI**, integrates **Incus** for OCI/system containers and VMs (including optional Incus Compose), and provides **Cockpit** for host administration. Users manage a separate **projects workspace flake** with automatically discovered typed `default.nix` projects, recursive modules, Incus/Compose deployment, SOPS + age encrypted secrets and a one-time declarative backup policy for all managed projects and selected persistent data. **Arcane and the dedicated Docker apps VM are being fully retired.**
+> **Target product (2026-11-17):** NixLab is a **NixOS host + NixLab Web UI + Incus/Incus UI + Cockpit**. Upload **existing Dockerfiles, Containerfiles and Compose files unchanged** (including nested build context and `.dockerignore`), or define native NixOS guest/USB projects in the same independent projects flake. NixLab previews source and Incus changes; isolated **Buildah/Podman** builds OCI images, and **Incus Compose** runs compatible stacks directly on Incus **without a Docker daemon**. SOPS + age and a one-time source/data backup policy make projects recoverable. **Arcane and its Docker apps VM are excluded from the final product.**
 >
-> [Target architecture: projects, secrets and backups](docs/target-architecture.md) · [Arcane retirement #126](https://github.com/OmarDardery/nixlab/issues/126) · [Project management #127–#128](https://github.com/OmarDardery/nixlab/issues/127) · [Backups #129–#130](https://github.com/OmarDardery/nixlab/issues/129)
+> [Target architecture: projects, secrets and backups](docs/target-architecture.md) · [Arcane retirement #126](https://github.com/OmarDardery/nixlab/issues/126) · [Project management #127–#128](https://github.com/OmarDardery/nixlab/issues/127) · [Original Dockerfile/Compose uploads #139](https://github.com/OmarDardery/nixlab/issues/139) · [Backups #129–#130](https://github.com/OmarDardery/nixlab/issues/129)
 >
 > **Migration status:** Current main still contains the legacy Arcane/apps-VM implementation. This decision is a planned migration, **not** a claim that the runtime or existing machines have been changed. Existing VM disks and data must not be automatically removed.
 
@@ -19,7 +19,7 @@ It brings together established tools rather than inventing another virtualizatio
 |---|---|
 | Get started without reconstructing a weekend of shell history | A resumable, single-command installer |
 | Run isolated workloads | Incus containers and KVM virtual machines |
-| Manage reusable application stacks (target) | Incus Compose plus independent reviewed Nix/Compose project files in the Web UI |
+| Bring existing Dockerfiles and Compose projects (target) | Upload original files unchanged, build with isolated Buildah/Podman and deploy OCI via Incus Compose; edit and review alongside project Nix |
 | Understand the next change | A host portal, documentation, and explicit recovery boundaries |
 
 The intended platform uses NixOS for the host, Incus for OCI/system containers
