@@ -2,7 +2,6 @@
 import copy
 import ipaddress
 from pathlib import Path
-import secrets
 import time
 
 import runtime as rt
@@ -92,11 +91,7 @@ def activate(candidate, manager=None, effective=None, staged_source=None, expect
     if effective['cockpit']['enable'] and effective['cockpit']['managePassword']:
         import local_access
         local_access.ensure_operator_password()
-    secret_values = {}
-    if effective['apps']['enable'] and not rt.SECRET_PATHS['arcanePassword'].exists() and not manager.settings()['apps']['enable']:
-        # Stage only for first boot. Existing DB state rejects re-enrollment.
-        secret_values['arcanePassword'] = secrets.token_urlsafe(24) + 'Aa1!'
-    job_id = manager.review(candidate, secret_values=secret_values, principal=PRINCIPAL,
+    job_id = manager.review(candidate, secret_values={}, principal=PRINCIPAL,
                             staged_source=staged_source, expected_base_digest=expected_base_digest)['id']
     print('Building hypervisor; transaction ' + job_id, flush=True)
     wait_for(manager, job_id, {'ready'})

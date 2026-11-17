@@ -188,15 +188,6 @@ def summarize(settings, record=None):
                 print('Set a persistent managed Linux operator password in the portal under Host > Services, then review and activate it.')
             else:
                 print('Linux operator recovery: use an authorized host terminal and sudo passwd operator.')
-        if settings['apps']['enable']:
-            import arcane
-            print('Arcane: https://' + address + ':' + str(settings['apps']['arcanePort']))
-            if arcane.authentication_ready(settings):
-                print('Arcane bootstrap authentication verified. Use your existing Arcane account.')
-                print('Initial credential input has been consumed. Change it through the authenticated portal if needed.')
-            else:
-                print('Arcane authentication is not verified. Inspect enrollment or use recovery.')
-                print('Recover access: sudo nixlab arcane reset-password')
         print('All enabled management endpoints passed health checks. No disks were formatted.')
         if (record or {}).get('rebootRequired'):
             print('Reboot to use the new kernel; then run sudo nixlab doctor.')
@@ -324,8 +315,6 @@ def main():
             if '/zoneinfo/' in zone:
                 default['maintenance']['timeZone'] = zone.split('/zoneinfo/', 1)[1]
             memory_kib = int(next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemTotal:')))
-            default['apps']['cpu'] = str(max(1, min(2, (os.cpu_count() or 2) // 2)))
-            default['apps']['memory'] = str(max(1, min(2, memory_kib // 1024 // 1024 // 2))) + 'GiB'
         if not default['management']['configure']:
             default['management'].update(interface=interface, address=address, prefixLength=prefix, gateway=gateway, trustedCIDRs=trusted)
         if adoption:
@@ -397,8 +386,7 @@ def main():
         if args.switch:
             candidate = direct.prepare(default, overview, host, args.ssh_key,
                 proposal['guestSubnet'] if proposal else args.guest_subnet,
-                proposal['apps'] if proposal and not default['ready'] else
-                (False if not default['ready'] else default['apps']['enable']),
+                False,
                 previous_guests=previous_guests, remote=remote,
                 password_login=args.ssh_password_login)
             if proposal:

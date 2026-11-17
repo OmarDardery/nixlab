@@ -354,15 +354,11 @@ def apply(directory):
             if role == 'hypervisor' and effective['cockpit']['enable']:
                 run(['systemctl', 'is-active', 'cockpit.socket'], log, timeout=30)
                 run(['systemctl', 'try-restart', 'cockpit.service'], log, timeout=45)
-            if role == 'hypervisor' and effective['apps']['enable']:
-                run(['systemctl', 'is-active', 'nixlab-apps-onboarding.service', 'nginx.service'], log, timeout=30)
             if role == 'hypervisor' and (before['address'] != after['address'] or old_settings['hostName'] != effective['hostName']):
                 run(['systemctl', 'try-restart', 'incus.service'], log, timeout=120)
             # Load rotated TLS material/new port. This may require signing in again.
             run(['systemctl', 'try-restart', 'nixlab-admin-backend.service', 'nixlab-ui.service'], log, timeout=45)
             run(['systemctl', 'is-active', 'nixlab-admin-backend.service', 'nixlab-ui.service'], log, timeout=30)
-            if role == 'hypervisor' and effective['apps']['enable']:
-                run(['systemctl', 'try-restart', 'nginx.service'], log, timeout=45)
         import diagnostics
         report = diagnostics.wait_ready(effective)
         rt.write_json(directory / 'health.json', report)
@@ -424,8 +420,8 @@ def guard():
             failed = True
         try:
             with rt.locked(blocking=False):
-                import browser_certificates, arcane
-                for cleanup in (arcane.expire_host, lambda: rt.cleanup_terminal_secrets(rt.STATE), browser_certificates.cleanup_private,
+                import browser_certificates
+                for cleanup in (lambda: rt.cleanup_terminal_secrets(rt.STATE), browser_certificates.cleanup_private,
                                 lambda: browser_certificates.expire_owned(rt.STATE)):
                     try:
                         cleanup()
