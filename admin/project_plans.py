@@ -191,6 +191,10 @@ def _observation(project, guest):
         "project": project["incusProject"], "name": guest,
         "observedStatus": str(current.get("status") or "unknown")[:32],
         "etag": etag,
+        "before": {"cpus": current.get("config", {}).get("limits.cpu"),
+                   "memory": current.get("config", {}).get("limits.memory")},
+        "after": {"cpus": str(project["resources"]["cpus"]),
+                  "memory": project["resources"]["memory"]},
         "fingerprint": digest({
             k: current.get(k) for k in ("type", "config", "devices", "profiles")
         }),
@@ -213,8 +217,12 @@ def plan(inventory):
                 raise ValueError("Unsupported Incus resource claim; #133 adapter required")
             items.append(_observation(project, name))
     return {"format": 1, "inventoryHash": digest(inventory), "resources": items,
-            "actions": [{"project": item["project"], "name": item["name"], "action": item["action"]}
-                        for item in items], "boundary": "Existing NixLab-owned native Incus instances only; volumes/VM images/Compose/data are never replaced"}
+            "actions": [{
+                "project": item["project"], "name": item["name"],
+                "action": item["action"], "before": item["before"],
+                "after": item["after"],
+                "potentialDisruption": item["action"] == "update" and item["observedStatus"] == "Running",
+            } for item in items], "boundary": "Existing NixLab-owned native Incus instances only; volumes/VM images/Compose/data are never replaced"}
 
 
 def recheck_and_apply(project, approved, *, verify_only=False):
