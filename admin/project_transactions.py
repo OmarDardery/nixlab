@@ -4,6 +4,7 @@ This intentionally separates an approved source revision from a deployed
 workload: the #133 Incus adapter will consume a separate exact-revision plan.
 """
 import ctypes
+import fcntl
 import hashlib
 import json
 import os
@@ -19,9 +20,11 @@ import time
 
 import runtime as rt
 import project_plans
+from locking import open_lock
 from project_workspace import validate_workspace, WorkspaceError
 
 WORKSPACE = Path(os.environ.get("NIXLAB_PROJECTS", "/srv/nixlab/projects"))
+INCUS_LOCK = Path("/run/lock/nixlab-incus.lock")
 SOURCE_LIMIT = 128 * 1024
 JOB_LIFETIME = 15 * 60
 NAME = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
@@ -499,7 +502,10 @@ class ProjectTransactions:
 
     def run_deployment(self, identity):
         """Root-only async worker: updates one guarded resource at a time."""
-        with rt.locked():
+        # Same lock order as native guest operations: NixLab mutation first,
+        # then Incus. No concurrent backup/import or guest lifecycle action.
+        with rt.locked(), open_lock(INCUS_LOCK) as incus_lock:
+            fcntl.flock(incus_lock, fcntl.LOCK_EX)
             from recovery_guard import require_normal
             require_normal()
             directory = self._job(identity)
