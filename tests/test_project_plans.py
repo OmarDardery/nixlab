@@ -124,6 +124,11 @@ class ProjectInventoryTests(unittest.TestCase):
 
 
 class OwnedNativeIncusTests(unittest.TestCase):
+    def setUp(self):
+        self.claims_patch = patch.object(pp, "_host_claims", return_value=set())
+        self.claims_patch.start()
+        self.addCleanup(self.claims_patch.stop)
+
     def test_existing_owned_cpu_limit_update_etag_rechecked_and_verified(self):
         state = current_owned()
         records = [state]
