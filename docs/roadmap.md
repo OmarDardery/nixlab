@@ -1,5 +1,38 @@
 # Focused single-host foundation
 
+## Superseding product direction — 2026-11-17
+
+**Target:** NixLab is a **NixOS/Incus/Cockpit integration with its own Web UI**.
+The Web UI reviews and applies independently stored declarative project files,
+optionally uses **Incus Compose** for OCI stacks, and generates a one-time
+declarative backup policy that automatically covers newly added managed projects.
+**Remove Arcane and the Docker apps VM completely** after a non-destructive
+legacy migration. See [target architecture](target-architecture.md).
+
+**Source of truth:** One independent workspace flake at `/srv/nixlab/projects/flake.nix`
+discovers `*/default.nix` and sorted recursively imported `*/modules/**/*.nix`,
+exposes typed `nixlabProjects` and stages exact revisions for the existing root
+broker. Project application does not rebuild the host. SOPS + age encrypts
+per-project secrets; a separate portable encrypted key kit enables disaster
+recovery. `backups.nix` is the one-time, dynamically evaluated backup policy.
+
+**Dependency order:**
+[#127](https://github.com/OmarDardery/nixlab/issues/127) (flake foundation) →
+[#135](https://github.com/OmarDardery/nixlab/issues/135) (independent transactions) →
+[#133](https://github.com/OmarDardery/nixlab/issues/133) (Incus ownership) →
+[#134](https://github.com/OmarDardery/nixlab/issues/134) (SOPS/age + recovery kit) →
+[#128](https://github.com/OmarDardery/nixlab/issues/128) (Compose + Projects Web UI) →
+[#129](https://github.com/OmarDardery/nixlab/issues/129) (declarative backups) →
+[#130](https://github.com/OmarDardery/nixlab/issues/130) (GitHub/Drive destinations) →
+[#126](https://github.com/OmarDardery/nixlab/issues/126) (final Arcane/Docker apps VM retirement, gated by pre-cutover restore proof) →
+[#131](https://github.com/OmarDardery/nixlab/issues/131) (final Arcane-free exact-revision qualification).
+Deprecation of new Arcane onboarding may begin earlier; never delete legacy
+operator data without a proven replacement and recovery. This **replaces** conflicting future Arcane/Portainer
+and Docker-VM plans below. Existing-delivery descriptions remain historical/current,
+not the desired architecture. The current code is **not yet Arcane-free**.
+
+## Present implementation and historical roadmap
+
 Nixlab prepares, maintains and recovers a NixOS host for Incus. Incus remains the
 virtualization UI. See the [ownership contract](ownership.md).
 
@@ -8,7 +41,7 @@ virtualization UI. See the [ownership contract](ownership.md).
 | Host lifecycle | Single-command preserved-installation setup, reviewed changes, source/OS updates, confirmation recovery |
 | Ethernet | Host bridges/VLANs, management addressing, guest firewall integration, trusted LAN access, narrow outbound LAN exceptions |
 | Hardware | USB serial discovery, selected stable aliases, native Incus attachment guidance, existing UUID filesystems/ZFS datasets |
-| Native tools | Enabled Incus/Cockpit/Arcane links, upstream credits/docs, all-project read-only guest IPs, pinned Community Scripts Incus CLI wizard, explicit verification labels |
+| Native tools | Enabled Incus/Cockpit links plus legacy Arcane link (to remove in #126), upstream credits/docs, all-project read-only guest IPs, pinned Community Scripts Incus CLI wizard, explicit verification labels |
 | Ownership | Ordinary native/helper resources remain native; declared infrastructure drift is refused before preseed |
 | Recovery | Atomic generations, per-group downtime, shared-volume grouping, maintenance exclusions, independent restic, archive recovery |
 
@@ -62,7 +95,7 @@ Make configuration and workload updates reviewable, pinned and traceable to sour
 - Support optional user-owned Git configuration without requiring Git for boot or recovery.
 - Connect commit diffs and update proposals to existing build/review/activate/confirm operations.
 - Record revision, deployment outcome and resulting system closure together.
-- Reuse image pinning and guest deployment; delegate Arcane-owned stacks to Arcane and distinguish configuration rollback from data recovery.
+- Reuse image pinning and guest deployment; migrate legacy stacks explicitly, use Incus Compose for newly qualified project stacks, and distinguish configuration rollback from data recovery.
 
 ## NixOS Guest Templates & Roles — P1 · Optional
 
@@ -118,7 +151,7 @@ Give generic NixOS and Compose templates a versioned, editable lifecycle.
 - Consume user-selected versioned templates and export ordinary Nix or Compose files.
 - Include persistence, secret-reference, ownership and compatibility requirements.
 - Preserve provenance and propose upgrade patches without overwriting local edits.
-- Reuse existing deployment mechanisms and Arcane; avoid another template language or application store.
+- Reuse native Incus and qualified Incus Compose instead of Arcane; avoid another template language or application store.
 
 ## Energy-Aware Fleet Policies — P3 · Stretch
 
