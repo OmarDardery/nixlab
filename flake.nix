@@ -239,6 +239,7 @@
         portal = import ./tests/portal-vm.nix { inherit pkgs; };
         bootstrap-transaction = import ./tests/bootstrap-transaction-vm.nix { inherit pkgs; };
         foundation = import ./tests/foundation-vm.nix { inherit pkgs; };
+        project-evaluator = import ./tests/project-evaluator-vm.nix { inherit pkgs; };
         guest-deployments = import ./tests/guest-deployments-vm.nix { inherit pkgs; };
         host = self.nixosConfigurations.validation-host.config.system.build.toplevel;
         apps = testApps.config.system.build.toplevel;
