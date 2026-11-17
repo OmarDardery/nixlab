@@ -43,6 +43,11 @@ jobs:
           for file in fresh.json upgrade.json recovery.json limitations.md; do
             git show "$EVIDENCE_COMMIT:qualification/$file" > "$RUNNER_TEMP/physical-evidence/$file"
           done
+      - name: Prohibit releases with incomplete Incus-native source migration
+        run: |
+          python3 scripts/incus_native_audit.py --strict
+          # Complete source classification alone does not prove release qualification.
+          # The existing physical recovery and full exact-revision CI gates follow.
       - name: Verify physical reports and exact-revision CI; prepare source assets
         env:
           GH_TOKEN: ${{ github.token }}
