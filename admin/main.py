@@ -144,6 +144,9 @@ def backend():
                 elif self.path == '/health':
                     import recovery
                     result = recovery.health()
+                elif self.path == '/project/status':
+                    from project_transactions import ProjectTransactions
+                    result = ProjectTransactions().status()
                 elif self.path == '/recipes':
                     import catalog
                     result = {'recipes': catalog.recipes()}
@@ -215,6 +218,20 @@ def backend():
                     result = manager.migrate_layout()
                 elif self.path == '/operation':
                     result = operations.submit(body, principal=actor)
+                elif self.path in ('/project/review', '/project/publish', '/project/rollback',
+                                   '/project/cancel', '/project/recover'):
+                    from project_transactions import ProjectTransactions
+                    projects = ProjectTransactions()
+                    if self.path == '/project/review':
+                        result = projects.review(body.get('changes'), principal=actor)
+                    elif self.path == '/project/publish':
+                        result = projects.publish(body.get('id'), body.get('planHash'))
+                    elif self.path == '/project/rollback':
+                        result = projects.rollback(body.get('id'), body.get('planHash'))
+                    elif self.path == '/project/cancel':
+                        result = projects.cancel(body.get('id'))
+                    else:
+                        result = projects.recover(body.get('id'))
                 elif self.path == '/deploy-guests':
                     from deployments import Deployments
                     deploy = Deployments()
@@ -516,6 +533,10 @@ def web():
                 if path == '/api/users':
                     if session['role'] != 'admin': raise access_accounts.AuthorizationError('Administrator account required')
                     return reply(self, 200, broker_request('GET', '/users'))
+                if path == '/api/project/status':
+                    if session['role'] != 'admin':
+                        raise access_accounts.AuthorizationError('Administrator account required')
+                    return reply(self, 200, broker_request('GET', '/project/status'))
                 if path == '/api/browser-certificates':
                     if session['role'] != 'admin': raise access_accounts.AuthorizationError('Administrator account required')
                     return reply(self, 200, broker_request('GET', '/browser-certificates'))
@@ -633,10 +654,16 @@ def web():
                     if active.get('id') != body.get('id'):
                         raise rt.PublicError('Confirm the current reviewed transaction only')
                     require_fresh_web_confirmation(session, active, self.client_address[0])
+                if self.path.startswith('/api/project/'):
+                    if body.get('acknowledgePrivilegedNix') is not True:
+                        raise rt.PublicError('Acknowledge that project Nix files are privileged code')
+                    if not accounts.matches(session['username'], body.pop('current', None)):
+                        raise rt.PublicError('Reauthenticate before changing declarative project source')
+                    body.pop('acknowledgePrivilegedNix', None)
                 if self.path in ('/api/recovery-export', '/api/users'):
                     if not accounts.matches(session['username'], body.pop('current', None)):
                         raise rt.PublicError('Reauthenticate before exporting recovery material or changing accounts')
-                actions = {'/api/arcane/reset', '/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests'}
+                actions = {'/api/arcane/reset', '/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests', '/api/project/review', '/api/project/publish', '/api/project/rollback', '/api/project/cancel', '/api/project/recover'}
                 if self.path not in actions:
                     return reply(self, 404, {'error': 'Unknown action'})
                 body['_actor'] = session['username']
@@ -794,6 +821,38 @@ def renew():
         subprocess.run(['systemctl', 'try-restart', *services], check=True)
 
 
+def project_cli(argv):
+    """Local root recovery and review; same transaction API as the browser."""
+    import argparse
+    from project_transactions import ProjectTransactions
+    parser = argparse.ArgumentParser(prog='sudo nixlab-admin projects')
+    parser.add_argument('command', choices=['status', 'review', 'publish', 'rollback', 'cancel', 'recover'])
+    parser.add_argument('--changes', type=Path, help='UTF-8 JSON map of relative Nix file edits (review only)')
+    parser.add_argument('--id', help='Exact reviewed project transaction ID')
+    parser.add_argument('--plan-hash', help='Exact reviewed plan digest for publish or rollback')
+    arguments = parser.parse_args(argv)
+    projects = ProjectTransactions()
+    try:
+        if arguments.command == 'status':
+            result = projects.status(arguments.id)
+        elif arguments.command == 'review':
+            if not arguments.changes or arguments.changes.is_symlink() or arguments.changes.stat().st_size > 131072:
+                raise ValueError('Provide a bounded, regular local JSON edit file')
+            values = json.loads(arguments.changes.read_text())
+            result = projects.review(values, principal='root-console')
+        elif arguments.command == 'publish':
+            result = projects.publish(arguments.id, arguments.plan_hash)
+        elif arguments.command == 'rollback':
+            result = projects.rollback(arguments.id, arguments.plan_hash)
+        elif arguments.command == 'cancel':
+            result = projects.cancel(arguments.id)
+        else:
+            result = projects.recover(arguments.id)
+        print(json.dumps(result, indent=2))
+    except (OSError, ValueError, KeyError) as exc:
+        sys.exit('Project transaction failed; inspect source integrity, approvals and recovery state')
+
+
 def guests_cli(argv):
     import argparse
     parser = argparse.ArgumentParser(prog='nixlab-admin guests')
@@ -941,6 +1000,8 @@ if __name__ == '__main__':
     elif action == 'recovery' and os.geteuid() == 0:
         import recovery
         recovery.cli(sys.argv[2:])
+    elif action == 'projects' and os.geteuid() == 0:
+        project_cli(sys.argv[2:])
     elif action == 'legacy-apps' and os.geteuid() == 0:
         if sys.argv[2:] != ['inventory']:
             sys.exit('Usage: sudo nixlab-admin legacy-apps inventory')
@@ -997,5 +1058,5 @@ if __name__ == '__main__':
     elif action == 'reset-password' and os.geteuid() == 0:
         reset_portal_password()
     else:
-        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|arcane reset-password|legacy-apps inventory|backend|web|guard|renew|approve-enrollment|reset-password|config|deploy|guests|recovery|commissioning|install-plan|prune-jobs|disk prepare}')
+        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|arcane reset-password|legacy-apps inventory|projects|backend|web|guard|renew|approve-enrollment|reset-password|config|deploy|guests|recovery|commissioning|install-plan|prune-jobs|disk prepare}')
 
