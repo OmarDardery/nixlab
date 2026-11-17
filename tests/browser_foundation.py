@@ -86,6 +86,7 @@ def main():
                                 'guest-network': {'available': True, 'checkedAt': int(time.time()), 'conflicts': [], 'guests': [
                                     {'name': 'web', 'project': 'lab', 'type': 'container', 'status': 'Running', 'observed': ['10.77.0.20'],
                                      'nics': [{'name': 'eth0', 'network': 'incusbr0', 'observed': ['10.77.0.20'], 'reserved': ['10.77.0.20']}]}]},
+                                'project-sources': {'available': True, 'sourceHash': 'a'*64, 'fileCount': 3, 'bytes': 412, 'projects': [{'name': 'sample', 'entrypoint': 'sample/default.nix', 'moduleCount': 1}]},
                                 'main-revision': {'revision': 'b' * 40},
                                 'browser-certificates': {'certificates': certificate_records},
                                 'operations': {'jobs': [], 'archives': [], 'generations': [], 'backupStatus': {}},
@@ -132,7 +133,7 @@ def main():
             assert page.evaluate("document.fonts.check('16px Space Grotesk')")
             assert page.get_by_role('heading', name='Guests & addresses', exact=True).is_visible()
             assert page.get_by_text('10.77.0.20', exact=True).count() == 2
-            assert page.locator('.nav > button').count() == 14
+            assert page.locator('.nav > button').count() == 15
             assert page.locator('.nav [aria-current="page"]').count() == 1
             page.screenshot(path=str(args.output / 'overview.png'), full_page=True)
             page.set_viewport_size({'width': 390, 'height': 844})
@@ -164,7 +165,7 @@ def main():
             page.get_by_role('heading', name='Help', exact=True).wait_for()
             commands = page.locator('[data-copy-command]').evaluate_all("nodes => nodes.map(n => n.dataset.copyCommand)")
             assert len(commands) == len(set(commands))
-            assert {'doctor', 'commissioning', 'helper-debian', 'compose-list'}.issubset(commands)
+            assert {'doctor', 'commissioning', 'helper-debian', 'list-projects'}.issubset(commands)
             page.get_by_text('Health, logs & SSH', exact=True).click()
             assert page.locator('#command-commissioning').text_content() == 'sudo nixlab commissioning collect --mode fresh'
             page.locator('[data-copy-command="commissioning"]').click()
@@ -181,23 +182,17 @@ def main():
             assert page.locator('[data-record="hardware.serialAliases"][data-key="serial"]').input_value() == 'EXAMPLE'
             page.locator('.sidebar nav [data-go="integrations"]').click()
             page.locator('[data-path="cockpit.enable"]').check()
-            # Fresh installations do not offer Arcane provisioning.
-            assert page.get_by_text('Applications through Incus', exact=True).count() == 1
+            # Native portal is the only application-management surface.
+            assert page.get_by_text('Incus-native applications', exact=True).count() == 1
             assert page.locator('[data-path="apps.enable"]').count() == 0
             assert page.locator('[data-secret="arcanePassword"]').count() == 0
-            # Exercise legacy-only controls independently: an already-enabled
-            # Arcane host retains its migration/reset UI and existing data.
-            status['settings']['apps']['enable'] = True
+            status['settings']['apps']['enable'] = True  # Old host data must not revive legacy UI.
             status['effectiveSettings']['apps']['enable'] = True
             page.evaluate('(value) => { state.status=value; shell(); }', status)
-            page.locator('[data-path="apps.enable"]').check()
-            page.locator('[data-path="apps.arcanePort"]').fill('9443')
-            assert page.locator('[data-path="cockpit.enable"]').is_checked()
-            assert page.locator('[data-path="apps.arcanePort"]').input_value() == '9443'
-            page.locator('[data-secret="cockpitPassword"]').fill('test-linux-account-password')
-            page.locator('[data-secret="arcanePassword"]').fill('Test-arcane-password-1!')
-            # Active links must not advertise an unapplied draft.
+            assert page.locator('[data-path="apps.enable"]').count() == 0
+            assert page.locator('[data-path="apps.arcanePort"]').count() == 0
             assert page.locator('a[href="https://192.0.2.10:9443"]').count() == 0
+            page.locator('[data-secret="cockpitPassword"]').fill('test-linux-account-password')
             page.get_by_text('Optional provisioning tools', exact=True).click()
             page.get_by_text('Compatibility & pinned revisions', exact=True).click()
             assert page.get_by_text('Upstream-supported; unverified here', exact=True).count() == 3
@@ -251,7 +246,7 @@ def main():
             assert request['settings']['cockpit']['enable']
             assert request['settings']['maintenance']['laptopMode'] == settings['maintenance']['laptopMode'], 'Enabling services must not silently change power policy'
             assert request['secrets']['cockpitPassword'] == 'test-linux-account-password'
-            assert request['secrets']['arcanePassword'] == 'Test-arcane-password-1!'
+            assert 'arcanePassword' not in request['secrets']
             assert request['settings']['connectivity']['bridges'][0]['interfaces'] == ['eth0']
             assert request['settings']['hardware']['serialAliases'][0]['serial'] == 'EXAMPLE'
             status['job'].update(status='ready', impactPlan={
@@ -273,9 +268,9 @@ def main():
             page.screenshot(path=str(args.output / 'impact-review.png'), full_page=True)
             status['job'].update(status='confirmed', guestPlan={
                 'boundary': 'OS rollback does not restore database schemas', 'targets': [
-                    {'id': 'apps', 'name': 'apps', 'project': 'lab', 'targetSystem': '/nix/store/target',
+                    {'id': 'worker', 'name': 'worker', 'project': 'lab', 'targetSystem': '/nix/store/target',
                      'currentSystem': '/nix/store/previous', 'dependsOn': [], 'restartPolicy': 'defer',
-                     'maxAttempts': 3, 'healthUnits': ['docker-arcane.service'], 'httpChecks': 0}]})
+                     'maxAttempts': 3, 'healthUnits': ['worker.service'], 'httpChecks': 0}]})
             page.evaluate('(value) => { state.status=value; shell(); }', status)
             page.get_by_role('button', name='Deploy reviewed guests', exact=True).click()
             page.wait_for_function("state.status.job?.guestDeployment?.status === 'queued'")
@@ -291,29 +286,20 @@ def main():
             page.evaluate("state.principal.role='admin';state.page='integrations';shell()")
             page.set_viewport_size({'width': 1440, 'height': 1000})
             page.screenshot(path=str(args.output / 'integrations.png'), full_page=True)
-            # Existing service reset is independent from initial reuse and wipes
-            # both password fields after the protected request completes.
-            page.evaluate("state.host.arcane={state:'initialized'};state.page='integrations';shell()")
-            page.locator('#arcane-reset-form [name=current]').fill('browser-current-portal-password')
-            page.locator('#arcane-reset-form [name=password]').fill('Browser-arcane-replacement1!')
-            page.locator('#arcane-reset-form button').click()
-            page.wait_for_function('document.querySelector("#arcane-reset-form [name=password]").value === ""')
-            reset = next(body for endpoint, body in submitted if endpoint == 'arcane/reset')
-            assert reset == {'current':'browser-current-portal-password','password':'Browser-arcane-replacement1!'}
-            assert 'Browser-arcane-replacement1!' not in page.evaluate('JSON.stringify(state)')
-            # Explicit initial reuse survives navigation but the current password
-            # is entered only on Changes and never becomes persistent UI state.
-            page.evaluate("state.host.arcane={state:'fresh'};state.page='integrations';shell()")
-            assert not page.locator('#arcane-reuse').is_checked()
-            page.locator('#arcane-reuse').check()
-            page.evaluate("state.modules={};state.platformRevision='';state.page='review';shell()")
-            page.locator('#arcane-current').fill('Browser-current-reuse-password1!')
-            page.locator('[data-action=build]').click()
-            page.wait_for_function('state.arcaneReuse === false')
-            reuse = [body for endpoint, body in submitted if endpoint == 'review'][-1]
-            assert reuse['reuseArcanePassword'] is True and reuse['arcaneCurrent'] == 'Browser-current-reuse-password1!'
-            assert 'arcanePassword' not in reuse['secrets']
-            assert 'Browser-current-reuse-password1!' not in page.evaluate('JSON.stringify(state)')
+            # Project preview never uploads or executes source.
+            page.locator('.sidebar nav [data-go="projects"]').click()
+            page.get_by_role('heading', name='Projects', exact=True).wait_for()
+            page.get_by_text('Published declarative source (read-only)', exact=True).wait_for()
+            page.get_by_text('sample', exact=True).wait_for()
+            assert page.get_by_text('sample', exact=True).count() == 1
+            page.locator('#native-source-files').set_input_files({
+                'name': 'Dockerfile', 'mimeType': 'text/plain',
+                'buffer': b'FROM scratch\nLABEL org.opencontainers.image.title="preview"\n'
+            })
+            page.wait_for_function("nativeSourcePreflight.files.length === 1 && !nativeSourcePreflight.scanning")
+            assert page.locator('code').filter(has_text='Dockerfile').count() == 1
+            assert page.get_by_text('Local preview only. Original bytes have not been uploaded or deployed.', exact=True).count() == 1
+            assert not [endpoint for endpoint, _ in submitted if endpoint in ('project-upload', 'project-deploy')], 'Preview must not dispatch deployment'
             assert not errors, errors
             assert not [url for url in requests if not url.startswith(('http://127.0.0.1:', 'blob:http://127.0.0.1:'))], 'Private console assets must stay local'
             assert all(action != 'operation' for action, _ in submitted)
