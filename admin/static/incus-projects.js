@@ -4,6 +4,9 @@
 // execute, or deploy files. All privileged operations require a later broker.
 const nativeSourcePreflight = {files: [], error: "", scanning: false};
 let nativeSelectedFiles = [];
+let nativePreviewSerial = 0;
+const nativeSourceEditor = {path: "", text: "", error: ""};
+const NATIVE_MAX_EDIT_BYTES = 1024 * 1024;
 const nativeImportState = {busy: false, result: null, error: ""};
 const nativePersistedSource = {loaded: false, loading: false, value: null};
 const NATIVE_MAX_FILES = 64;
@@ -16,8 +19,19 @@ function nativeSourcePath(file) {
       name.split("/").some(part => !part || part === "." || part === ".." || /[\x00-\x1f]/.test(part))) {
     throw Error("Unsafe or ambiguous source path.");
   }
-  if (name.split("/").some(part => /^\.env(?:\.|$)/.test(part) && !/\.env\.(?:example|sample|template)$/.test(part))) {
-    throw Error("Do not import plaintext .env credentials. Use encrypted project secrets.");
+  const parts = name.split("/");
+  if (parts.length > 12 || parts.some(part => !/^(?:[A-Za-z0-9][A-Za-z0-9_.-]*|\.[A-Za-z0-9][A-Za-z0-9._-]*)$/.test(part))) {
+    throw Error("Unsupported source path; use simple relative names up to 12 levels deep.");
+  }
+  if (parts.some(part => {
+    const lower = part.toLowerCase();
+    return [".git", ".ssh", ".gnupg", ".nixlab", "node_modules", ".env",
+      "id_rsa", "id_ed25519", "id_ecdsa", "projects.agekey"].includes(lower) ||
+      (lower.startsWith(".env.") && ![".env.example", ".env.sample", ".env.template"].includes(lower)) ||
+      [".agekey", ".p12", ".pfx", ".key"].some(ext => lower.endsWith(ext)) ||
+      (lower.startsWith("secrets.") && !/^secrets\.enc\.(?:ya?ml|json)$/.test(lower));
+  })) {
+    throw Error("Potential credentials or unsafe metadata cannot be uploaded as source.");
   }
   return name;
 }
@@ -60,11 +74,24 @@ function nativeProjectPage() {
       '</code>). No OCI build or Incus deployment has run.</p>'
     : '<p class="note">Only source upload is supported here; publishing to a project, execution and resource apply are not yet available.</p>';
   const manifest = nativeSourcePreflight.files.length
-    ? '<div class="table-wrap"><table><thead><tr><th>Original path</th><th>Bytes</th><th>SHA-256</th></tr></thead><tbody>' +
+    ? '<div class="table-wrap"><table><thead><tr><th>Original path</th><th>Bytes</th><th>SHA-256</th><th>Optional edit</th></tr></thead><tbody>' +
       nativeSourcePreflight.files.map(f => '<tr><td><code>' + esc(f.path) + '</code></td><td>' +
-        esc(f.size) + '</td><td><code>' + esc(f.sha256) + '</code></td></tr>').join('') +
-      '</tbody></table></div><p class="note">Selected original bytes are only in this browser until an administrator explicitly stages them.</p>'
+        esc(f.size) + '</td><td><code>' + esc(f.sha256) + '</code></td><td>' +
+        '<button type="button" data-native-edit="' + esc(f.path) + '"' +
+        (nativeImportState.busy || nativeSourcePreflight.scanning || f.size > NATIVE_MAX_EDIT_BYTES ? ' disabled' : '') +
+        '>Edit text</button></td></tr>').join("") +
+      '</tbody></table></div><p class="note">Original file bytes are preserved unless you explicitly save a text edit. Files are local to this browser until staging.</p>'
     : '<p class="note">Selection stays in your browser. No file contents are sent to NixLab.</p>';
+  const editor = nativeSourceEditor.path
+    ? '<section><h3>Optional text edit: <code>' + esc(nativeSourceEditor.path) + '</code></h3>' +
+      '<p class="note">Saving replaces only this browser copy, recalculates SHA-256, and clears any previous staged selection. It never edits a deployed file.</p>' +
+      '<label class="field"><span>UTF-8 source</span><textarea id="native-source-editor" rows="14" spellcheck="false">' +
+      esc(nativeSourceEditor.text) + '</textarea></label>' +
+      '<button type="button" id="native-edit-save">Save local edit</button> ' +
+      '<button type="button" id="native-edit-cancel">Discard edit</button></section>'
+    : '';
+  const editorError = nativeSourceEditor.error
+    ? '<p role="alert" class="error">' + esc(nativeSourceEditor.error) + '</p>' : '';
   return title("INCUS WORKSPACE", "Projects", "Observe Incus resources and inspect source before a future reviewed import.") +
     card("Observed Incus projects",
       '<button type="button" id="native-project-refresh">Refresh inventory</button>' +
@@ -73,10 +100,10 @@ function nativeProjectPage() {
     card("Published declarative source (read-only)", workspace) +
     card("Preview original application files locally",
       '<p>Preview Dockerfiles, Compose YAML and related build-context files without executing them. Relative paths and exact SHA-256 digests remain visible.</p>' +
-      '<label class="field"><span>Choose files</span><input id="native-source-files" type="file" multiple></label>' +
-      '<label class="field"><span>Choose directory</span><input id="native-source-folder" type="file" webkitdirectory directory multiple></label>' +
+      '<label class="field"><span>Choose files</span><input id="native-source-files" type="file" multiple' + (nativeImportState.busy ? ' disabled' : '') + '></label>' +
+      '<label class="field"><span>Choose directory</span><input id="native-source-folder" type="file" webkitdirectory directory multiple' + (nativeImportState.busy ? ' disabled' : '') + '></label>' +
       (nativeSourcePreflight.scanning ? '<p role="status">Computing checksums in the browser…</p>' : '') +
-      (nativeSourcePreflight.error ? '<p role="alert" class="error">' + esc(nativeSourcePreflight.error) + '</p>' : '') + manifest) +
+      (nativeSourcePreflight.error ? '<p role="alert" class="error">' + esc(nativeSourcePreflight.error) + '</p>' : '') + manifest + editorError + editor) +
     card("Stage source in private review storage",
       '<p>After selecting files, reauthenticate and stage their exact bytes with an immutable SHA-256 manifest. This does not publish a Nix flake or deploy applications.</p>' +
       '<label class="field"><span>Project slug</span><input id="native-import-project" type="text" maxlength="63" placeholder="my-project" pattern="[a-z][a-z0-9-]*"></label>' +
@@ -89,6 +116,11 @@ function nativeProjectPage() {
       '<p><a href="/docs/incus-native-plan.md">Implementation phases</a></p>');
 }
 async function nativePreviewFiles(files) {
+  if (nativeImportState.busy) return;
+  const serial = ++nativePreviewSerial;
+  nativeSourceEditor.path = "";
+  nativeSourceEditor.text = "";
+  nativeSourceEditor.error = "";
   nativeSourcePreflight.files = [];
   nativeSelectedFiles = [];
   nativeImportState.result = null;
@@ -114,16 +146,82 @@ async function nativePreviewFiles(files) {
       const sha256 = [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
       items.push({path, size: file.size, sha256});
     }
+    if (serial !== nativePreviewSerial) return;
     nativeSourcePreflight.files = items.sort((a, b) => a.path.localeCompare(b.path));
     nativeSelectedFiles = list;
   } catch (error) {
+    if (serial !== nativePreviewSerial) return;
     nativeSourcePreflight.error = error.message || "Source preflight failed.";
     nativeSourcePreflight.files = [];
     nativeSelectedFiles = [];
   } finally {
-    nativeSourcePreflight.scanning = false;
+    if (serial === nativePreviewSerial) {
+      nativeSourcePreflight.scanning = false;
+      if (state.page === "projects") shell();
+    }
+  }
+}
+
+// Saving a text file is opt-in. Never re-encode an untouched binary context.
+async function nativeOpenSourceEditor(path) {
+  if (nativeImportState.busy || nativeSourcePreflight.scanning) return;
+  const serial = nativePreviewSerial;
+  nativeSourceEditor.error = "";
+  nativeSourceEditor.path = "";
+  nativeSourceEditor.text = "";
+  try {
+    const file = nativeSelectedFiles.find(item => nativeSourcePath(item) === path);
+    if (!file) throw Error("Selected file is no longer available.");
+    if (file.size > NATIVE_MAX_EDIT_BYTES) throw Error("Text editor limit is 1 MiB per file.");
+    const text = new TextDecoder("utf-8", {fatal: true}).decode(await file.arrayBuffer());
+    if (text.includes("\u0000")) throw Error("Binary files cannot be edited as text.");
+    if (serial !== nativePreviewSerial || nativeImportState.busy) return;
+    nativeSourceEditor.path = path;
+    nativeSourceEditor.text = text;
+  } catch (error) {
+    if (serial !== nativePreviewSerial) return;
+    nativeSourceEditor.error = error.message || "This file is not valid UTF-8 text.";
+  }
+  if (state.page === "projects") shell();
+}
+
+async function nativeSaveSourceEditor() {
+  if (!nativeSourceEditor.path || nativeImportState.busy || nativeSourcePreflight.scanning) return;
+  const path = nativeSourceEditor.path;
+  const text = document.getElementById("native-source-editor")?.value;
+  if (typeof text !== "string") return;
+  try {
+    const index = nativeSelectedFiles.findIndex(item => nativeSourcePath(item) === path);
+    if (index < 0) throw Error("Source selection changed; reopen the editor.");
+    const bytes = new TextEncoder().encode(text);
+    if (bytes.length > NATIVE_MAX_FILE_BYTES) throw Error("Edited file exceeds 8 MiB.");
+    const total = nativeSelectedFiles.reduce((sum, file) => sum + file.size, 0) -
+      nativeSelectedFiles[index].size + bytes.length;
+    if (total > NATIVE_MAX_BYTES) throw Error("Edited selection exceeds 32 MiB.");
+    const old = nativeSelectedFiles[index];
+    const blob = new Blob([bytes], {type: "text/plain"});
+    // webkitRelativePath on a real File is read-only. Preserve it on the
+    // Blob-backed browser copy so nested original paths remain unchanged.
+    const replacement = {
+      name: old.name, webkitRelativePath: path, size: blob.size,
+      arrayBuffer: () => blob.arrayBuffer(),
+      slice: (start, end) => blob.slice(start, end),
+    };
+    const next = nativeSelectedFiles.slice();
+    next[index] = replacement;
+    await nativePreviewFiles(next);
+  } catch (error) {
+    nativeSourceEditor.error = error.message || "Text edit was not saved.";
+    nativeSourceEditor.text = text;
     if (state.page === "projects") shell();
   }
+}
+
+function nativeCancelSourceEditor() {
+  nativeSourceEditor.path = "";
+  nativeSourceEditor.text = "";
+  nativeSourceEditor.error = "";
+  if (state.page === "projects") shell();
 }
 
 async function nativeStageSource() {
@@ -179,6 +277,13 @@ function bindNativeProjects() {
   document.querySelector("#native-import-stage")?.addEventListener("click", () => {
     void nativeStageSource();
   });
+  for (const button of document.querySelectorAll("[data-native-edit]")) {
+    button.addEventListener("click", () => { void nativeOpenSourceEditor(button.dataset.nativeEdit); });
+  }
+  document.querySelector("#native-edit-save")?.addEventListener("click", () => {
+    void nativeSaveSourceEditor();
+  });
+  document.querySelector("#native-edit-cancel")?.addEventListener("click", nativeCancelSourceEditor);
   document.querySelector("#native-project-refresh")?.addEventListener("click", async event => {
     const button = event.currentTarget;
     button.disabled = true;
