@@ -1,181 +1,89 @@
-# Focused single-host foundation
+# NixLab roadmap — declarative projects on Incus
 
-## Superseding product direction — 2026-11-17
+**Authoritative target:** [Target architecture](target-architecture.md). The
+product is a **NixOS host + NixLab Web UI + Incus/Incus UI + Cockpit**.
+Incus Compose manages compatible OCI stacks. Uploaded **Dockerfiles,
+Compose files and build contexts are preserved verbatim**; Buildah/Podman
+builds OCI images without a Docker daemon. **No Arcane/Portainer/apps VM**
+is installed in the final product.
 
-**Target:** NixLab is a **NixOS/Incus/Cockpit integration with its own Web UI**.
-The Web UI reviews and applies independently stored declarative project files,
-optionally uses **Incus Compose** for OCI stacks, and generates a one-time
-declarative backup policy that automatically covers newly added managed projects.
-**Remove Arcane and the Docker apps VM completely** after a non-destructive
-legacy migration. See [target architecture](target-architecture.md).
+## Customer workflow (one control plane)
 
-**Source of truth:** One independent workspace flake at `/srv/nixlab/projects/flake.nix`
-discovers `*/default.nix` and sorted recursively imported `*/modules/**/*.nix`,
-exposes typed `nixlabProjects` and stages exact revisions for the existing root
-broker. Project application does not rebuild the host. SOPS + age encrypts
-per-project secrets; a separate portable encrypted key kit enables disaster
-recovery. `backups.nix` is the one-time, dynamically evaluated backup policy.
+1. **Install:** a NixOS host receives NixLab, Incus/Incus UI and Cockpit.
+   Enrollment is browser-first; no printed bootstrap password or Arcane setup.
+2. **Create/import:** in **Projects**, add native Nix/Incus projects, a raw
+   Dockerfile/Containerfile with its build context, original Compose/YAML,
+   a full source archive or a pinned Git revision.
+3. **Review:** NixLab stores upload bytes unchanged and generates **separate**
+   Nix/Compose metadata, evaluates the typed project inventory, compares with
+   Incus, validates Compose/build support and previews resource/data/outage
+   impacts for exact revision approval.
+4. **Build/apply:** isolated pinned Buildah/Podman builds OCI images; pinned
+   Incus Compose imports/deploys stacks on Incus. Native system containers
+   and VMs use NixLab's existing Incus reconciler. No host rebuild.
+5. **Operate:** inspect project state, drift, files, secret assignments,
+   image digest, runtime logs and backup coverage in NixLab; deep guest
+   operations remain in Incus UI and host administration in Cockpit.
+6. **Back up once:** a Web UI wizard writes `projects/backups.nix`. Managed
+   project source, original Dockerfiles/Compose and encrypted credentials
+   are included automatically; project-specific data and volumes use
+   declared consistent snapshots. GitHub via SSH backs up versioned source;
+   Restic + Google Drive/rclone backs up encrypted guest data. An independent
+   offline encrypted key kit completes recovery.
+7. **Recover:** reinstall NixOS/NixLab, import original age/Restic credentials,
+   fetch source and guest state, review host-specific changes and verify
+   the restored application.
 
-**Dependency order:**
-[#127](https://github.com/OmarDardery/nixlab/issues/127) (flake foundation) →
-[#135](https://github.com/OmarDardery/nixlab/issues/135) (independent transactions) →
-[#133](https://github.com/OmarDardery/nixlab/issues/133) (Incus ownership) →
-[#134](https://github.com/OmarDardery/nixlab/issues/134) (SOPS/age + recovery kit) →
-[#128](https://github.com/OmarDardery/nixlab/issues/128) (Compose + Projects Web UI) →
-[#129](https://github.com/OmarDardery/nixlab/issues/129) (declarative backups) →
-[#130](https://github.com/OmarDardery/nixlab/issues/130) (GitHub/Drive destinations) →
-[#126](https://github.com/OmarDardery/nixlab/issues/126) (final Arcane/Docker apps VM retirement, gated by pre-cutover restore proof) →
-[#131](https://github.com/OmarDardery/nixlab/issues/131) (final Arcane-free exact-revision qualification).
-Deprecation of new Arcane onboarding may begin earlier; never delete legacy
-operator data without a proven replacement and recovery. This **replaces** conflicting future Arcane/Portainer
-and Docker-VM plans below. Existing-delivery descriptions remain historical/current,
-not the desired architecture. The current code is **not yet Arcane-free**.
+## One authoritative file tree
 
-## Present implementation and historical roadmap
+- `/etc/nixos` — **host** platform source and machine policy.
+- `/srv/nixlab/projects/flake.nix` — **one independent projects flake**.
+- `/srv/nixlab/projects/PROJECT/default.nix` and sorted recursive
+  `modules/**/*.nix` — typed project desired state.
+- `/srv/nixlab/projects/PROJECT/source/**` — untouched uploaded Dockerfiles,
+  build context, original Compose and override files. Never auto-import
+  `source/*.nix` as trusted Nix modules.
+- `/srv/nixlab/projects/PROJECT/secrets.enc.yaml` — SOPS ciphertext;
+  `/var/lib/nixlab/keys/projects.agekey` stores the **private** age identity.
+- `/srv/nixlab/state` or Incus volumes — persistent runtime data, not Git.
+- `/var/lib/nixlab/revisions` — immutable reviewed/deployed source revisions;
+  `/var/lib/nixlab/uploads` — untrusted quarantined files.
+- `/srv/nixlab/projects/backups.nix` — one approved declarative backup policy.
 
-Nixlab prepares, maintains and recovers a NixOS host for Incus. Incus remains the
-virtualization UI. See the [ownership contract](ownership.md).
+## Delivery order and acceptance
 
-| Area | Delivered behavior |
-|---|---|
-| Host lifecycle | Single-command preserved-installation setup, reviewed changes, source/OS updates, confirmation recovery |
-| Ethernet | Host bridges/VLANs, management addressing, guest firewall integration, trusted LAN access, narrow outbound LAN exceptions |
-| Hardware | USB serial discovery, selected stable aliases, native Incus attachment guidance, existing UUID filesystems/ZFS datasets |
-| Native tools | Enabled Incus/Cockpit links plus legacy Arcane link (to remove in #126), upstream credits/docs, all-project read-only guest IPs, pinned Community Scripts Incus CLI wizard, explicit verification labels |
-| Ownership | Ordinary native/helper resources remain native; declared infrastructure drift is refused before preseed |
-| Recovery | Atomic generations, per-group downtime, shared-volume grouping, maintenance exclusions, independent restic, archive recovery |
+| Stage | Issue | Done when |
+| --- | --- | --- |
+| 1. Workspace source | [#127](https://github.com/OmarDardery/nixlab/issues/127) | Recursive deterministic flake discovery, safe file preflight, immutable reviewed snapshots |
+| 2. Project transactions | [#135](https://github.com/OmarDardery/nixlab/issues/135) | Authorized project-only apply and restart-safe journals, no host rebuild |
+| 3. Incus ownership | [#133](https://github.com/OmarDardery/nixlab/issues/133) | One owner per resource, native guest/Compose compatibility and drift blocking |
+| 4. Raw app source & OCI builds | [#139](https://github.com/OmarDardery/nixlab/issues/139) | Dockerfile/Compose files are **byte-exact**, isolated build and immutable-image cache invalidation |
+| 5. Secrets | [#134](https://github.com/OmarDardery/nixlab/issues/134) | SOPS+age key create/import, project-level delivery, independent recovery kit |
+| 6. Browser workflows | [#128](https://github.com/OmarDardery/nixlab/issues/128) | Upload/edit/review/build/deploy/operate projects in Web UI |
+| 7. Declarative backup engine | [#129](https://github.com/OmarDardery/nixlab/issues/129) | One-time dynamic policy, comprehensive source and persistent-data coverage |
+| 8. Off-host backup destinations | [#130](https://github.com/OmarDardery/nixlab/issues/130) | GitHub SSH/source + encrypted Restic/Google Drive and separate recovery key |
+| 9. Final Arcane code retirement | [#126](https://github.com/OmarDardery/nixlab/issues/126) | No Arcane units/routes/settings/builds/installer; legacy guest data preserved and migration independently verified |
+| 10. Qualification | [#131](https://github.com/OmarDardery/nixlab/issues/131) | Exact-version install/update, real OCI/VM/USB, multi-service data restore on second host |
 
-The portal has no guest lifecycle/console/snapshot editor, application store or
-arbitrary script runner. Legacy guest CLI/API actions remain for compatibility.
-Docker and metrics history stay optional. NixLab does not ship
-application-specific guests or install recipes as core features.
+Documentation PR [#132](https://github.com/OmarDardery/nixlab/pull/132)
+and project evaluator PR [#136](https://github.com/OmarDardery/nixlab/pull/136)
+are **merged**. This does not mark the upload UI, build adapter, project
+deployment or backup automation as shipped. In-progress
+[#137](https://github.com/OmarDardery/nixlab/pull/137) deprecates new Arcane
+provisioning; [#138](https://github.com/OmarDardery/nixlab/pull/138) inventories
+legacy workloads before migration. Neither deletes guest data or completes #126.
 
-Source checks/Nix evaluation are distinct from live evidence. CI includes a real
-container/firewall/device-attachment/restore test and builds the helper runner.
-Simulated character devices do not certify physical USB. Community Scripts
-qualification targets remain unverified until live install/restore evidence exists.
+**Release barriers:** untrusted upload cannot execute Nix or Dockerfile
+during import; no Docker daemon or browser Incus socket; no unapproved guest
+stop/recreation/volume deletion; no plaintext credentials in Nix store/Git;
+file edits actually force a new build (Incus Compose caches by image alias);
+physical data and encrypted key material can be restored on a new machine.
+Every claim requires tests and provenance at the exact released revision.
 
-Before deployment, finish [commissioning](commissioning.md): actual installation,
-installation/reboot, physical Ethernet/VLAN access, management-loss rollback, hardware
-reconnect/reboot and an independent off-host restore. Cluster HA, automatic
-Proxmox conversion, graphical disk erasure, GPU/PCI qualification and PBS-format
-compatibility remain separate scopes.
+## Longer-term scope
 
-## Delivery gates
-
-The [existing roadmap](https://github.com/OmarDardery/nixlab/issues/19) remains
-the delivery authority: qualify the stable single-host beta first, then daily
-operations, complete single-node workflows, and finally optional multi-node
-capabilities. Missing physical, real-VM or independent-recovery evidence blocks
-the corresponding exit. Priorities below do not bypass those gates.
-
-These entries extend existing typed configuration, reviewed transactions and
-native tooling. Networking/HTTPS (#14), generic deployment patterns, secret
-rotation and multi-host inventory already have roadmap coverage; their entries
-below describe incremental capabilities rather than replacement implementations.
-
-## Declarative Lab Inventory — P1 · Core
-
-Prerequisites: qualified single-host release; existing typed configuration and
-ownership safeguards.
-
-Extend existing Nix configuration into a portable description of the lab.
-
-- Connect guests, roles, resources, dependencies and service metadata through logical references.
-- Separate portable definitions from host-specific network, disk and device assignments.
-- Generate versioned inventory exports without another configuration database.
-- Retain explicit adoption safeguards and native Incus ownership of undeclared resources.
-
-## GitOps & Reviewed Updates — P1 · Optional
-
-Prerequisites: inventory references; existing reviewed configuration transactions.
-
-Make configuration and workload updates reviewable, pinned and traceable to source revisions.
-
-- Support optional user-owned Git configuration without requiring Git for boot or recovery.
-- Connect commit diffs and update proposals to existing build/review/activate/confirm operations.
-- Record revision, deployment outcome and resulting system closure together.
-- Reuse image pinning and guest deployment; migrate legacy stacks explicitly, use Incus Compose for newly qualified project stacks, and distinguish configuration rollback from data recovery.
-
-## NixOS Guest Templates & Roles — P1 · Optional
-
-Prerequisites: inventory references; existing native NixOS module interfaces.
-
-Provide composable infrastructure roles using ordinary NixOS modules.
-
-- Extract reusable functionality from the existing applications/Docker guest.
-- Add base-server, reverse-proxy, VPN, monitoring and storage-client roles incrementally.
-- Define typed inputs and explicit networking, persistence and secret requirements.
-- Publish pinned, tested examples that remain editable native Nix configurations.
-
-## Secrets UX — P1/P2 · Optional
-
-Prerequisites: existing runtime-secret/SOPS support; independently recoverable keys.
-
-Extend existing secret handling with safe assignment and recipient-management workflows.
-
-- Provide named references and host/service assignments without displaying plaintext.
-- Support ciphertext-first creation/import through SOPS while retaining runtime-file-only configurations.
-- Stage recipient rotation with decryptability verification and recovery before retiring old recipients.
-- Validate permissions and prevent known-secret leakage into generated configuration, logs and exports.
-
-## Service Publishing — P2 · Optional · Extend #14
-
-Prerequisites: existing networking/access workflow; inventory and secret references.
-
-Extend planned DNS, proxy and HTTPS workflows with an owned, resumable publication lifecycle.
-
-- Add explicitly enabled DNS-provider adapters with scoped credentials and exact change previews.
-- Track partial completion across DNS, routing and certificates.
-- Restrict removal and rollback to resources NixLab owns.
-- Verify published endpoints before reporting success; public exposure remains opt-in and excludes management services.
-
-## Multi-Host Fleet Control — P2 · Optional · Extend #19
-
-Prerequisites: existing Milestone 3 exit criteria; inventory, roles, reviewed
-deployments and secret-recipient workflows.
-
-Coordinate independent NixLab hosts without making their operation depend on a controller.
-
-- Add explicit enrollment, per-host configuration and scoped deployment authority.
-- Coordinate staged deployments with offline and partial-failure reporting.
-- Support opt-in trusted remote Nix builders with explicit architecture and trust requirements.
-- Reuse maintained deployment tools and native Incus interfaces; defer HA, quorum, distributed storage and live migration to separate Milestone 4 qualification.
-
-## Application Blueprints — P2 · Optional · Extend generic patterns
-
-Prerequisites: guest roles; inventory references; reviewed configuration updates.
-
-Give generic NixOS and Compose templates a versioned, editable lifecycle.
-
-- Consume user-selected versioned templates and export ordinary Nix or Compose files.
-- Include persistence, secret-reference, ownership and compatibility requirements.
-- Preserve provenance and propose upgrade patches without overwriting local edits.
-- Reuse native Incus and qualified Incus Compose instead of Arcane; avoid another template language or application store.
-
-## Energy-Aware Fleet Policies — P3 · Stretch
-
-Prerequisites: independent-host fleet control; existing #18 power capabilities;
-dependency metadata.
-
-Use supported power observations to schedule noncritical workloads safely.
-
-- Show available power measurements and capabilities, including unknown or stale states.
-- Offer opt-in start/stop policies that respect critical services, dependencies and backups.
-- Preview effects and validate available wake mechanisms.
-- Measure energy savings and availability impact without implying migration or HA.
-
-## Delivery and validation
-
-Sequence inventory and role contracts before GitOps/secrets, then publishing and
-blueprint extensions, independent-host fleet control and finally energy policies.
-Keep later features behind the existing milestone exits. Reuse existing APIs,
-typed options and transaction records; add no competing module loader or mandatory
-daemon. Preserve custom modules, native resources, identities, disks and secrets.
-
-Each implementation needs focused acceptance criteria and a rollback procedure.
-Test inventory round trips and adoption refusal; role composition; interrupted
-updates and recipient rotation; publication ownership/partial failure; and fleet
-operation with unreachable hosts or an unavailable controller. Keep evidence tied
-to exact revisions. Builds, simulations and backups do not establish physical
-qualification or successful restoration.
+Only after this single-host contract is qualified: advanced host networking,
+optional service publishing, hardware integrations, energy policies and
+multi-host orchestration. They must reuse the existing review/ownership
+machinery and cannot introduce a competing declarative engine, backup system,
+container daemon or management UI.
