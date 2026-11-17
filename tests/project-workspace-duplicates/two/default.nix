@@ -1,0 +1,1 @@
+{ ... }: { nixlab.project.name = "duplicate"; }
