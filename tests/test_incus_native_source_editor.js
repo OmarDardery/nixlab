@@ -84,7 +84,7 @@ async function main() {
     "build/private.key", "context\\invalid", "nested/../Dockerfile", "x//y",
     Array.from({length: 13}, (_, i) => "f" + i).join("/"), "files/名前"]) {
     context.bad = {name: bad};
-    assert.throws(() => read("nativeSourcePath(bad)"), Error, "Reject " + bad);
+    assert.throws(() => read("nativeSourcePath(bad)"), /source path|credential|metadata|unsafe/i, "Reject " + bad);
   }
   context.good = {name: "sample/.env.template"};
   assert.equal(read("nativeSourcePath(good)"), "sample/.env.template");
