@@ -64,6 +64,27 @@ jobs:
           python3 -c 'import json; checks=json.load(open("/tmp/nixlab-migration.json")); assert checks and all(checks.values()), checks'
           nix-instantiate --eval --strict --json site.nix > /tmp/nixlab-desired.json
           python3 -c 'import json; assert json.load(open("/tmp/nixlab-desired.json"))["schemaVersion"] == 1'
+      - name: Validate isolated declarative project workspaces
+        run: |
+          python3 scripts/project_workspace.py tests/project-workspace --unlocked-template > /tmp/nixlab-project-source.json
+          nix eval --json .#nixlabProjectChecks > /tmp/nixlab-project-inventory.json
+          nix eval --json .#nixlabProjectValidationChecks > /tmp/nixlab-project-negative.json
+          python3 - <<'PY'
+          import json
+          inventory = json.load(open('/tmp/nixlab-project-inventory.json'))
+          negative = json.load(open('/tmp/nixlab-project-negative.json'))
+          source = json.load(open('/tmp/nixlab-project-source.json'))
+          assert inventory['schemaVersion'] == 1
+          assert sorted(inventory['projects']) == ['alpha', 'beta']
+          assert inventory['projects']['alpha']['backend'] == 'incus-compose'
+          assert inventory['projects']['alpha']['resources']['cpus'] == 3
+          assert inventory['projects']['alpha']['secrets']['file'] == 'secrets.enc.yaml'
+          assert inventory['projects']['alpha']['modules'] == ['modules/nested/resources.nix', 'modules/network.nix']
+          assert inventory['projects']['beta']['backup']['consistency'] == 'quiesce'
+          assert source['projects']['alpha']['modules'] == [
+              'alpha/modules/nested/resources.nix', 'alpha/modules/network.nix']
+          assert all(negative.values()), negative
+          PY
       # Fail native lifecycle/network recovery early, before larger guest images.
       - name: Qualify the actual pinned Arcane runtime and persisted Compose data
         run: |
