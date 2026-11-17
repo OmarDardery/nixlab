@@ -88,20 +88,9 @@ jobs:
           assert all(negative.values()), negative
           PY
       # Fail native lifecycle/network recovery early, before larger guest images.
-      - name: Qualify the actual pinned Arcane runtime and persisted Compose data
-        run: |
-          image="$(nix eval --raw .#nixlabDefaults.apps.arcaneImage)"
-          nix shell --inputs-from . nixpkgs#skopeo --command skopeo --override-os linux --override-arch amd64 copy --format oci "docker://$image" "oci-archive:$RUNNER_TEMP/arcane-runtime.tar"
-          export NIXLAB_ARCANE_ARCHIVE="$RUNNER_TEMP/arcane-runtime.tar"
-          export NIXLAB_ARCANE_IMAGE="$(python3 -c 'import json,os,tarfile; a=tarfile.open(os.environ["NIXLAB_ARCANE_ARCHIVE"]); print(json.load(a.extractfile("index.json"))["manifests"][0]["digest"])')"
-          nix build --impure --no-link -L --expr '
-            let flake = builtins.getFlake (builtins.getEnv "PWD");
-                pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; };
-            in import ./tests/arcane-vm.nix {
-              inherit pkgs;
-              arcaneArchive = builtins.path { path = builtins.toPath (builtins.getEnv "NIXLAB_ARCANE_ARCHIVE"); name = "arcane-runtime.tar"; };
-              arcaneImage = builtins.getEnv "NIXLAB_ARCANE_IMAGE";
-            }'
+      - name: Report Incus-native source migration progress
+        run: python3 scripts/incus_native_audit.py
+      # The retired Arcane runtime is deliberately not a release qualification.
       - name: Verify real restic integrity checks and corruption detection
         run: |
           nix build .#checks.x86_64-linux.backup-verification --no-link -L
