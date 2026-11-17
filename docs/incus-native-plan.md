@@ -6,14 +6,14 @@ No phase is complete merely because its source exists: it requires VM/system tes
 ## Phase 0 — Source and contract (first, mandatory)
 - [x] Create branch from pre-Portainer ancestor; create immutable named backup for old `main`.
 - [x] Produce goal, structure, upgrade safeguards and per-file COPY/TRANSLATE/REMOVE manifest.
-- [ ] Restore only relevant current-source modules with provenance; remove obsolete app VM and Arcane code.
-- [ ] After baseline docs exist and old main is backed up, reset `main` with a checked expected SHA (destructive repository reference change requested by maintainer). Document update outage while this branch is incomplete.
+- [x] Transplant the archived main snapshot with source provenance; **legacy modules are still being translated and must be removed before release**.
+- [x] Reset `main` to the original pre-Portainer SHA with a checked expected SHA, after archiving the old main. **Installation and update from main are unavailable until a qualified merge.**
 
 ## Phase 1 — Web UI first
-- [ ] Transplant existing portal frontend + auth/CSRF backend, preserving Web UI design/accessibility.
-- [ ] Remove Arcane UI/cards/redirects/proxy; introduce projects list/import/file tree (byte exact), review/deploy/log/recovery statuses.
+- [x] Transplant existing portal frontend + auth/CSRF backend and add an authenticated read-only declarative source inventory (not yet a deployer).
+- [ ] Native Projects navigation and source checksum preview are implemented; full upload/editor, deploy/logs/revisions, and removal of host-side legacy proxies remain open.
 - [ ] Project uploads are bounded and are **not** executed or stored in the Nix store when plaintext secrets are present.
-- [ ] Browser and permission tests cover first admin account, no credentials printed during setup, upload drift, authorization and secret redaction.
+- [ ] Browser tests now cover native project navigation and read-only source boundaries; first-admin, upload drift, secret authorization, and end-to-end deploy tests still required.
 
 ## Phase 2 — NixOS/Incus host baseline
 - [ ] Port flake, module graph and installer from archived `main`; exclude old Docker VM entirely.
