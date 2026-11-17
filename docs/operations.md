@@ -13,59 +13,93 @@ The installer configures and verifies Incus, Cockpit and the Arcane VM, preserve
 installed data and resumes interrupted work. The [commissioning checklist](commissioning.md)
 covers target-machine acceptance.
 
-## Project source transactions (first implementation stage of #135)
+## Project transactions and bounded native Incus apply (#135)
 
-NixLab can now review and **publish project Nix source revisions without
-rebuilding NixOS or mutating Incus**. This is **not** application deployment:
-there is not yet a qualified project-to-Incus reconciliation adapter (#133),
-source OCI builder (#139), or complete projects editor (#128). The only
-approved operation is publishing root-owned project **source** under
-`/srv/nixlab/projects`. The workspace must already have a pinned
-`flake.nix` and `flake.lock` and pass project-workspace filesystem checks.
+NixLab supports **separate project-only review, publication and guarded
+deployment** without `nixos-rebuild`. Project changes do not modify
+`/etc/nixos` or NixOS host generations. They use the existing privileged
+transaction broker and global mutation lock; guest operations remain
+explicit, and only a strictly qualified subset is currently mutable.
 
-A root operator can provide up to sixteen relative Nix file edits in one
-bounded JSON object; a `null` value deletes a non-entrypoint module:
+The independent workspace at `/srv/nixlab/projects` must already contain
+a valid, pinned `flake.nix` and `flake.lock`. Its locked inputs must be
+cached by an administrator before a restricted evaluation: the evaluation
+worker runs **offline**. Project files are intentionally **public Nix source**:
+the broker verifies their manifest, adds only these non-secret/SOPS-encrypted
+files to the world-readable Nix store, then evaluates them in an unprivileged
+systemd transient unit with network access, the Nix daemon/Incus sockets,
+privileged host secrets, root home, and import-from-derivation blocked.
+An evaluator failure aborts the review; there is no root fallback.
+
+A local root operator can stage up to 16 reviewed `default.nix` or recursive
+`modules/**/*.nix` text edits using a bounded JSON object. Use `null` to
+remove a non-entrypoint module (not a project/guest):
 
 ```json
 {
-  "alpha/modules/network.nix": "{ ... }: { nixlab.project.enable = false; }"
+  "klipper/modules/limits.nix": "{ ... }: { nixlab.project.resources.memory = \"2GiB\"; }"
 }
 ```
 
 ```sh
-sudo nixlab-admin projects review --changes /root/approved-project-edits.json
+sudo nixlab-admin projects review --changes /root/project-edits.json
 sudo nixlab-admin projects status
 sudo nixlab-admin projects publish --id REVIEW_ID --plan-hash PLAN_SHA256
+# Apply only when reviewed runtime actions are supported and the source is published:
+sudo nixlab-admin projects deploy --id REVIEW_ID --plan-hash PLAN_SHA256
 sudo nixlab-admin projects status
-# If a source-only publication must be reversed:
+# Explicit recovery of a partial/interruptible deployment:
+sudo nixlab-admin projects deploy --id REVIEW_ID --plan-hash PLAN_SHA256 --resume
+# Source-only rollback (when no runtime mutation requires a forward migration):
 sudo nixlab-admin projects rollback --id REVIEW_ID --plan-hash PLAN_SHA256
-# After a power cut or interrupted directory exchange:
+# Interrupted source atomic exchange:
 sudo nixlab-admin projects recover --id REVIEW_ID
 ```
 
-The `review` result includes a 15-minute expiration, exact base and candidate
-SHA-256 manifests, redacted path-level change summary and a plan digest.
-The operator must compare the reviewed paths/digest before publishing. The
-same root broker serves `/api/project/{review,publish,rollback,cancel,recover}`
-and `GET /api/project/status`; web mutations require an authenticated
-administrator, valid session CSRF, acknowledgment that Nix is privileged
-code, and their current portal password. No frontend upload/editor controls
-have been released yet.
+The browser uses the same authenticated root-broker endpoints
+`/api/project/{review,publish,deploy,rollback,cancel,recover}` and
+`GET /api/project/status`. All mutations require an administrator, CSRF,
+their current password and explicit acknowledgment that project Nix is
+privileged source. The browser **upload/editor interface** is tracked by #128;
+Dockerfile/Compose import/builds by #139.
 
-The implementation uses the existing NixLab global mutation lock, private
-transaction journal, no-follow filesystem snapshots, pinned lock validation,
-syntax parsing without Nix expression evaluation, and **atomic Linux directory
-exchange** for publication and source rollback. If publication stops midway,
-the previous source remains on disk and can be reconciled by the explicit
-recovery command. It deliberately does not evaluate or run untrusted Nix,
-download flake inputs, execute Dockerfiles, modify host configuration, create
-or restart guests, change secrets, or roll back application data.
+### Supported Incus runtime changes at this stage
 
-**Do not interpret `published-source` as a deployed or healthy application.**
-Do not manually delete the hidden `.nixlab-project-*` recovery trees or
-transaction journals before independent backup and an audited retention
-mechanism are available. Physical NixOS/Incus/project recovery qualification
-is tracked in #131.
+The first adapter can change **only CPU and memory limits on an existing,
+already NixLab-owned native Incus container or VM** that has a valid
+`user.nixlab.last-applied` record and an explicit `instance/NAME`
+ownership claim. It reuses `reconcile.py` and conditional Incus ETags,
+checks fresh desired-versus-observed state again immediately before applying,
+and records each resource's verified result. Unchanged resources are not
+restarted or rewritten. If the worker crashes, the journal is marked
+interrupted and an administrator can explicitly resume after new integrity
+checks. A write whose completion is uncertain is never blindly repeated.
+
+Project creation, VM images, USB devices, network and volume changes,
+unmanaged-resource adoption, deletion and Incus Compose deployments are
+**deliberately refused** until #133 and #139 qualify their adapters.
+Per-project secret delivery remains #134. No project operation ever implicitly
+deletes/overwrites existing volumes, stops legacy Arcane guests, or recreates
+instances. A source rollback **does not** restore an application's disks,
+database, or previously applied Incus configuration; changes requiring
+runtime reversal must be handled through a new forward-reviewed desired
+state and a separate backup/restore plan.
+
+Source publication uses Linux `renameat2(RENAME_EXCHANGE)` so the workspace
+path remains present across a crash. The previous source snapshot and
+transaction journal are kept for explicit recovery. Status
+`published-source` means only the source is published; runtime status is
+tracked separately as `not-started`, `queued`, `applying`, `partial`,
+`interrupted` or `verified`. `verified` currently proves the reviewed
+native resource configuration, **not** end-to-end application health or
+database recovery.
+
+**Safety:** Nix source in the Nix store must contain no plaintext passwords,
+API keys, SSH private keys or decrypted environment files. Host/guest data
+and encrypted keys remain outside the workspace. Keep all hidden
+`.nixlab-project-*` recovery directories and transaction journals until
+a verified retention and off-host backup policy exists. Physical Incus/USB
+and independent application-data restore qualification belongs to #131.
 
 ## Daily work
 
