@@ -1,5 +1,6 @@
 """Browser QA against simulated inventory/API; never performs host operations."""
 import argparse
+import base64
 import copy
 import functools
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -47,6 +48,24 @@ def main():
                     route.fulfill(status=401, json={'error': 'Sign in to continue'}); return
                 if route.request.method == 'POST':
                     body = route.request.post_data_json; submitted.append((endpoint, body))
+                    if endpoint == 'project-import/prepare':
+                        assert body['project'] == 'qa-app'
+                        assert body['current'] == 'disposable-ui-fixture-password'
+                        assert [f['path'] for f in body['files']] == ['Dockerfile']
+                        route.fulfill(json={'id': 'f'*32, 'manifestHash': 'b'*64, 'status': 'uploading'})
+                        return
+                    if endpoint == 'project-import/chunk':
+                        assert body['path'] == 'Dockerfile' and body['id'] == 'f'*32
+                        raw = base64.b64decode(body['data'], validate=True)
+                        assert raw.startswith(b'FROM scratch\n')
+                        route.fulfill(json={'id': 'f'*32, 'path': 'Dockerfile',
+                                           'offset': body['offset'] + len(raw)})
+                        return
+                    if endpoint == 'project-import/finish':
+                        assert body['id'] == 'f'*32 and body['manifestHash'] == 'b'*64
+                        route.fulfill(json={'id': 'f'*32, 'project': 'qa-app', 'status': 'ready',
+                                           'manifestHash': 'b'*64, 'files': 1})
+                        return
                     if endpoint == 'browser-certificate':
                         record = {'name': 'nixlab-browser-ui-000000000000', 'device': body['device'],
                                   'fingerprint': 'a' * 64, 'restricted': not body.get('fullAdmin', False),
@@ -298,7 +317,16 @@ def main():
             })
             page.wait_for_function("nativeSourcePreflight.files.length === 1 && !nativeSourcePreflight.scanning")
             assert page.locator('code').filter(has_text='Dockerfile').count() == 1
-            assert page.get_by_text('Local preview only. Original bytes have not been uploaded or deployed.', exact=True).count() == 1
+            assert page.get_by_text('Selected original bytes are only in this browser until an administrator explicitly stages them.', exact=True).count() == 1
+            assert not [endpoint for endpoint, _ in submitted if endpoint.startswith('project-import')], 'Preview must never stage automatically'
+            page.locator('#native-import-project').fill('qa-app')
+            page.locator('#native-import-password').fill('disposable-ui-fixture-password')
+            page.get_by_role('button', name='Stage exact source bytes').click()
+            page.wait_for_function("nativeImportState.result?.status === 'ready'")
+            assert page.locator('#native-import-password').input_value() == '' or page.locator('#native-import-password').count() == 0
+            assert [endpoint for endpoint, _ in submitted if endpoint.startswith('project-import')] == [
+                'project-import/prepare', 'project-import/chunk', 'project-import/finish']
+            assert page.get_by_text('No OCI build or Incus deployment has run.', exact=False).count() >= 1
             assert not [endpoint for endpoint, _ in submitted if endpoint in ('project-upload', 'project-deploy')], 'Preview must not dispatch deployment'
             assert not errors, errors
             assert not [url for url in requests if not url.startswith(('http://127.0.0.1:', 'blob:http://127.0.0.1:'))], 'Private console assets must stay local'
