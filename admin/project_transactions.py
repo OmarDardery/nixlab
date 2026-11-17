@@ -235,6 +235,10 @@ class ProjectTransactions:
             self._root_state()
             self._active()
             live = _workspace(self.workspace)
+            # The workspace validator intentionally ignores .git internals.
+            # Never swap a directory tree that would silently discard them.
+            if (live / ".git").exists() or (live / ".git").is_symlink():
+                raise ValueError("Move Git metadata outside the managed workspace before reviewing project changes")
             before = validate_workspace(live)
             identity = secrets.token_hex(16)
             directory = self.jobs / identity
