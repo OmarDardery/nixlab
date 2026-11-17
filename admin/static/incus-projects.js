@@ -7,7 +7,8 @@ let nativeSelectedFiles = [];
 let nativePreviewSerial = 0;
 const nativeSourceEditor = {path: "", text: "", error: ""};
 const NATIVE_MAX_EDIT_BYTES = 1024 * 1024;
-const nativeImportState = {busy: false, result: null, error: ""};
+const nativeImportState = {busy: false, result: null, review: null, published: null, error: ""};
+const nativePublishedInventory = {loaded: false, loading: false, projects: [], error: ""};
 const nativePersistedSource = {loaded: false, loading: false, value: null};
 const NATIVE_MAX_FILES = 64;
 const NATIVE_MAX_BYTES = 32 * 1024 * 1024;
@@ -72,7 +73,39 @@ function nativeProjectPage() {
       '</b> as immutable import <code>' + esc(nativeImportState.result.id) +
       '</code> (manifest <code>' + esc(nativeImportState.result.manifestHash) +
       '</code>). No OCI build or Incus deployment has run.</p>'
-    : '<p class="note">Only source upload is supported here; publishing to a project, execution and resource apply are not yet available.</p>';
+    : '<p class="note">Select files and reauthenticate to stage a private import without running code.</p>';
+  const published = nativePublishedInventory.loading
+    ? '<p>Loading published source revisions…</p>'
+    : nativePublishedInventory.error
+      ? '<p class="error">' + esc(nativePublishedInventory.error) + '</p>'
+      : nativePublishedInventory.projects.length
+        ? nativePublishedInventory.projects.map(item =>
+            '<div class="service-row"><b>' + esc(item.project) + '</b><code>' +
+            esc(item.revision) + '</code></div>').join('')
+        : '<p>No project source revisions published yet.</p>';
+  const review = nativeImportState.review;
+  const diff = review?.changes || {added: [], modified: [], removed: []};
+  const changes = ['added', 'modified', 'removed'].map(kind =>
+    '<p><b>' + esc(kind) + ' (' + diff[kind].length + ')</b>: ' +
+    esc(diff[kind].join(', ') || 'none') + '</p>').join('');
+  const reviewPanel = nativeImportState.published
+    ? '<p role="status">Published inert source revision <code>' +
+      esc(nativeImportState.published.revision) +
+      '</code>. Existing revisions are preserved. No build or Incus change occurred.</p>'
+    : review
+      ? '<p>Review <code>' + esc(review.reviewId) + '</code> · ' + esc(review.fileCount) +
+        ' files · ' + esc(review.bytes) + ' bytes</p>' +
+        '<p>Previous: <code>' + esc(review.baseRevision || 'none') +
+        '</code> · Proposed: <code>' + esc(review.revision) + '</code></p>' + changes +
+        '<p class="note">This is a source-only publication. It does not create an Incus project, evaluate Nix, build an image or deploy anything.</p>' +
+        '<label class="field"><span>Current administrator password</span><input id="native-publish-password" type="password" autocomplete="current-password"></label>' +
+        '<label><input id="native-publish-ack" type="checkbox"> Publish this exact reviewed source revision</label>' +
+        '<button type="button" id="native-publish-source"' + (nativeImportState.busy ? ' disabled' : '') +
+        '>Publish source only</button>'
+      : nativeImportState.result
+        ? '<button type="button" id="native-review-source"' + (nativeImportState.busy ? ' disabled' : '') +
+          '>Review source publication</button>'
+        : '<p class="note">Stage files first, then review the immutable revision before publication.</p>';
   const manifest = nativeSourcePreflight.files.length
     ? '<div class="table-wrap"><table><thead><tr><th>Original path</th><th>Bytes</th><th>SHA-256</th><th>Optional edit</th></tr></thead><tbody>' +
       nativeSourcePreflight.files.map(f => '<tr><td><code>' + esc(f.path) + '</code></td><td>' +
@@ -98,6 +131,7 @@ function nativeProjectPage() {
       message + (rows ? '<div class="table-wrap"><table><thead><tr><th>Project</th><th>Guests</th><th>Observed state</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '') +
       '<p><a href="/docs/incus-native-architecture.md">Runtime and ownership contract</a></p>') +
     card("Published declarative source (read-only)", workspace) +
+    card("Published application source revisions (not deployed)", published) +
     card("Preview original application files locally",
       '<p>Preview Dockerfiles, Compose YAML and related build-context files without executing them. Relative paths and exact SHA-256 digests remain visible.</p>' +
       '<label class="field"><span>Choose files</span><input id="native-source-files" type="file" multiple' + (nativeImportState.busy ? ' disabled' : '') + '></label>' +
@@ -111,8 +145,9 @@ function nativeProjectPage() {
       '<button type="button" id="native-import-stage"' + (nativeSourcePreflight.files.length && !nativeImportState.busy ? '' : ' disabled') + '>Stage exact source bytes</button>' +
       (nativeImportState.busy ? '<p role="status">Transferring verified source chunks…</p>' : '') +
       (nativeImportState.error ? '<p role="alert" class="error">' + esc(nativeImportState.error) + '</p>' : '') + upload) +
+    card("Review and publish staged source", reviewPanel) +
     card("Declarative deployment",
-      '<p>Source staging is available, but OCI building, secrets, reviewed publication, managed deployment, revisions and backups require the privileged deployment adapter and recovery tests.</p>' +
+      '<p>Versioned source publication does not deploy anything. OCI building, secrets, approved Incus apply, rollback and data backups require the privileged deployment adapter and recovery tests.</p>' +
       '<p><a href="/docs/incus-native-plan.md">Implementation phases</a></p>');
 }
 async function nativePreviewFiles(files) {
@@ -124,6 +159,8 @@ async function nativePreviewFiles(files) {
   nativeSourcePreflight.files = [];
   nativeSelectedFiles = [];
   nativeImportState.result = null;
+  nativeImportState.review = null;
+  nativeImportState.published = null;
   nativeImportState.error = "";
   nativeSourcePreflight.error = "";
   nativeSourcePreflight.scanning = true;
@@ -232,6 +269,8 @@ async function nativeStageSource() {
   nativeImportState.busy = true;
   nativeImportState.error = "";
   nativeImportState.result = null;
+  nativeImportState.review = null;
+  nativeImportState.published = null;
   if (state.page === "projects") shell();
   try {
     if (!/^[a-z][a-z0-9-]{0,62}$/.test(project || "")) throw Error("Use a lowercase project slug.");
@@ -261,6 +300,53 @@ async function nativeStageSource() {
     if (state.page === "projects") shell();
   }
 }
+async function nativeReviewSource() {
+  if (nativeImportState.busy || !nativeImportState.result || nativeImportState.published) return;
+  nativeImportState.busy = true;
+  nativeImportState.error = "";
+  nativeImportState.review = null;
+  if (state.page === "projects") shell();
+  try {
+    nativeImportState.review = await api("project-import/review", {
+      id: nativeImportState.result.id, manifestHash: nativeImportState.result.manifestHash,
+    });
+  } catch (error) {
+    nativeImportState.error = error.message || "Could not prepare source publication review.";
+  } finally {
+    nativeImportState.busy = false;
+    if (state.page === "projects") shell();
+  }
+}
+
+async function nativePublishSource() {
+  const review = nativeImportState.review;
+  const staged = nativeImportState.result;
+  if (nativeImportState.busy || !review || !staged || nativeImportState.published) return;
+  const password = document.getElementById("native-publish-password");
+  const current = password?.value;
+  if (password) password.value = "";
+  const acknowledge = document.getElementById("native-publish-ack")?.checked === true;
+  nativeImportState.busy = true;
+  nativeImportState.error = "";
+  if (state.page === "projects") shell();
+  try {
+    if (!acknowledge) throw Error("Acknowledge the exact source revision before publishing.");
+    if (!current) throw Error("Reauthenticate with your current administrator password.");
+    nativeImportState.published = await api("project-import/publish", {
+      id: staged.id, reviewId: review.reviewId, acknowledge, current,
+    });
+    nativeImportState.review = null;
+    nativePublishedInventory.loaded = false;
+  } catch (error) {
+    nativeImportState.error = error.message || "Publication rejected; the previous revision is unchanged.";
+    // Force a new review on failure (including concurrent revision drift).
+    nativeImportState.review = null;
+  } finally {
+    nativeImportState.busy = false;
+    if (state.page === "projects") shell();
+  }
+}
+
 function bindNativeProjects() {
   if (!nativePersistedSource.loaded && !nativePersistedSource.loading) {
     nativePersistedSource.loading = true;
@@ -274,8 +360,27 @@ function bindNativeProjects() {
       if (state.page === "projects") shell();
     });
   }
+  if (!nativePublishedInventory.loaded && !nativePublishedInventory.loading) {
+    nativePublishedInventory.loading = true;
+    void api("project-imports").then(value => {
+      nativePublishedInventory.projects = Array.isArray(value?.projects) ? value.projects : [];
+      nativePublishedInventory.error = "";
+    }).catch(() => {
+      nativePublishedInventory.error = "Published source inventory is unavailable.";
+    }).finally(() => {
+      nativePublishedInventory.loading = false;
+      nativePublishedInventory.loaded = true;
+      if (state.page === "projects") shell();
+    });
+  }
   document.querySelector("#native-import-stage")?.addEventListener("click", () => {
     void nativeStageSource();
+  });
+  document.querySelector("#native-review-source")?.addEventListener("click", () => {
+    void nativeReviewSource();
+  });
+  document.querySelector("#native-publish-source")?.addEventListener("click", () => {
+    void nativePublishSource();
   });
   for (const button of document.querySelectorAll("[data-native-edit]")) {
     button.addEventListener("click", () => { void nativeOpenSourceEditor(button.dataset.nativeEdit); });
