@@ -374,10 +374,12 @@ control plane, GitHub SSH service or the failed host itself.
    one-time backup wizard, source/data discovery and existing restic integration;
    [#130](https://github.com/OmarDardery/nixlab/issues/130):
    GitHub deploy keys and Google Drive rclone storage.
-7. [#131](https://github.com/OmarDardery/nixlab/issues/131):
-   independent key/source/data restore qualification; complete safe legacy
-   [#126](https://github.com/OmarDardery/nixlab/issues/126) Arcane retirement
-   only once the replacement is proven for migrated workloads.
+7. [#126](https://github.com/OmarDardery/nixlab/issues/126):
+   final Arcane retirement after **pre-cutover** proven project, data and key
+   backup/restore trials; preserve legacy workloads until explicit migration.
+8. [#131](https://github.com/OmarDardery/nixlab/issues/131):
+   final exact-revision Arcane-free new-install, physical-host and independent
+   restore qualification **after** the runtime removal.
 
 Acceptance requires: new project appears on next `nix eval`; project-only
 update does not rebuild host; idempotent reapply; drift refusal; secret-free
