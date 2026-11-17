@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 
 import reconcile
@@ -64,6 +65,10 @@ def evaluate(source, identity):
     if not isinstance(identity, str) or not re.fullmatch(r"[0-9a-f]{32}", identity):
         raise ValueError("Invalid reviewed source identity")
     store_path = _cached_source(Path(source))
+    # systemd-run does not inherit the broker's shell command lookup policy.
+    # Execute Nix by its absolute, installed store path instead of trusting
+    # unit PATH or searching for binaries provided by the user workspace.
+    nix_binary = shutil.which("nix") or "/run/current-system/sw/bin/nix"
     unit = "nixlab-project-eval-" + identity
     command = [
         "systemd-run", "--pipe", "--wait", "--collect", "--quiet",
@@ -87,7 +92,7 @@ def evaluate(source, identity):
         "--property=InaccessiblePaths=-/var/lib/incus -/var/lib/nixlab-secrets -/etc/nixlab -/run/nix -/nix/var/nix/daemon-socket",
         "--setenv=HOME=/tmp",
         "--setenv=NIX_REMOTE=local",
-        "--", "nix", "--extra-experimental-features", "nix-command flakes",
+        "--", nix_binary, "--extra-experimental-features", "nix-command flakes",
         "eval", "--json", "--offline", "--no-write-lock-file",
         "--no-accept-flake-config",
         "--option", "restrict-eval", "true",
