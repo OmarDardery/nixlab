@@ -105,7 +105,7 @@ def check_idle(state, allow_project=None):
     active = rt.read_json(state / 'deployment-active.json')
     if active: raise ValueError('Finish or resume the active guest deployment before changing host configuration')
     project = rt.read_json(state / 'project-deploy-active.json')
-    if project: raise ValueError('Finish or resume the active project deployment before changing host configuration')
+    if project and project.get('id') != allow_project: raise ValueError('Finish or resume the active project deployment before changing host configuration')
 
 
 class Deployments:
