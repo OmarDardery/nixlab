@@ -179,19 +179,28 @@ sources without explicitly distinguishing them.
    display user uploads separately from generated Nix/Compose overrides.
    The candidate is immutable before approval and its revision/ownership
    digest is checked again at apply.
-4. **Build** → use a version-pinned **Buildah/Podman** builder under an
-   isolated, disposable, resource-limited worker or guest. No Docker daemon,
-   host filesystem, host user credentials or direct Incus socket in untrusted
-   build context. Apply network/registry policy, time/disk/CPU caps, and
-   prohibit privileged builder escape routes. Build failures preserve the
-   current deployed revision and volumes.
-5. **Import/deploy** → pinned Incus Compose copies the built OCI image into
-   the Incus project. Use an explicit project/service/revision-scoped image
-   alias and pinned build/source hash. Do **not** rely on Incus Compose's
-   alias-only shared cache to notice changed Dockerfiles or build contexts.
-   Rebuild using `--build` or a changed immutable alias. Record built image
-   digest and the source that produced it. Recreating an OCI instance is an
-   explicit outage/impact, not application-data rollback.
+4. **Build** → run version-pinned **Buildah/Podman** inside a
+   disposable, resource-limited build worker or guest. The worker receives
+   **only the frozen build context** and approved nonsecret build arguments,
+   **not** host credentials, Incus API/socket, project age key or host
+   filesystem. It produces an OCI image archive plus source/image hashes,
+   stdout/stderr filtered for secrets, and build provenance. Apply controlled
+   registry/network access and CPU/memory/disk/time limits. Build failure
+   leaves the previous running revision/volumes intact.
+5. **Trusted image import/deploy** → the NixLab broker **outside the build
+   worker** validates and imports the OCI artifact into an Incus image/project
+   cache under an explicit `project/service/source-hash` identity. Then pinned
+   Incus Compose applies the **original Compose plus a separately reviewed,
+   generated image-alias override**, using `--no-build` so it never
+   accidentally executes a Dockerfile with unsandboxed host credentials.
+   Qualify the exact Incus Compose image/import and override workflow with
+   integration tests. Alternatively, a `INCUS_COMPOSE_BUILDER` adapter may
+   be used **only if it enforces the same isolated build/attested artifact
+   handoff**; simply running Incus Compose `up --build` on the host is not
+   a sufficient security boundary. Do **not** rely on the adapter's
+   alias-only cache to notice changed Dockerfiles or contexts. Show whether
+   imported images trigger service instance recreation and a real outage;
+   persistent volumes/data must survive recreation.
 6. **Observe** → record actual health, status and deployment revision,
    visible without browser access to the Incus socket. Incus owns runtime
    operation. Built-image provenance and any unsupported feature are visible.
