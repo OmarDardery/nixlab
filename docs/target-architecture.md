@@ -174,11 +174,11 @@ distinct statuses.
 
 ## Implementation and release gates
 
-1. [#126](https://github.com/OmarDardery/nixlab/issues/126) — retire Arcane/Docker apps VM safely.
-2. [#127](https://github.com/OmarDardery/nixlab/issues/127) — independent project root, Nix evaluation and transactional file/revision ownership.
-3. [#128](https://github.com/OmarDardery/nixlab/issues/128) — Incus/Incus Compose project Web UI.
-4. [#129](https://github.com/OmarDardery/nixlab/issues/129) — generated declarative backup policy, all-managed discovery and restores.
-5. [#130](https://github.com/OmarDardery/nixlab/issues/130) — GitHub SSH source sync and encrypted Google Drive data transfer.
+1. [#127](https://github.com/OmarDardery/nixlab/issues/127) — independent project root, Nix evaluation and transactional file/revision ownership.
+2. [#128](https://github.com/OmarDardery/nixlab/issues/128) — Incus/Incus Compose project Web UI and migration destination.
+3. [#129](https://github.com/OmarDardery/nixlab/issues/129) — generated declarative backup policy, all-managed discovery and restores.
+4. [#130](https://github.com/OmarDardery/nixlab/issues/130) — GitHub SSH source sync and encrypted Google Drive data transfer.
+5. [#126](https://github.com/OmarDardery/nixlab/issues/126) — finish Arcane/Docker apps-VM retirement **only after** protected migration and recovery are available.
 6. [#131](https://github.com/OmarDardery/nixlab/issues/131) — exact-revision, physical, legacy-upgrade and independent-restore qualification.
 
 This target supersedes contrary Arcane, Docker-apps and Portainer statements
