@@ -1,0 +1,64 @@
+'use strict';
+// Regression checks for the redesigned shell without requiring a browser or live host.
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const path = require('node:path');
+const root = path.join(__dirname, '../admin/static');
+const source = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+const bootstrap = source.lastIndexOf('\n(async () =>');
+assert.ok(bootstrap > 0);
+const context = vm.createContext({document:{querySelector:()=>({})},setInterval:()=>0,URL});
+for (const name of ['projects.js', 'foundation.js', 'operations.js', 'commands.js'])
+  vm.runInContext(fs.readFileSync(path.join(root, name), 'utf8'), context);
+vm.runInContext(source.slice(0, bootstrap), context);
+const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/defaults.json'), 'utf8'));
+context.fixture = fixture;
+vm.runInContext(`
+state.status = {settings: copy(fixture),setupComplete:true,codeOverrides:[],job:null};
+state.host = {kvm:true,interfaces:[],disks:[],serialDevices:[],helpers:{sources:{},applications:[]}};
+state.draft = copy(fixture);
+state.principal = {username:'admin',role:'admin'};
+state.page = 'overview';
+`, context);
+const ids = JSON.parse(vm.runInContext('JSON.stringify(pages.map(([id])=>id))', context));
+for (const id of ['overview','guests','network','storage','hardware','integrations','security','accounts','ingress','operations','review','system','files','commands'])
+  assert.ok(ids.includes(id), 'Missing redesigned route: ' + id);
+const nav = vm.runInContext('navigationHtml()', context);
+for (const id of ids) assert.ok(nav.includes('data-go="' + id + '"'));
+assert.ok(nav.includes('aria-current="page"'), 'Current page should be announced.');
+assert.equal(vm.runInContext('stagedCount()', context), 0);
+vm.runInContext("state.draft.management.address='192.0.2.110';state.draft.hostName='sample-host';",context);
+assert.equal(vm.runInContext('stagedCount()',context), 2);
+assert.ok(vm.runInContext('stagedBanner()',context).includes('2 staged changes'));
+const guest = vm.runInContext("state.page='guests';renderPage()",context);
+assert.ok(guest.includes('Guests & addresses'));
+assert.ok(!guest.includes('data-guest-action'), 'Guest mutations belong in Incus, not the NixLab portal.');
+const storage = vm.runInContext("state.page='storage';renderPage()",context);
+assert.ok(storage.includes('Detected drives') && storage.includes('Declared mounts'));
+const access = vm.runInContext("state.page='security';security()",context);
+assert.ok(access.includes('Create an Incus browser identity'));
+assert.ok(!access.includes('Cloudflare Tunnel'), 'Ingress configuration must live on its dedicated page.');
+const ingress = vm.runInContext("state.page='ingress';ingressPage()",context);
+assert.ok(ingress.includes('data-path="tunnel.enable"'));
+assert.ok(ingress.includes('data-ingress'));
+assert.ok(!ingress.includes('certificate-passphrase'));
+const ready = vm.runInContext("state.page='review';state.status.job={id:'a'.repeat(32),status:'ready',guestPlan:{targets:[]}};deploymentTimeline()",context);
+assert.ok(ready.includes('aria-current="step"') && ready.includes('Activate host'));
+const confirmed = vm.runInContext("state.status.job.status='confirmed';deploymentTimeline()",context);
+assert.ok(confirmed.includes('Deploy guests') && confirmed.includes('complete'));
+const ops = vm.runInContext("state.page='operations';operationView.users=[];operationsPage()",context);
+assert.ok(!ops.includes('Portal accounts'), 'Accounts are not part of backup recovery.');
+assert.ok(!vm.runInContext("state.page='operations';title('','Backups','')",context).includes('href="/docs/setup.md"'));
+assert.ok(source.includes('browser enrollment enabled') && source.includes('sudo nixlab-admin reset-password') && !source.includes('setup password printed by the installer'));
+console.log('Redesigned console checks passed: routing, drafts, safe delegation, permissions and deployment stages.');
+
+vm.runInContext("state.status.release={revision:'a'.repeat(40)};state.draft=copy(fixture);state.platformRevision='a'.repeat(40)", context);
+assert.equal(vm.runInContext('stagedCount()',context),0);
+assert.ok(vm.runInContext('platformSelectionText()',context).includes('rebuild only'));
+vm.runInContext("state.platformRevision='b'.repeat(40);state.status.job={status:'confirmed',platformRevision:'a'.repeat(40),platformChanges:[{path:'old.nix',before:null,after:'{}'}]}",context);
+assert.equal(vm.runInContext('stagedCount()',context),1);
+const platform = vm.runInContext('platformReview()',context);
+assert.ok(platform.includes('Proposed: ') && platform.includes('Historical confirmed review'));
+assert.ok(platform.includes('Historical platform files (1)'));
+assert.ok(!platform.includes('Candidate:'));

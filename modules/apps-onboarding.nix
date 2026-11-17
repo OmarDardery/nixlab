@@ -1,0 +1,86 @@
+# First-run VM credentials and a TLS-verified LAN portal for the application dashboard.
+{ config, lib, pkgs, site, appImage ? null, ... }:
+let enabled = site.setup.enable && site.apps.enable;
+  cidrs = lib.concatMapStringsSep "\n" (c: "allow ${c};") site.management.trustedCIDRs;
+in {
+  config = lib.mkIf enabled {
+    systemd.services.nixlab-apps-onboarding = {
+      description = "Provision application VM runtime credentials and separate TLS identity";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "nixlab-instances.service" ]; requires = [ "nixlab-instances.service" ];
+      path = [ pkgs.incus-lts.client pkgs.coreutils pkgs.nix pkgs.python3 ];
+      serviceConfig = { Type = "oneshot"; RemainAfterExit = true; TimeoutStartSec = "5min"; };
+      script = ''
+        ready=0
+        for attempt in $(seq 1 90); do
+          if incus exec apps --project lab -- true; then ready=1; break; fi
+          sleep 2
+        done
+        test "$ready" = 1
+        ${lib.optionalString (appImage != null && !(config.nixlab.deployment.apps.enable or false)) "PYTHONPATH=${../scripts} python3 ${../scripts/deploy-apps.py} ${appImage.system}"}
+        incus exec apps --project lab -- install -d -m 0700 /var/lib/nixlab-secrets
+        if test -f /var/lib/nixlab-secrets/apps-demo-password; then
+          incus file push /var/lib/nixlab-secrets/apps-demo-password apps/var/lib/nixlab-secrets/demo-db-password --project lab --mode 0444
+        fi
+        incus file push /var/lib/nixlab-admin/apps-tls.crt apps/var/lib/nixlab-secrets/tls.crt --project lab --mode 0644
+        incus file push /var/lib/nixlab-admin/apps-tls.key apps/var/lib/nixlab-secrets/tls.key --project lab --mode 0600
+        PYTHONPATH=${../admin}:${../scripts} python3 ${../admin/arcane.py} onboard ${pkgs.writeText "arcane-settings.json" (builtins.toJSON site)}
+        ${lib.optionalString site.apps.enableDemo "incus exec apps --project lab -- systemctl restart nixlab-demo.service"}
+      '';
+    };
+    systemd.services.nixlab-arcane-secret-expire = {
+      serviceConfig.Type = "oneshot";
+      script = ''PYTHONPATH=${../admin}:${../scripts} ${pkgs.python3}/bin/python3 ${../admin/arcane.py} expire'';
+    };
+    systemd.timers.nixlab-arcane-secret-expire = {
+      wantedBy = [ "timers.target" ]; timerConfig = { OnBootSec = "1min"; OnUnitActiveSec = "1min"; };
+    };
+    systemd.services.nginx.serviceConfig.LoadCredential = [
+      "nixlab-tls.crt:/var/lib/nixlab-admin/tls.crt"
+      "nixlab-tls.key:/var/lib/nixlab-admin/tls.key"
+      "nixlab-ca.crt:/var/lib/nixlab-admin/ca.crt"
+    ];
+    services.nginx = {
+      enable = true;
+      additionalModules = [ pkgs.nginxModules.njs ];
+      commonHttpConfig = ''
+        js_import nixlab_cookies from ${./arcane-cookies.js};
+        js_set $nixlab_arcane_cookies nixlab_cookies.requestCookies;
+      '';
+      # One proxy worker is enough for a private management dashboard.
+      appendConfig = "worker_processes 1;";
+      eventsConfig = "worker_connections 256;";
+      virtualHosts.nixlab-arcane = {
+        # Explicit listen.ssl alone does not enable NixOS certificate directives.
+        onlySSL = true;
+        serverName = site.management.address;
+        # Source CIDRs and the input firewall restrict access, independently of DHCP readiness.
+        listen = [ { addr = "0.0.0.0"; port = site.apps.arcanePort; ssl = true; } ];
+        sslCertificate = "/run/credentials/nginx.service/nixlab-tls.crt";
+        sslCertificateKey = "/run/credentials/nginx.service/nixlab-tls.key";
+        locations."/" = {
+          proxyPass = "https://${site.guests.appsAddress}:9443";
+          proxyWebsockets = true;
+          extraConfig = ''
+            ${cidrs}
+            deny all;
+            # Preserve the public host *and port* for Arcane's origin checks.
+            proxy_set_header Host $host:$server_port;
+            proxy_set_header X-Forwarded-Host $host:$server_port;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Port $server_port;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header Cookie $nixlab_arcane_cookies;
+            js_header_filter nixlab_cookies.responseCookies;
+            proxy_ssl_verify on;
+            proxy_ssl_server_name on;
+            proxy_ssl_name apps.internal;
+            proxy_ssl_trusted_certificate /run/credentials/nginx.service/nixlab-ca.crt;
+            proxy_read_timeout 3600s;
+          '';
+        };
+      };
+    };
+  };
+}
+

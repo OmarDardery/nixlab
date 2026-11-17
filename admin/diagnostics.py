@@ -1,0 +1,183 @@
+"""Bounded management probes. No tokens, passwords or raw service logs in reports."""
+import http.client
+import configparser
+import io
+import json
+import math
+from pathlib import Path
+import ssl
+import subprocess
+import time
+
+import runtime as rt
+
+COCKPIT_TEMPLATE = Path('/etc/nixlab/cockpit-base.conf')
+COCKPIT_CONFIG = Path('/run/nixlab/cockpit.conf')
+
+
+def clock_status(now=None):
+    """Coarse sanity bounds and observed synchronization cannot prove UTC."""
+    now = time.time() if now is None else now
+    plausible = math.isfinite(now) and 1767225600 <= now < 4102444800  # 2026 <= year < 2100
+    synchronized = None
+    if plausible:
+        try:
+            result = subprocess.run(['timedatectl', 'show', '--property=NTPSynchronized', '--value'],
+                                    capture_output=True, text=True, timeout=3)
+            if result.returncode == 0 and result.stdout.strip() in {'yes', 'no'}:
+                synchronized = result.stdout.strip() == 'yes'
+        except (OSError, subprocess.SubprocessError):
+            pass
+    state = 'invalid-clock' if not plausible else 'synchronized' if synchronized else 'plausible-but-unsynchronized'
+    return {'state': state, 'synchronized': synchronized, 'timestampPlausible': plausible,
+            'evidenceWarning': state != 'synchronized',
+            'guidance': '' if state == 'synchronized' else
+                'Check the host date, time synchronization service, DNS and network reachability; then refresh. '
+                'Unsynchronized timestamps are not reliable backup or qualification evidence.'}
+
+
+def require_plausible_clock():
+    if clock_status()['state'] == 'invalid-clock':
+        raise ValueError('Host clock is grossly invalid; correct the date/time before issuing a browser certificate')
+
+
+def management_address(settings):
+    interface = settings['management']['interface']
+    result = subprocess.run(['ip', '-j', '-4', 'address', 'show', 'dev', interface],
+                            check=True, capture_output=True, text=True, timeout=10)
+    assigned = [a['local'] for link in json.loads(result.stdout) for a in link.get('addr_info', [])
+                if a.get('family') == 'inet' and a.get('scope') == 'global']
+    configured = settings['management']['address']
+    if configured in assigned:
+        return configured
+    if assigned and not settings['management']['configure']:
+        return assigned[0]
+    raise ValueError('Management interface has no usable address: ' + interface)
+
+
+def request(address, port, path, body=None):
+    # The host-created CA is trusted locally; hostname checking remains enabled.
+    context = ssl.create_default_context(cafile=str(rt.STATE / 'ca.crt'))
+    conn = http.client.HTTPSConnection(address, port, context=context, timeout=5)
+    try:
+        conn.request('POST' if body is not None else 'GET', path,
+                     json.dumps(body) if body is not None else None,
+                     {'Content-Type': 'application/json'} if body is not None else {})
+        response = conn.getresponse()
+        data = response.read(65537)
+        if len(data) > 65536:
+            raise ValueError('Oversized management response')
+        return response.status, data
+    finally:
+        conn.close()
+
+
+def http_entry(address, secure_port):
+    """Port 80 must redirect; it must never accept portal credentials."""
+    conn = http.client.HTTPConnection(address, 80, timeout=5)
+    try:
+        conn.request('GET', '/', headers={'Host': address})
+        response = conn.getresponse()
+        location = response.getheader('Location', '')
+        response.read(4096)
+        return response.status, location == f'https://{address}:{secure_port}/'
+    finally:
+        conn.close()
+
+
+def probe(settings):
+    address = management_address(settings)
+    targets = [('Incus API', 8443, '/1.0', {200}), ('Incus UI', 8443, '/ui/', {200})] if settings['ready'] else []
+    if settings['setup']['enable']:
+        targets.append(('Nixlab', settings['setup']['port'], '/', {200}))
+    if settings['ready'] and settings['cockpit']['enable']:
+        targets.append(('Cockpit', settings['cockpit']['port'], '/ping', {200}))
+    if settings['ready'] and settings['apps']['enable']:
+        targets += [('Arcane', settings['apps']['arcanePort'], '/api/health', {200})]
+    checks = []
+    for name, port, path, expected in targets:
+        try:
+            status, _ = request(address, port, path)
+            checks.append({'name': name, 'url': f'https://{address}:{port}', 'ok': status in expected,
+                           'detail': 'HTTP ' + str(status)})
+        except (OSError, ValueError, http.client.HTTPException) as exc:
+            checks.append({'name': name, 'url': f'https://{address}:{port}', 'ok': False,
+                           'detail': type(exc).__name__})
+    if settings['setup']['enable']:
+        try:
+            status, target_ok = http_entry(address, settings['setup']['port'])
+            checks.append({'name': 'Nixlab HTTP entry', 'url': f'http://{address}:80',
+                           'ok': status == 308 and target_ok,
+                           'detail': 'HTTP ' + str(status) + (' → HTTPS' if target_ok else ' (invalid target)')})
+        except (OSError, ValueError, http.client.HTTPException) as exc:
+            checks.append({'name': 'Nixlab HTTP entry', 'url': f'http://{address}:80',
+                           'ok': False, 'detail': type(exc).__name__})
+    return {'address': address, 'ok': all(check['ok'] for check in checks), 'checks': checks}
+
+
+def wait_ready(settings, timeout=180):
+    deadline = time.monotonic() + timeout
+    report = None
+    while True:
+        try:
+            report = probe(settings)
+            if report['ok']:
+                return report
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            report = {'ok': False, 'error': 'Management health probe failed'}
+        if time.monotonic() >= deadline:
+            rt.write_json(rt.STATE / 'last-health.json', report)
+            raise ValueError('Management health checks failed: ' + json.dumps(report) + '; run sudo nixlab doctor')
+        time.sleep(2)
+
+
+def identity(settings):
+    address = management_address(settings)
+    if settings['cockpit']['enable']:
+        config = configparser.ConfigParser(interpolation=None)
+        config.optionxform = str
+        with COCKPIT_TEMPLATE.open() as source:
+            config.read_file(source)
+        if not config.has_section('WebService'): config.add_section('WebService')
+        hosts = sorted({address, '127.0.0.1', 'localhost', settings['hostName']})
+        config['WebService']['Origins'] = ' '.join('https://' + host + ':' + str(settings['cockpit']['port']) for host in hosts)
+        content = io.StringIO(); config.write(content)
+        rt.atomic(COCKPIT_CONFIG, content.getvalue(), mode=0o644)
+    cert = rt.STATE / 'tls.crt'
+    check = subprocess.run(['openssl', 'x509', '-in', str(cert), '-noout', '-checkip', address],
+                           capture_output=True, text=True, timeout=10) if cert.is_file() else None
+    valid = check is not None and check.returncode == 0 and 'does match certificate' in check.stdout
+    if not valid:
+        rt.issue_tls(address, settings['hostName'])
+    return address
+
+
+def doctor(settings):
+    try:
+        report = probe(settings)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        report = {'ok': False, 'error': 'Management health probe failed'}
+    report['clock'] = clock_status()
+    report['services'] = []
+    for unit in ('incus', 'incus-preseed', 'nixlab-instances', 'nixlab-management-identity',
+                 'nixlab-admin-backend', 'nixlab-ui', 'nixlab-rollback-guard.service',
+                 'cockpit.socket', 'cockpit.service', 'nixlab-apps-onboarding', 'nginx'):
+        result = subprocess.run(['systemctl', 'show', unit, '-p',
+                                 'Id,LoadState,ActiveState,SubState,Result,ExecMainStatus'],
+                                capture_output=True, text=True, timeout=10)
+        data = dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)
+        if data.get('LoadState') == 'loaded':
+            report['services'].append(data)
+            if data.get('ActiveState') == 'failed':
+                report['ok'] = False
+    active = rt.read_json(rt.STATE / 'active.json', {})
+    if active.get('id'):
+        job = rt.read_json(rt.STATE / 'jobs' / active['id'] / 'job.json', {})
+        report['transaction'] = {key: job[key] for key in ('id', 'status', 'error', 'rollbackError') if key in job}
+        # Historical workers may have copied secret-bearing exceptions here.
+        for field in ('error', 'rollbackError'):
+            if report['transaction'].get(field):
+                report['transaction'][field] = 'Transaction did not complete; inspect the host recovery state'
+        report['log'] = str(rt.STATE / 'jobs' / active['id'] / 'build.log')
+    rt.write_json(rt.STATE / 'last-health.json', report)
+    return report

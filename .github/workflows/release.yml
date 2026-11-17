@@ -1,0 +1,83 @@
+name: Publish qualified single-host beta
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Reviewed beta tag matching VERSION
+        required: true
+        type: string
+      evidence_commit:
+        description: Full commit SHA containing qualification/{fresh.json,upgrade.json,recovery.json,limitations.md}
+        required: true
+        type: string
+      runs:
+        description: 'JSON run IDs: validate, installer, portal, apps, commissioning, website'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: nixlab-beta-publication
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate selectors and check out candidate
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          EVIDENCE_COMMIT: ${{ inputs.evidence_commit }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]
+          [[ "$EVIDENCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          git checkout --detach "$RELEASE_TAG"
+          mkdir -p "$RUNNER_TEMP/physical-evidence"
+          for file in fresh.json upgrade.json recovery.json limitations.md; do
+            git show "$EVIDENCE_COMMIT:qualification/$file" > "$RUNNER_TEMP/physical-evidence/$file"
+          done
+      - name: Verify physical reports and exact-revision CI; prepare source assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          CI_RUNS: ${{ inputs.runs }}
+        run: |
+          python3 scripts/release.py --tag "$RELEASE_TAG" --runs "$CI_RUNS" \
+            --evidence "$RUNNER_TEMP/physical-evidence" --output "$RUNNER_TEMP/beta-assets"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualified-beta-source
+          path: ${{ runner.temp }}/beta-assets/
+          if-no-files-found: error
+  publish:
+    needs: qualify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Publish new source-only prerelease from this run's verified assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GH_REPO" --name qualified-beta-source --dir beta-assets
+          (cd beta-assets && sha256sum --check SHA256SUMS)
+          revision="$(jq -r .revision beta-assets/manifest.json)"
+          test "$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)" = "$revision"
+          # Existing releases are never edited or overwritten. Upload into a
+          # draft first; a failed upload leaves an unpublished recoverable draft.
+          gh release create "$RELEASE_TAG" beta-assets/* --repo "$GH_REPO" \
+            --verify-tag --draft --prerelease --title "NixLab $RELEASE_TAG" \
+            --notes-file beta-assets/LIMITATIONS.md
+          test "$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)" = "$revision"
+          gh release edit "$RELEASE_TAG" --repo "$GH_REPO" --draft=false

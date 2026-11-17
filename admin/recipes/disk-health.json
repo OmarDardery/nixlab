@@ -1,0 +1,1 @@
+{"id":"disk-health","title":"SMART disk health","description":"Enable native smartd autodetection and journal health reporting. USB/RAID support depends on the enclosure and drive.","module":"{ ... }: { services.smartd.enable = true; services.smartd.autodetect = true; }\n"}
