@@ -148,6 +148,8 @@ class Manager:
                 raise ValueError('Installed source changed during planning; restart review')
             from deployments import check_idle
             check_idle(self.state)
+            if rt.read_json(self.state / 'project-deploy-active.json', {}).get('id'):
+                raise ValueError('Finish or recover the project deployment before rebuilding the host')
             if revision is not None and (not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{40}', revision)):
                 raise ValueError('Specify the full reviewed platform commit SHA')
             modules = rt.validate_modules({} if modules is None else modules)
@@ -281,6 +283,8 @@ class Manager:
         with rt.locked(blocking=False):
             from deployments import check_idle
             check_idle(self.state)
+            if rt.read_json(self.state / 'project-deploy-active.json', {}).get('id'):
+                raise ValueError('Finish or recover the project deployment before rebuilding the host')
             directory = self.job_path(job_id)
             job = rt.read_job_record(directory / 'job.json')
             if rt.read_json(self.state / 'active.json', {}).get('id') != job_id:
@@ -335,6 +339,8 @@ class Manager:
         with rt.locked(blocking=False):
             from deployments import check_idle
             check_idle(self.state)
+            if rt.read_json(self.state / 'project-deploy-active.json', {}).get('id'):
+                raise ValueError('Finish or recover the project deployment before rebuilding the host')
             job = self.job(job_id)
             if job['status'] not in ('awaiting-confirmation', 'confirmed', 'failed') or not job.get('previousSystem'):
                 raise ValueError('This transaction has no recoverable previous generation')
