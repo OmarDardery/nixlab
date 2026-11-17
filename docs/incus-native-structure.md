@@ -25,7 +25,10 @@ Use existing names initially where they reduce migration risk; consolidate only 
 
 On an installed host:
   /var/lib/nixlab/config/                   # pinned *platform* source
-  /srv/nixlab/projects/<name>/               # user-owned intent/source, root-published
+  /srv/nixlab/projects/<name>/               # typed Nix project intent (flake-backed)
+  /srv/nixlab/project-sources/<name>/         # immutable original Docker/Compose build contexts outside Nix store
+    revisions/<source-sha256>/source/         # original files, byte exact, root-owned
+    current.json                              # CAS-protected selected source revision
   /var/lib/nixlab/state/                    # broker journals, audit, plans, generation map
   /var/lib/nixlab-secrets/                   # private decryption identities and runtime keys
   Incus storage pools/volumes                # persistent guest data; separately backed up
