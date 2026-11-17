@@ -30,7 +30,7 @@ def current_owned():
     applied = {"version": 1, "config": {
         "limits.cpu": "2", "limits.memory": "2GiB"},
         "devices": {}, "profiles": ["default"]}
-    return {"type": "container",
+    return {"type": "container", "status": "Running",
             "config": {"user.nixlab.managed": "true",
                        "user.nixlab.last-applied": json.dumps(applied, sort_keys=True, separators=(",", ":")),
                        "limits.cpu": "2", "limits.memory": "2GiB"},
@@ -142,6 +142,21 @@ class OwnedNativeIncusTests(unittest.TestCase):
             self.assertEqual(result["status"], "verified")
             self.assertEqual(written.call_count, 1)
             self.assertEqual(pp.plan(desired)["actions"][0]["action"], "noop")
+
+    def test_unexpected_guest_shutdown_is_partial_not_verified(self):
+        state = current_owned()
+        records = [state]
+        def read(project, name):
+            return records[-1], "etag-" + str(len(records))
+        def write(project, name, update, etag):
+            records.append({**state, "status": "Stopped",
+                            "config": update["config"], "devices": update["devices"],
+                            "profiles": update["profiles"]})
+        desired = pp.validate_inventory(inventory(claims=["instance/toolhead"]))
+        with patch.object(reconcile, "read_instance", side_effect=read), patch.object(reconcile, "write_instance", side_effect=write):
+            planned = pp.plan(desired)["resources"][0]
+            with self.assertRaisesRegex(ValueError, "stopped during configuration"):
+                pp.recheck_and_apply(desired["projects"]["printer"], planned)
 
     def test_owned_instance_identity_and_drift_are_fail_closed(self):
         raw = current_owned()
