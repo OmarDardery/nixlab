@@ -18,14 +18,15 @@ assert.equal(new Set(items.map(item => item[0])).size, items.length, 'Every copy
 assert.ok(items.some(item => item[0] === 'platform-update' && item[4] === 'nix run --refresh github:OmarDardery/nixlab#update'));
 assert.ok(items.some(item => item[4] === 'sudo nixlab-admin config review --update-inputs'));
 assert.ok(items.some(item => item[4] === 'sudo nixlab-helpers run debian --project lab'));
-assert.ok(items.some(item => item[4] === 'sudo homelab exec apps -- docker compose ls'));
+assert.ok(items.some(item => item[4] === 'sudo incus project list'), 'Native Incus namespaces must be discoverable');
+assert.ok(items.every(item => !/arcane|homelab exec apps|docker compose/i.test(item[4])), 'No obsolete application commands');
 assert.ok(items.some(item => item[4] === 'ssh operator@192.0.2.10'));
 vm.runInContext(`state.status.managementAddress='x; touch /tmp/unwanted';`, context);
 assert.equal(vm.runInContext("commandGroups().find(group => group.id === 'health').items.find(item => item[0] === 'ssh')[4]", context), 'ssh operator@HOST_IP', 'Never interpolate shell metacharacters from host metadata');
 const html = vm.runInContext('commandsPage()', context);
 assert.ok(!/data-action=|data-guest-action=|data-install-script=/.test(html), 'Command reference must have no execution or mutation controls');
 assert.equal((html.match(/data-copy-command=/g) || []).length, items.length);
-for (const target of ['community-scripts/Incus', 'cockpit-project.org/applications', 'docker/awesome-compose', 'lissy93/arcane-templates', 'restic/others', 'Mic92/sops-nix']) {
+for (const target of ['community-scripts/Incus', 'cockpit-project.org/applications', 'restic/others', 'Mic92/sops-nix']) {
   assert.ok(html.includes(target), 'Missing project resource: ' + target);
 }
 for (const link of html.matchAll(/<a [^>]+>/g)) {
