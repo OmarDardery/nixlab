@@ -178,6 +178,21 @@ class OwnedNativeIncusTests(unittest.TestCase):
                 pp.recheck_and_apply(desired["projects"]["printer"], reviewed)
             write.assert_not_called()
 
+    def test_host_owned_legacy_lab_cannot_be_adopted(self):
+        desired = inventory(claims=["instance/toolhead"])
+        desired["projects"]["printer"]["incusProject"] = "lab"
+        with patch.object(reconcile, "read_instance") as reader:
+            with self.assertRaisesRegex(ValueError, "Legacy lab project"):
+                pp.plan(pp.validate_inventory(desired))
+            reader.assert_not_called()
+
+    def test_host_owned_nonlegacy_instance_cannot_be_adopted(self):
+        desired = pp.validate_inventory(inventory(claims=["instance/toolhead"]))
+        with patch.object(pp, "_host_claims", return_value={("printer", "toolhead")}), patch.object(reconcile, "read_instance") as reader:
+            with self.assertRaisesRegex(ValueError, "already host-flake owned"):
+                pp.plan(desired)
+            reader.assert_not_called()
+
     def test_removed_claim_never_stops_or_deletes_existing_guest(self):
         desired = pp.validate_inventory(inventory(claims=[]))
         with patch.object(reconcile, "read_instance", side_effect=AssertionError("must not touch removed instance")):
