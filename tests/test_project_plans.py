@@ -43,10 +43,15 @@ class ProjectInventoryTests(unittest.TestCase):
             base = Path(temp)
             (base / "flake.nix").write_text("{ outputs = { self }: {}; }")
             (base / "flake.lock").write_text("{}")
-            (base / "printer").mkdir()
-            (base / "printer" / "default.nix").write_text("{}")
             expected = inventory()
+            pinned = "/nix/store/" + ("a" * 32) + "-source"
+            observed = []
             def observe(arguments, **kwargs):
+                observed.append(arguments)
+                if arguments[:2] == ["nix-store", "--add"]:
+                    self.assertEqual(arguments[2], str(base))
+                    return CompletedProcess(arguments, 0, (pinned + "\n").encode(), b"")
+                self.assertEqual(arguments[0], "systemd-run")
                 self.assertIn("--property=DynamicUser=yes", arguments)
                 self.assertIn("--property=PrivateNetwork=yes", arguments)
                 self.assertIn("--property=ProtectSystem=strict", arguments)
@@ -54,25 +59,28 @@ class ProjectInventoryTests(unittest.TestCase):
                 self.assertIn("--option", arguments)
                 self.assertIn("restrict-eval", arguments)
                 self.assertIn("read-only-local-store", arguments)
-                self.assertIn("path:/workspace#nixlabProjects", arguments)
+                self.assertIn("path:" + pinned + "#nixlabProjects", arguments)
                 self.assertIn("--offline", arguments)
                 self.assertFalse(any("nixos-rebuild" in part or "incus" == part or "docker" == part for part in arguments))
-                bind = next(part for part in arguments if part.startswith("--property=BindReadOnlyPaths="))
-                mount = Path(bind.removeprefix("--property=BindReadOnlyPaths=").split(":", 1)[0])
-                self.assertTrue((mount / "printer" / "default.nix").exists())
-                self.assertEqual(mount.stat().st_mode & 0o777, 0o555)
+                self.assertFalse(any(part.startswith("--property=BindPaths") for part in arguments))
                 return CompletedProcess(arguments, 0, json.dumps(expected).encode(), b"")
             with patch.object(pp.subprocess, "run", side_effect=observe):
                 actual = pp.evaluate(base, "a" * 32)
             self.assertEqual(actual, expected)
+            self.assertEqual(len(observed), 2)
 
     def test_unavailable_evaluator_does_not_fall_back_to_root_execution(self):
         with tempfile.TemporaryDirectory() as temp:
             (Path(temp) / "flake.nix").write_text("{}")
-            with patch.object(pp.subprocess, "run", return_value=CompletedProcess([], 1, b"", b"private data")) as called:
+            pinned = "/nix/store/" + ("a" * 32) + "-source"
+            def fail_rootless(arguments, **kwargs):
+                if arguments[0] == "nix-store":
+                    return CompletedProcess(arguments, 0, (pinned + "\n").encode(), b"")
+                return CompletedProcess(arguments, 1, b"", b"private data")
+            with patch.object(pp.subprocess, "run", side_effect=fail_rootless) as called:
                 with self.assertRaisesRegex(ValueError, "Restricted project evaluation failed"):
                     pp.evaluate(temp, "b" * 32)
-            self.assertEqual(called.call_count, 1)
+            self.assertEqual(called.call_count, 2)
 
     def test_inventory_rejects_unknown_fields_unbounded_values_and_resource_collisions(self):
         good = inventory()
