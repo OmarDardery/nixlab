@@ -54,6 +54,19 @@
         hardware.serialAliases = [ { name = "example"; vendorId = "1234"; productId = "5678"; serial = "FIXTURE-ONLY"; } ];
       };
     in {
+      # Reusable pure evaluator for a separate /srv/nixlab/projects flake.
+      # No system, Incus instance or host service is changed by this export.
+      lib.evalProjects = import ./lib/project-workspace.nix { lib = nixpkgs.lib; };
+      nixlabProjectChecks = self.lib.evalProjects { root = ./tests/project-workspace; };
+      nixlabProjectValidationChecks = let
+        rejected = root: !(builtins.tryEval
+          (builtins.deepSeq (self.lib.evalProjects { inherit root; }) true)).success;
+      in {
+        duplicateIdentitiesRejected = rejected ./tests/project-workspace-duplicates;
+        secretTraversalRejected = rejected ./tests/project-workspace-invalid-secret;
+        conflictingClaimsRejected = rejected ./tests/project-workspace-bad-claim;
+        plaintextSourceRejected = rejected ./tests/project-workspace-plaintext;
+      };
       nixosModules = import ./lib/platform.nix;
       nixosConfigurations = {
         hypervisor = mkHost site apps [ ];
