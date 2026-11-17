@@ -12,8 +12,8 @@ No phase is complete merely because its source exists: it requires VM/system tes
 ## Phase 1 — Web UI first
 - [x] Transplant existing portal frontend + auth/CSRF backend and add an authenticated read-only declarative source inventory (not yet a deployer).
 - [ ] Native Projects navigation, local checksum preview and **opt-in UTF-8 text editing with exact-byte binary preservation** are implemented; source staging is available. Reviewed publication, deploy/logs/revisions, and removal of host-side legacy proxies remain open.
-- [x] Bounded admin-reauthenticated private source staging preserves original file bytes and SHA-256 digests; no evaluation or Nix store copy. Publication, build and deploy are still unimplemented.
-- [ ] Browser tests now cover native project navigation and read-only source boundaries; first-admin, upload drift, secret authorization, and end-to-end deploy tests still required.
+- [x] Bounded administrator-reauthenticated private staging plus separate reviewed **source-only** publication. Immutable SHA-256 revisions live outside the Nix flake with CAS drift rejection, per-publication password check, previous revisions retained and safe retry. No evaluation, image build, guest creation or Incus apply.
+- [ ] Browser tests cover navigation, local edits, byte-exact uploads and source publication; full first-admin, secret authorization, corrupted-state recovery and end-to-end Incus deploy tests still required.
 
 ## Phase 2 — NixOS/Incus host baseline
 - [ ] Port flake, module graph and installer from archived `main`; exclude old Docker VM entirely.
