@@ -1,0 +1,17 @@
+"use strict";
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const read = name => fs.readFileSync(path.join(__dirname, "..", "admin", "static", name), "utf8");
+const app = read("app.js");
+const assets = ["app.js", "projects.js", "events.js", "commands.js", "incus-projects.js"];
+assert.match(app, /projects: nativeProjectPage/);
+assert.match(app, /bindNativeProjects\(\)/);
+assert.match(read("index.html"), /incus-projects\.js/);
+for (const name of assets) assert.doesNotMatch(read(name), /Arcane|Portainer|arcanePort|reuseArcanePassword/i, name + " uses retired application management");
+const project = read("incus-projects.js");
+assert.match(project, /guest-network/);
+assert.match(project, /crypto\.subtle\.digest\("SHA-256"/);
+assert.match(project, /webkitdirectory/);
+assert.match(project, /No file contents are sent to NixLab/);
+console.log("Incus-native portal baseline verified");
