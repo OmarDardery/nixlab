@@ -179,7 +179,10 @@ class ProjectTransactions:
     def _write(self, identity, record):
         rt.write_json(self._job(identity) / "job.json", record)
 
-    def _root_state(self):
+    def _root_state(self, deployment=None):
+        project_active = rt.read_json(self.state / "project-deploy-active.json", {})
+        if project_active.get("id") and project_active.get("id") != deployment:
+            raise ValueError("Finish or recover the active project deployment")
         if rt.read_json(self.state / "pending.json"):
             raise ValueError("Finish the pending host activation before project changes")
         current = rt.read_json(self.state / "active.json", {})
@@ -420,7 +423,7 @@ class ProjectTransactions:
         with rt.locked(blocking=False):
             from recovery_guard import require_normal
             require_normal()
-            self._root_state()
+            self._root_state(deployment=identity)
             job = self._record(identity)
             if job["status"] != "published-source" or rt.read_json(self.state / "project-last.json", {}).get("id") != identity:
                 raise ValueError("Publish the exact project source revision before deployment")
@@ -435,6 +438,8 @@ class ProjectTransactions:
                 raise ValueError("Reviewed inventory is corrupt")
             existing = rt.read_json(directory / "deployment.json", {})
             if existing and not resume:
+                if existing.get("status") == "verified":
+                    return self.status(identity)
                 raise ValueError("Resume the current deployment journal; never restart blindly")
             if resume and existing.get("status") not in ("partial", "interrupted"):
                 raise ValueError("No partial deployment to recover")
@@ -502,7 +507,8 @@ class ProjectTransactions:
                         project = next(p for p in inventory["projects"].values()
                                        if p["incusProject"] == resource["project"])
                         current = project_plans._observation(project, resource["name"])
-                        if current["action"] != "noop":
+                        if (current["action"] != "noop" or
+                                current["etag"] != journal["resources"][key].get("newEtag")):
                             raise ValueError("Previously verified Incus resource drifted; re-review")
                         continue
                     project = next(p for p in inventory["projects"].values()
