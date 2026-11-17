@@ -187,6 +187,7 @@ def _observation(project, guest):
     updated = reconcile.plan(current, spec)
     return {
         "project": project["incusProject"], "name": guest,
+        "observedStatus": str(current.get("status") or "unknown")[:32],
         "etag": etag,
         "fingerprint": digest({
             k: current.get(k) for k in ("type", "config", "devices", "profiles")
