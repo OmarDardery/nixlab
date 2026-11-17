@@ -1,6 +1,6 @@
 # nixlab
 
-### A NixOS hypervisor for homelabs.
+### A declarative NixOS + Incus homelab.
 
 Nixlab turns an installed NixOS machine into a repeatable home server: manage
 containers and virtual machines, run applications, and keep host changes documented.
@@ -9,15 +9,22 @@ It brings together established tools rather than inventing another virtualizatio
 **For:** self-hosters who want declarative infrastructure with a browser-based way in.
 **Status:** [0.1.0-beta.1 candidate](docs/beta.md); physical qualification and beta publication remain pending.
 
+> **New product goal (2026-11-17):** NixLab manages the NixOS host through its own reviewed **Web UI**, integrates **Incus** for OCI/system containers and VMs (including optional Incus Compose), and provides **Cockpit** for host administration. Users manage independent declarative project flakes and Compose files in the Web UI, with a one-time Nix-generated backup policy covering all managed projects and selected application data. **Arcane and the dedicated Docker apps VM are being fully retired.**
+>
+> [Target architecture and independent project/backup layout](docs/target-architecture.md) · [Arcane retirement #126](https://github.com/OmarDardery/nixlab/issues/126) · [Project management #127–#128](https://github.com/OmarDardery/nixlab/issues/127) · [Backups #129–#130](https://github.com/OmarDardery/nixlab/issues/129)
+>
+> **Migration status:** Current main still contains the legacy Arcane/apps-VM implementation. This decision is a planned migration, **not** a claim that the runtime or existing machines have been changed. Existing VM disks and data must not be automatically removed.
+
 | You want to… | Nixlab brings… |
 |---|---|
 | Get started without reconstructing a weekend of shell history | A resumable, single-command installer |
 | Run isolated workloads | Incus containers and KVM virtual machines |
-| Keep application stacks familiar | Docker Compose in a separate applications VM |
+| Manage reusable application stacks (target) | Incus Compose plus independent reviewed Nix/Compose project files in the Web UI |
 | Understand the next change | A host portal, documentation, and explicit recovery boundaries |
 
-A declarative NixOS bare-metal host using Incus for system containers and KVM VMs,
-with Docker Compose isolated inside a NixOS applications VM.
+The intended platform uses NixOS for the host, Incus for OCI/system containers
+and VMs, and Cockpit for host operations; the current legacy release still uses
+an optional Docker/Arcane applications VM pending migration.
 
 [Upstream credits](docs/projects.md) · [Website & documentation](https://nixlab.dardery.work/) · [Interactive homelab setup](docs/home-server-scenario.md) · [Troubleshooting](docs/troubleshooting.md) · [GitHub Pages / domain setup](docs/website.md)
 
@@ -78,7 +85,7 @@ activation and access confirmation. Re-run it after a disconnect to resume. It
 retains machine configuration and uses the existing rollback guard; it never
 reboots automatically. Keep independent backups before updating.
 
-## Selected stack
+## Selected stack (current legacy implementation; target differs)
 
 | Layer | Choice | Why |
 |---|---|---|
