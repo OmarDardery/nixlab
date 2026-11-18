@@ -27,6 +27,7 @@ No phase is complete merely because its source exists: it requires VM/system tes
 - [ ] Incus project/instance/OCI, profile, network, storage and device adapters with dependency graph.
 - [ ] Byte-exact Dockerfile/Compose import with build context and paths, builder sandbox, OCI digest pinning and documented Compose subset.
 - [ ] SOPS/age secret reference handling and scoped delivery/rollback failure semantics.
+- [ ] **Native Secrets Web UI, no extra server:** [write-only, encrypted and declarative SOPS/age UI contract](incus-native-secrets-ui.md). Existing host integration uses `sops-nix`; Incus OCI uses a separately qualified, scoped runtime-file adapter (never claims to run `sops-nix` inside OCI). Requires one-time age identity, masked per-project keys, reauth/review, immutable encrypted revisions, offline recovery and leak tests. Implements issue #134; design only at this stage.
 
 ## Phase 4 — Backups, existing-host migration, qualification
 - [ ] Encrypted, restorable off-host backup for each project's data plus safe remote nonsecret source checkpoint.
