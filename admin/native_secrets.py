@@ -282,16 +282,27 @@ class Secrets:
         public = self._identity()
         project_dir = self._project(project)
         self._check_policy(project_dir, public)
-        if not isinstance(key, str) or not KEY.fullmatch(key):
-            raise ValueError("Invalid secret variable name")
-        if action not in ("set", "delete"):
+        if action not in ("set", "delete", "import"):
             raise ValueError("Unsupported secret mutation")
-        if action == "set":
-            if (not isinstance(value, str) or not value
-                    or len(value.encode("utf-8")) > MAX_SECRET):
-                raise ValueError("Secret value must be 1–8192 UTF-8 bytes")
-        elif value is not None:
-            raise ValueError("Deletion must not include a secret value")
+        if action == "import":
+            if key is not None or not isinstance(value, dict) or not 1 <= len(value) <= 64:
+                raise ValueError("Import requires 1–64 named secrets")
+            if (any(not isinstance(name, str) or not KEY.fullmatch(name)
+                    or not isinstance(text, str)
+                    or len(text.encode("utf-8")) > MAX_SECRET
+                    or "\x00" in text for name, text in value.items())
+                    or sum(len(text.encode("utf-8")) for text in value.values()) > MAX_PLAINTEXT):
+                raise ValueError("Invalid imported environment names or values")
+        else:
+            if not isinstance(key, str) or not KEY.fullmatch(key):
+                raise ValueError("Invalid secret variable name")
+            if action == "set":
+                if (not isinstance(value, str) or not value
+                        or len(value.encode("utf-8")) > MAX_SECRET
+                        or "\x00" in value):
+                    raise ValueError("Secret value must be 1–8192 safe UTF-8 bytes")
+            elif value is not None:
+                raise ValueError("Deletion must not include a secret value")
         existing = self._cipher(project_dir)
         base = _hash(existing) if existing is not None else None
         if expected_revision != base:
@@ -304,8 +315,11 @@ class Secrets:
             if key not in values:
                 raise ValueError("Secret key no longer exists")
             del values[key]
+        elif action == "import":
+            values.update(value)
         else:
             values[key] = value
+        changed_keys = sorted(value) if action == "import" else [key]
         if len(values) > 128:
             raise ValueError("Too many project secrets")
         cipher = self._encode(values, public)
@@ -320,13 +334,15 @@ class Secrets:
         rt.write_json(target / "review.json", {
             "id": token, "actor": actor, "project": project, "key": key, "action": action,
             "base": base, "revision": _hash(cipher), "recipient": public,
-            "keys": sorted(values), "created": time.time(), "expires": time.time() + REVIEW_TTL,
+            "keys": sorted(values), "changedKeys": changed_keys,
+            "created": time.time(), "expires": time.time() + REVIEW_TTL,
         }, mode=0o600)
         _fsync(target)
         _fsync(drafts)
         rt.audit("native-secret-change-reviewed", principal=actor, project=project,
                  key=key, action=action, revision=_hash(cipher))
         return {"reviewId": token, "project": project, "key": key, "action": action,
+                "changedKeys": changed_keys,
                 "baseRevision": base, "revision": _hash(cipher), "keys": sorted(values),
                 "requiresApply": True, "note": "Ciphertext review only; no secret delivery or guest restart"}
 
