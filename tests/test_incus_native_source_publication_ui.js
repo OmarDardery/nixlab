@@ -115,6 +115,7 @@ async function main() {
     };
     throw Error("Unexpected project transaction request: " + route);
   };
+  evaluate("nativePersistedSource.loaded = true; nativePersistedSource.value = {available: true, projects: [{name:'alpha'}]}");
   await evaluate('nativeProjectTransaction("review")');
   assert.equal(calls.filter(x => x.route === "project/review").length, 0,
     "Review must require explicit acknowledgment");
