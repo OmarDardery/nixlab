@@ -8,6 +8,13 @@ test, enabling a workflow, or completing source-level checks.
 | x86_64 single-host foundation | Unverified | Unverified | Not submitted |
 | x86_64 with applications VM | Unverified | Unverified | Not submitted |
 
+All release evidence must include a passing **automated host clock** observation
+recorded by commissioning while NTP synchronization was confirmed. Unsynchronized
+or invalid-clock observations cannot count as qualified timestamps; historical
+reports without a clock observation remain unqualified. This gate does not stop
+ordinary Incus operation, certificate use or existing sessions during an NTP
+outage.
+
 This matrix deliberately contains no fabricated hardware results. A qualification
 applies to a specific source/input revision, target fingerprint and core/apps
 profile. Helper applications and physical USB/PCI devices need their own evidence.
