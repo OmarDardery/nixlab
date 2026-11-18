@@ -12,6 +12,7 @@ const nativePublishedInventory = {loaded: false, loading: false, projects: [], e
 const nativePersistedSource = {loaded: false, loading: false, value: null};
 const nativeProjectTx = {loaded: false, loading: false, busy: false, record: null, error: "",
                          path: "", source: "", linkedSource: "", linkedRevision: ""};
+const nativeWorkspaceInit = {busy: false, error: "", initialized: false};
 const NATIVE_MAX_FILES = 64;
 const NATIVE_MAX_BYTES = 32 * 1024 * 1024;
 const NATIVE_MAX_FILE_BYTES = 8 * 1024 * 1024;
@@ -136,6 +137,15 @@ function nativeProjectPage() {
     esc(item.action) + ' · ' + esc(JSON.stringify(item.before)) + ' → ' +
     esc(JSON.stringify(item.after)) + (item.potentialDisruption ? ' (possible interruption)' : '') +
     '</p>').join("");
+  const initPanel = nativePersistedSource.loaded && !persisted?.available
+    ? '<p>Restore a pinned flake.nix and flake.lock from your Git backup to initialize this machine. Their bytes are verified as private NixLab workspace source; no uploaded Nix code is evaluated during initialization.</p>' +
+      '<label class="field"><span>Restored flake.nix</span><textarea id="native-workspace-flake" rows="6" spellcheck="false" placeholder="Paste exact backed-up flake.nix"></textarea></label>' +
+      '<label class="field"><span>Restored flake.lock (JSON)</span><textarea id="native-workspace-lock" rows="5" spellcheck="false" placeholder="Paste exact pinned flake.lock"></textarea></label>' +
+      '<label class="field"><span>Current administrator password</span><input type="password" id="native-workspace-password" autocomplete="current-password"></label>' +
+      '<label><input type="checkbox" id="native-workspace-ack"> Initialize the root-owned workspace from these pinned source files</label>' +
+      '<button type="button" id="native-workspace-init"' + (nativeWorkspaceInit.busy ? ' disabled' : '') + '>Initialize project workspace</button>' +
+      (nativeWorkspaceInit.error ? '<p role="alert" class="error">' + esc(nativeWorkspaceInit.error) + '</p>' : '')
+    : '';
   const txPanel =
     '<p>Review a full Nix module as an independent project revision. Source changes never rebuild NixOS. Deployment only supports already-owned native Incus guest CPU/memory limits until full reconciliation is implemented.</p>' +
     '<label class="field"><span>Relative workspace Nix file (for example: alpha/default.nix)</span><input id="native-nix-path" type="text" spellcheck="false" value="' +
@@ -171,7 +181,8 @@ function nativeProjectPage() {
       message + (rows ? '<div class="table-wrap"><table><thead><tr><th>Project</th><th>Guests</th><th>Observed state</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '') +
       '<p><a href="/docs/incus-native-architecture.md">Runtime and ownership contract</a></p>') +
     card("Published declarative source (read-only)", workspace) +
-    card("Review, publish and deploy declarative Nix", txPanel) +
+    (initPanel ? card("Initialize or restore project workspace", initPanel) : '') +
+    (persisted?.available ? card("Review, publish and deploy declarative Nix", txPanel) : '') +
     card("Published application source revisions (not deployed)", published) +
     card("Preview original application files locally",
       '<p>Preview Dockerfiles, Compose YAML and related build-context files without executing them. Relative paths and exact SHA-256 digests remain visible.</p>' +
@@ -389,6 +400,34 @@ async function nativePublishSource() {
 }
 
 
+async function nativeInitializeWorkspace() {
+  if (nativeWorkspaceInit.busy) return;
+  const flake = document.querySelector("#native-workspace-flake")?.value || "";
+  const lock = document.querySelector("#native-workspace-lock")?.value || "";
+  const current = document.querySelector("#native-workspace-password")?.value || "";
+  const acknowledgePrivilegedNix = document.querySelector("#native-workspace-ack")?.checked === true;
+  if (!flake || !lock || !current || !acknowledgePrivilegedNix ||
+      new TextEncoder().encode(flake).length > 32768 ||
+      new TextEncoder().encode(lock).length > 131072) {
+    nativeWorkspaceInit.error = "Supply bounded pinned flake and lock files, your current password, and explicit approval.";
+    if (state.page === "projects") shell();
+    return;
+  }
+  nativeWorkspaceInit.busy = true;
+  nativeWorkspaceInit.error = "";
+  try {
+    await api("project/initialize", {flake, lock, current, acknowledgePrivilegedNix});
+    nativePersistedSource.loaded = false;
+    nativePersistedSource.value = null;
+    nativeWorkspaceInit.initialized = true;
+  } catch (error) {
+    nativeWorkspaceInit.error = error.message || "Workspace initialization was refused.";
+  } finally {
+    nativeWorkspaceInit.busy = false;
+    if (state.page === "projects") shell();
+  }
+}
+
 async function nativeRefreshProjectTransaction() {
   if (nativeProjectTx.loading || nativeProjectTx.busy) return;
   nativeProjectTx.loading = true;
@@ -460,6 +499,7 @@ async function nativeProjectTransaction(action) {
 }
 
 function bindNativeProjects() {
+  document.querySelector("#native-workspace-init")?.addEventListener("click", () => void nativeInitializeWorkspace());
   if (!nativeProjectTx.loaded && !nativeProjectTx.loading) void nativeRefreshProjectTransaction();
   document.querySelector("#native-nix-review")?.addEventListener("click", () => void nativeProjectTransaction("review"));
   document.querySelector("#native-nix-refresh")?.addEventListener("click", () => void nativeRefreshProjectTransaction());
