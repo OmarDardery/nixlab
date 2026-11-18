@@ -53,6 +53,8 @@ jobs:
           node tests/test_deployments_ui.js
       - name: Qualify isolated project evaluator without writable store
         run: nix build .#checks.x86_64-linux.project-evaluator --no-link -L
+      - name: Boot real Incus containers and verify host integration and restore
+        run: nix build .#checks.x86_64-linux.foundation --no-link -L
       - name: Browser workflow checks
         run: |
           python3 -m venv "$RUNNER_TEMP/nixlab-browser"
@@ -105,8 +107,6 @@ jobs:
         run: nix build .#checks.x86_64-linux.portal --no-link -L
       - name: Activate bootstrap and verify rollback after reboot
         run: nix build .#checks.x86_64-linux.bootstrap-transaction --no-link -L
-      - name: Boot real Incus containers and verify host integration and restore
-        run: nix build .#checks.x86_64-linux.foundation --no-link -L
       - name: Verify NixOS guest rollout, health rollback and interrupted transfer recovery
         run: nix build .#checks.x86_64-linux.guest-deployments --no-link -L
       - name: Evaluate direct conversion from an installed NixOS configuration

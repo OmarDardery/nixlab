@@ -1,4 +1,6 @@
 """Project-only source transaction contract: no NixOS rebuild or Incus calls."""
+import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +17,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import runtime as rt
 import project_transactions as tx
 import project_plans
+import native_imports as ni
 
 
 class ProjectSourceTransactionsTests(unittest.TestCase):
@@ -291,6 +294,96 @@ class ProjectSourceTransactionsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Git metadata outside"):
             self.review()
         self.assertEqual((git / "config").read_text(), "private local git history; never delete")
+
+
+    def test_first_run_initialize_workspace_from_pinned_backup(self):
+        saved = self.base / "previous-workspace"
+        self.workspace.rename(saved)
+        lock = json.dumps({"version": 7, "root": "root",
+                           "nodes": {"root": {"inputs": {}}}})
+        flake = '{ outputs = { self }: {}; }'
+        result = self.manager.initialize(flake, lock, principal="admin")
+        self.assertTrue(result["available"])
+        self.assertEqual((self.workspace / "flake.nix").read_text(), flake)
+        self.assertEqual((self.workspace / "flake.lock").read_text(), lock)
+        self.assertEqual(self.manager.status()["deployment"], "not-implemented")
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            self.manager.initialize(flake, lock, principal="admin")
+        self.assertFalse(list(self.workspace.parent.glob(".nixlab-initialize-*")))
+
+    def test_bad_or_symlinked_initial_workspace_is_never_overwritten(self):
+        self.workspace.rename(self.base / "old-workspace")
+        target = self.base / "outside-workspace"
+        target.mkdir()
+        self.workspace.symlink_to(target, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            self.manager.initialize('{ outputs = { self }: {}; }',
+                                    '{"version":7,"root":"root","nodes":{"root":{}}}')
+        self.assertTrue(self.workspace.is_symlink())
+        self.workspace.unlink()
+        with self.assertRaisesRegex(ValueError, "valid pinned"):
+            self.manager.initialize('{ outputs = { self }: {}; }', '{}')
+        self.assertFalse(self.workspace.exists())
+
+    def _published_source(self):
+        root = self.base / "private-published-sources"
+        publisher = ni.PublishedSources(root=root)
+        staging = ni.ImportStaging(self.state)
+        content = b"FROM scratch\\nCOPY binary /data\\n"
+        info = {"path": "Dockerfile", "size": len(content),
+                "sha256": hashlib.sha256(content).hexdigest()}
+        uploaded = staging.prepare("admin", "alpha", [info])
+        staging.chunk(uploaded["id"], "admin", "Dockerfile", 0,
+                      base64.b64encode(content).decode())
+        staging.finish(uploaded["id"], "admin", uploaded["manifestHash"])
+        approved = publisher.review(staging, uploaded["id"], "admin", uploaded["manifestHash"])
+        publisher.publish(staging, uploaded["id"], "admin", approved["reviewId"],
+                          acknowledge=True)
+        return root, approved["revision"], content
+
+    def test_byte_exact_uploaded_source_is_attested_but_never_executed(self):
+        root, revision, content = self._published_source()
+        with patch.dict(os.environ, {"NIXLAB_PROJECT_SOURCES": str(root)}):
+            reviewed = self.manager.review(
+                {"alpha/modules/network.nix": "{ ... }: { nixlab.project.enable = false; }"},
+                principal="admin", source_revisions={"alpha": revision})
+            self.assertEqual(reviewed["sourceRefs"]["alpha"]["revision"], revision)
+            self.assertEqual(reviewed["sourceRefs"]["alpha"]["fileCount"], 1)
+            self.assertNotIn(content.decode(), json.dumps(reviewed))
+            published = self.manager.publish(reviewed["id"], reviewed["planHash"])
+            self.assertEqual(published["status"], "published-source")
+            with self.assertRaisesRegex(ValueError, "approved #139 builder"):
+                self.manager.deploy(reviewed["id"], reviewed["planHash"])
+            self.assertFalse((self.manager._job(reviewed["id"]) / "deployment.json").exists())
+
+    def test_missing_runtime_sops_adapter_refuses_before_guest_mutation(self):
+        # Reviewing and publishing encrypted references is permitted, but
+        # deploying them without the scoped #134 runtime adapter is not.
+        self.inventory["projects"]["alpha"]["secrets"]["file"] = "secrets.enc.yaml"
+        reviewed = self.review()
+        self.manager.publish(reviewed["id"], reviewed["planHash"])
+        with patch.object(project_plans, "recheck_and_apply",
+                          side_effect=AssertionError("Incus must never be touched")):
+            with self.assertRaisesRegex(ValueError, "#134 adapter"):
+                self.manager.deploy(reviewed["id"], reviewed["planHash"])
+        self.assertFalse((self.manager._job(reviewed["id"]) / "deployment.json").exists())
+
+    def test_source_revision_tamper_and_unreferenced_project_fail_closed(self):
+        root, revision, content = self._published_source()
+        with patch.dict(os.environ, {"NIXLAB_PROJECT_SOURCES": str(root)}):
+            with self.assertRaisesRegex(ValueError, "enabled declarative project"):
+                self.manager.review({"alpha/modules/network.nix": "{ ... }: {}"},
+                                    source_revisions={"unknown": revision})
+            reviewed = self.manager.review(
+                {"alpha/modules/network.nix": "{ ... }: { nixlab.project.enable = false; }"},
+                source_revisions={"alpha": revision})
+            path = root / "alpha" / "revisions" / revision / "source" / "Dockerfile"
+            path.chmod(0o600)
+            path.write_bytes(b"FROM an-unreviewed-image\\n")
+            with self.assertRaises(ValueError):
+                self.manager.publish(reviewed["id"], reviewed["planHash"])
+            self.assertEqual(tx.validate_workspace(self.workspace)["sourceHash"], self.before)
+            self.assertFalse((self.manager._job(reviewed["id"]) / "deployment.json").exists())
 
     def test_status_contains_only_hashes_and_paths_not_source_bytes(self):
         reviewed = self.review()

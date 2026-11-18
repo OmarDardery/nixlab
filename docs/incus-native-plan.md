@@ -23,7 +23,7 @@ No phase is complete merely because its source exists: it requires VM/system tes
 
 ## Phase 3 — Project engine, native resources, OCI/Compose
 - [x] Guarded Nix source-only transaction and independent typed evaluator: reviewed file edits, exact SHA-256 candidate/plan hashes, isolated DynamicUser Nix evaluation without writable host store/daemon, source publish/rollback, recovery and CLI/HTTPS controls. The evaluator checks NixLab's pinned schema, not arbitrary top-level flake outputs; broader inputs and resource kinds remain gated.
-- [ ] Reviewed source+resource plan, exact ETags, durable async apply/retry, crash recovery, no-op, health and ownership.
+- [x] Reviewed source+existing-owned Incus resource plan, exact ETags, durable async apply/retry, crash recovery, no-op, health and ownership. Live guest mutation and journal failpoint are included in foundation VM tests; arbitrary new-resource creation remains #133.
 - [ ] Incus project/instance/OCI, profile, network, storage and device adapters with dependency graph.
 - [ ] Byte-exact Dockerfile/Compose import with build context and paths, builder sandbox, OCI digest pinning and documented Compose subset.
 - [ ] SOPS/age secret reference handling and scoped delivery/rollback failure semantics.
@@ -32,7 +32,15 @@ No phase is complete merely because its source exists: it requires VM/system tes
 
 PR #149 ports the source-transaction work from abandoned PR #141 onto `incus-native`. It supports review, publication, interrupted source recovery, and a narrow, independently journaled native deploy for **pre-existing explicitly NixLab-owned** guest CPU/memory changes. Unapproved Nix input never reaches a privileged evaluator, OCI builder or guest. The broker refuses instance creation/deletion, Compose ownership, volume mutation, USB/mount changes, runtime SOPS injection and automatic adoption until #133/#139/#134 land. Source-only rollback does not restore guest data, nor undo an already applied guest limit.
 
-The `/srv/nixlab/projects` workspace must already exist with a pinned `flake.lock`; workspace bootstrap remains part of Web UI first-run/installation qualification. Manual typed workspace evaluation may use `nix eval` against its pinned `nixlabProjects` output, while privileged review always uses the trusted installed schema in the isolated evaluator to prevent user-supplied flake code from obtaining host privileges. Project transaction approval does not perform `nixos-rebuild`.
+A root-owned `/srv/nixlab` parent is declared by the NixOS module. Before the first project review, an administrator can **initialize or restore** `/srv/nixlab/projects` from a previously pinned `flake.nix` and `flake.lock` in the Web UI or via `sudo nixlab-admin projects initialize --flake-path … --lock-path …`. Initialization never executes the provided flake, fetches network inputs, or rebuilds NixOS. Preserve both source files in Git for subsequent host restores. Manual typed workspace evaluation may use `nix eval` against its pinned `nixlabProjects` output, while privileged review always uses the trusted installed schema in the isolated evaluator to prevent user-supplied flake code from obtaining host privileges. Project transaction approval does not perform `nixos-rebuild`.
+
+### Immutable uploaded source binding (PR #150)
+
+A published Dockerfile/Compose revision under private `/srv/nixlab/project-sources/<project>/revisions/<sha256>/` can be **referenced** from a reviewed typed project Nix transaction by `sourceRevisions: { "<project>": "<sha256>" }` in the broker API or the Projects editor. The broker checks that the project exists and is enabled, checks the current revision, validates the immutable private manifest and every original source byte, and commits only nonsecret revision metadata into the exact `planHash`. On publish/deploy it rechecks hashes and the current pointer: rotated or tampered revisions require a new review. Application files never enter the world-readable Nix flake source store.
+
+Binding does **not** build or deploy a Dockerfile/Compose application. The broker explicitly refuses to mark a bound OCI source deployed until #139's isolated builder and #133's dependency-ordered Incus adapter are qualified. Existing-owned Incus CPU/memory changes remain available for transactions **without** OCI build requirements. Runtime secret decryption/injection remains #134. If a project declares a runtime SOPS ciphertext reference, deployment is refused **before any Incus mutation** until the #134 delivery adapter is qualified; ciphertext publication alone does not count as injection.
+
+The foundation NixOS/Incus VM integration exercises review, source publish, real Incus write, an injected crash after write but before a verified journal, explicit resume that verifies instead of rewriting, preservation of guest data, and an independently reviewed forward restore. CI qualification does not imply physical USB or stateful application backup/restore coverage.
 
 ## Phase 4 — Backups, existing-host migration, qualification
 - [ ] Encrypted, restorable off-host backup for each project's data plus safe remote nonsecret source checkpoint.

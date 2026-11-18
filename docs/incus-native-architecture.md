@@ -14,7 +14,7 @@ NixLab is a **NixOS host plus Incus-native homelab control plane**, administrabl
 ## Runtime and security boundaries
 - Host: NixOS, `incusd`, NixLab Web UI + existing authenticated root broker, Cockpit (optional), Incus UI (optional). No host-level Docker socket.
 - Projects: `/srv/nixlab/projects/<project>/`, each with a typed, separately evaluated and versioned configuration. Project deployment **never runs `nixos-rebuild`**.
-- Original application sources: `/srv/nixlab/project-sources/<project>/revisions/<digest>/source/` holds immutable, root-owned Dockerfile/Compose/build-context bytes, **outside** the separately evaluated Nix flake and Nix store. A reauthenticated source-only review moves the `current.json` revision reference; an independent resource/secret/build review is still required for deployment.
+- Original application sources: `/srv/nixlab/project-sources/<project>/revisions/<digest>/source/` holds immutable, root-owned Dockerfile/Compose/build-context bytes, **outside** the separately evaluated Nix flake and Nix store. A reauthenticated source-only review moves the `current.json` revision reference. The project transaction can attest and pin this byte-exact revision in its immutable `planHash`; it **must not** claim a deployed OCI workload until a distinct reviewed builder/Incus operation succeeds.
 - Workloads: Incus projects/instances/OCI containers/VMs with explicit resources, profiles, networks, volumes, owner labels, dependency order, ETag protection and health checks.
 - OCI builds: isolated, resource-limited, unprivileged or dedicated builder using pinned Buildah/Podman tooling. Build output is an OCI artifact verified by digest before import to Incus. No user Dockerfile runs during upload, parsing or preview. Unsupported BuildKit/Compose features fail closed; no silent semantic rewrites.
 - Compose: preserve original YAML and relative paths, render a **separate** audited native Incus deployment plan. Support an explicitly documented Compose subset, with exact unsupported-feature errors rather than a hidden Docker engine.
@@ -27,3 +27,9 @@ NixLab is a **NixOS host plus Incus-native homelab control plane**, administrabl
 
 ## Transitional safety
 Current production `main` is archived as `archive/pre-incus-native-main-2026-11-17` before any ref rewrite. The archive is **source/history only, not a live Incus volume backup**. Existing machines must not auto-adopt/delete an applications VM. No legacy data is removed until verified export/import and an independent restore drill.
+
+## First-run portable project workspace
+
+The NixLab Web UI offers a root-broker-mediated initialize/restore operation for a missing `/srv/nixlab/projects` directory. Supply `flake.nix` and the existing pinned `flake.lock` from a Git backup, reauthenticate and explicitly approve. The NixOS module declares the private parent. The broker validates both files and publishes them atomically; it does not evaluate untrusted top-level Nix, download unpinned inputs, alter host modules or rebuild the host. Subsequent independent project source edits use the same guarded NixLab reviewer, not a separate privileged service.
+
+A Dockerfile or Compose upload is first published as a private immutable byte-exact revision. Link that revision to a typed project in the editor to include its verified SHA-256 in the approved transaction. This is a configuration/source checkpoint only: the OCI builder, runtime secrets and new Incus resource reconciliation are separately gated by #139, #134 and #133.

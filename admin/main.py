@@ -301,12 +301,15 @@ def backend():
                     result = manager.migrate_layout()
                 elif self.path == '/operation':
                     result = operations.submit(body, principal=actor)
-                elif self.path in ('/project/review', '/project/publish', '/project/rollback',
-                                   '/project/cancel', '/project/recover', '/project/deploy'):
+                elif self.path in ('/project/initialize', '/project/review', '/project/publish',
+                                   '/project/rollback', '/project/cancel', '/project/recover', '/project/deploy'):
                     from project_transactions import ProjectTransactions
                     projects = ProjectTransactions()
-                    if self.path == '/project/review':
-                        result = projects.review(body.get('changes'), principal=actor)
+                    if self.path == '/project/initialize':
+                        result = projects.initialize(body.get('flake'), body.get('lock'), principal=actor)
+                    elif self.path == '/project/review':
+                        result = projects.review(body.get('changes'), principal=actor,
+                                                 source_revisions=body.get('sourceRevisions'))
                     elif self.path == '/project/publish':
                         result = projects.publish(body.get('id'), body.get('planHash'))
                     elif self.path == '/project/rollback':
@@ -806,7 +809,7 @@ def web():
                 if self.path in ('/api/recovery-export', '/api/users'):
                     if not accounts.matches(session['username'], body.pop('current', None)):
                         raise rt.PublicError('Reauthenticate before exporting recovery material or changing accounts')
-                actions = {'/api/project-import/prepare', '/api/project-import/chunk', '/api/project-import/finish', '/api/project-import/review', '/api/project-import/publish', '/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests', '/api/project/review', '/api/project/publish', '/api/project/rollback', '/api/project/cancel', '/api/project/recover', '/api/project/deploy'}
+                actions = {'/api/project-import/prepare', '/api/project-import/chunk', '/api/project-import/finish', '/api/project-import/review', '/api/project-import/publish', '/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests', '/api/project/initialize', '/api/project/review', '/api/project/publish', '/api/project/rollback', '/api/project/cancel', '/api/project/recover', '/api/project/deploy'}
                 if self.path not in actions:
                     return reply(self, 404, {'error': 'Unknown action'})
                 body['_actor'] = session['username']
@@ -930,8 +933,11 @@ def project_cli(argv):
     import argparse
     from project_transactions import ProjectTransactions
     parser = argparse.ArgumentParser(prog='sudo nixlab-admin projects')
-    parser.add_argument('command', choices=['status', 'review', 'publish', 'rollback', 'cancel', 'recover', 'deploy'])
+    parser.add_argument('command', choices=['status', 'initialize', 'review', 'publish', 'rollback', 'cancel', 'recover', 'deploy'])
     parser.add_argument('--changes', type=Path, help='UTF-8 JSON map of relative Nix file edits')
+    parser.add_argument('--source-revisions', type=Path, help='Optional JSON map of published project to exact source revision SHA-256')
+    parser.add_argument('--flake-path', type=Path, help='Previously pinned workspace flake.nix')
+    parser.add_argument('--lock-path', type=Path, help='Previously pinned workspace flake.lock')
     parser.add_argument('--id')
     parser.add_argument('--plan-hash')
     parser.add_argument('--resume', action='store_true')
@@ -939,10 +945,24 @@ def project_cli(argv):
     projects = ProjectTransactions()
     try:
         if args.command == 'status': result = projects.status(args.id)
+        elif args.command == 'initialize':
+            if not args.flake_path or not args.lock_path or any(
+                not p.is_file() or p.is_symlink() or p.stat().st_size > size
+                for p, size in ((args.flake_path, 32768), (args.lock_path, 131072))
+            ):
+                raise ValueError('Supply regular, bounded workspace flake.nix and flake.lock')
+            result = projects.initialize(args.flake_path.read_text(), args.lock_path.read_text(),
+                                         principal='root-console')
         elif args.command == 'review':
             if not args.changes or args.changes.is_symlink() or args.changes.stat().st_size > 131072:
                 raise ValueError('Provide a bounded local JSON edit file')
-            result = projects.review(json.loads(args.changes.read_text()), principal='root-console')
+            refs = None
+            if args.source_revisions:
+                if args.source_revisions.is_symlink() or args.source_revisions.stat().st_size > 4096:
+                    raise ValueError('Provide a bounded local source revision map')
+                refs = json.loads(args.source_revisions.read_text())
+            result = projects.review(json.loads(args.changes.read_text()), principal='root-console',
+                                     source_revisions=refs)
         elif args.command == 'publish': result = projects.publish(args.id, args.plan_hash)
         elif args.command == 'rollback': result = projects.rollback(args.id, args.plan_hash)
         elif args.command == 'cancel': result = projects.cancel(args.id)

@@ -34,6 +34,9 @@ in {
       };
     };
     systemd.tmpfiles.rules = [
+      # Restorable declarative projects are intentionally outside /etc/nixos
+      # and the world-readable Nix store. Only the root broker may write them.
+      "d /srv/nixlab 0700 root root -"
       "d /var/lib/nixlab-admin 0710 root nixlab-ui -"
       "d /var/lib/nixlab-admin/jobs 0700 root root -"
       "d /run/nixlab-admin 0750 root nixlab-ui -"
