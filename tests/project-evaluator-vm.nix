@@ -32,7 +32,7 @@ in pkgs.testers.runNixOSTest {
     virtualisation.memorySize = 2048;
     environment.systemPackages = [ pkgs.python3 pkgs.nix pkgs.systemd ];
     nix.settings.experimental-features = [ "nix-command" "flakes" ];
-    environment.variables.NIXLAB_PROJECT_EVAL_LIB = toString ../lib/project-workspace.nix;
+    environment.variables.NIXLAB_PROJECT_EVAL_LIB = "${../lib/project-workspace.nix}";
     environment.variables.NIXLAB_PROJECT_NIXPKGS_LIB = "${pkgs.path}/lib";
   };
   testScript = ''
