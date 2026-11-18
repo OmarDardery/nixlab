@@ -38,7 +38,7 @@ Project directories can be Git-synced using **ciphertext only**. `.sops.yaml` co
 
 ## Single Web UI information architecture
 
-**Projects → <project> → Environment & secrets**
+**Projects → `<project>` → Environment & secrets**
 
 | Screen/field | Behavior |
 |---|---|
