@@ -11,7 +11,7 @@ const nativeImportState = {busy: false, result: null, review: null, published: n
 const nativePublishedInventory = {loaded: false, loading: false, projects: [], error: ""};
 const nativePersistedSource = {loaded: false, loading: false, value: null};
 const nativeProjectTx = {loaded: false, loading: false, busy: false, record: null, error: "",
-                         path: "", source: ""};
+                         path: "", source: "", linkedSource: "", linkedRevision: ""};
 const NATIVE_MAX_FILES = 64;
 const NATIVE_MAX_BYTES = 32 * 1024 * 1024;
 const NATIVE_MAX_FILE_BYTES = 8 * 1024 * 1024;
@@ -142,6 +142,10 @@ function nativeProjectPage() {
     esc(nativeProjectTx.path) + '" placeholder="alpha/default.nix"></label>' +
     '<label class="field"><span>Complete Nix file content</span><textarea id="native-nix-editor" rows="9" spellcheck="false">' +
     esc(nativeProjectTx.source) + '</textarea></label>' +
+    '<label class="field"><span>Linked published source project (optional)</span><input id="native-nix-linked-source" type="text" placeholder="app-name" value="' +
+    esc(nativeProjectTx.linkedSource) + '"></label>' +
+    '<label class="field"><span>Exact published source revision SHA-256 (optional; original bytes stay private)</span><input id="native-nix-linked-revision" type="text" maxlength="64" value="' +
+    esc(nativeProjectTx.linkedRevision) + '"></label>' +
     '<label class="field"><span>Current administrator password (required separately for every operation)</span><input id="native-nix-password" type="password" autocomplete="current-password"></label>' +
     '<label><input id="native-nix-ack" type="checkbox"> I approve the reviewed privileged project Nix change and possible service impact</label>' +
     '<button type="button" id="native-nix-review"' + (nativeProjectTx.busy ? ' disabled' : '') + '>Review exact project revision</button> ' +
@@ -407,10 +411,22 @@ async function nativeProjectTransaction(action) {
   const acknowledged = document.querySelector("#native-nix-ack")?.checked === true;
   const path = document.querySelector("#native-nix-path")?.value?.trim() || "";
   const source = document.querySelector("#native-nix-editor")?.value ?? "";
+  const linkedSource = document.querySelector("#native-nix-linked-source")?.value?.trim() || "";
+  const linkedRevision = document.querySelector("#native-nix-linked-revision")?.value?.trim() || "";
   nativeProjectTx.path = path;
   nativeProjectTx.source = source;
+  nativeProjectTx.linkedSource = linkedSource;
+  nativeProjectTx.linkedRevision = linkedRevision;
   if (!password || !acknowledged) {
     nativeProjectTx.error = "Current administrator password and explicit approval are required.";
+    if (state.page === "projects") shell();
+    return;
+  }
+  if (action === "review" &&
+      ((linkedSource && !/^[a-z][a-z0-9-]{0,62}$/.test(linkedSource)) ||
+       (linkedRevision && !/^[0-9a-f]{64}$/.test(linkedRevision)) ||
+       (!!linkedSource !== !!linkedRevision))) {
+    nativeProjectTx.error = "Select a valid published source project and its complete revision SHA-256 together.";
     if (state.page === "projects") shell();
     return;
   }
@@ -423,7 +439,10 @@ async function nativeProjectTransaction(action) {
   nativeProjectTx.error = "";
   try {
     const record = nativeProjectTx.record;
-    const request = action === "review" ? {changes: {[path]: source}} : {
+    const request = action === "review" ? {
+      changes: {[path]: source},
+      sourceRevisions: linkedSource ? {[linkedSource]: linkedRevision} : {}
+    } : {
       id: record?.id, planHash: record?.planHash
     };
     const endpoint = action === "resume" ? "deploy" : action;

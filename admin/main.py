@@ -306,7 +306,8 @@ def backend():
                     from project_transactions import ProjectTransactions
                     projects = ProjectTransactions()
                     if self.path == '/project/review':
-                        result = projects.review(body.get('changes'), principal=actor)
+                        result = projects.review(body.get('changes'), principal=actor,
+                                                 source_revisions=body.get('sourceRevisions'))
                     elif self.path == '/project/publish':
                         result = projects.publish(body.get('id'), body.get('planHash'))
                     elif self.path == '/project/rollback':
@@ -932,6 +933,7 @@ def project_cli(argv):
     parser = argparse.ArgumentParser(prog='sudo nixlab-admin projects')
     parser.add_argument('command', choices=['status', 'review', 'publish', 'rollback', 'cancel', 'recover', 'deploy'])
     parser.add_argument('--changes', type=Path, help='UTF-8 JSON map of relative Nix file edits')
+    parser.add_argument('--source-revisions', type=Path, help='Optional JSON map of published project to exact source revision SHA-256')
     parser.add_argument('--id')
     parser.add_argument('--plan-hash')
     parser.add_argument('--resume', action='store_true')
@@ -942,7 +944,13 @@ def project_cli(argv):
         elif args.command == 'review':
             if not args.changes or args.changes.is_symlink() or args.changes.stat().st_size > 131072:
                 raise ValueError('Provide a bounded local JSON edit file')
-            result = projects.review(json.loads(args.changes.read_text()), principal='root-console')
+            refs = None
+            if args.source_revisions:
+                if args.source_revisions.is_symlink() or args.source_revisions.stat().st_size > 4096:
+                    raise ValueError('Provide a bounded local source revision map')
+                refs = json.loads(args.source_revisions.read_text())
+            result = projects.review(json.loads(args.changes.read_text()), principal='root-console',
+                                     source_revisions=refs)
         elif args.command == 'publish': result = projects.publish(args.id, args.plan_hash)
         elif args.command == 'rollback': result = projects.rollback(args.id, args.plan_hash)
         elif args.command == 'cancel': result = projects.cancel(args.id)
