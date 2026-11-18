@@ -3,6 +3,7 @@ import argparse
 import base64
 import copy
 import functools
+import hashlib
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 import shutil
@@ -29,6 +30,7 @@ def main():
                                'product': 'Simulated USB serial device', 'driver': 'example', 'stablePaths': ['/dev/serial/by-id/example']}],
             'helpers': {'sources': json.loads((BASE / 'helpers/sources.json').read_text()),
                         'applications': list(json.loads((BASE / 'helpers/compatibility.json').read_text()).values())}}
+    edited_source = b'FROM scratch\nLABEL org.opencontainers.image.title="edited-before-stage"\n'
     submitted = []; errors = []; authenticated = [False]; requests = []
     certificate_records = []; certificate_pending = [False]; bootstrap_approved = [False]
     class Quiet(SimpleHTTPRequestHandler):
@@ -52,12 +54,13 @@ def main():
                         assert body['project'] == 'qa-app'
                         assert body['current'] == 'disposable-ui-fixture-password'
                         assert [f['path'] for f in body['files']] == ['Dockerfile']
+                        assert body['files'][0]['sha256'] == hashlib.sha256(edited_source).hexdigest()
                         route.fulfill(json={'id': 'f'*32, 'manifestHash': 'b'*64, 'status': 'uploading'})
                         return
                     if endpoint == 'project-import/chunk':
                         assert body['path'] == 'Dockerfile' and body['id'] == 'f'*32
                         raw = base64.b64decode(body['data'], validate=True)
-                        assert raw.startswith(b'FROM scratch\n')
+                        assert raw == edited_source, 'Stage must transfer edited bytes exactly'
                         route.fulfill(json={'id': 'f'*32, 'path': 'Dockerfile',
                                            'offset': body['offset'] + len(raw)})
                         return
@@ -317,8 +320,16 @@ def main():
             })
             page.wait_for_function("nativeSourcePreflight.files.length === 1 && !nativeSourcePreflight.scanning")
             assert page.locator('code').filter(has_text='Dockerfile').count() == 1
-            assert page.get_by_text('Selected original bytes are only in this browser until an administrator explicitly stages them.', exact=True).count() == 1
+            assert page.get_by_text('Original file bytes are preserved unless you explicitly save a text edit.', exact=False).count() == 1
             assert not [endpoint for endpoint, _ in submitted if endpoint.startswith('project-import')], 'Preview must never stage automatically'
+            page.get_by_role('button', name='Edit text').click()
+            page.locator('#native-source-editor').wait_for()
+            assert page.locator('#native-source-editor').input_value().startswith('FROM scratch\n')
+            page.locator('#native-source-editor').fill(edited_source.decode())
+            page.get_by_role('button', name='Save local edit').click()
+            page.wait_for_function("nativeSourcePreflight.files.length === 1 && !nativeSourcePreflight.scanning && !nativeSourceEditor.path")
+            assert page.evaluate("nativeSourcePreflight.files[0].sha256") == hashlib.sha256(edited_source).hexdigest()
+            assert not [endpoint for endpoint, _ in submitted if endpoint.startswith('project-import')], 'Editing must not stage automatically'
             page.locator('#native-import-project').fill('qa-app')
             page.locator('#native-import-password').fill('disposable-ui-fixture-password')
             page.get_by_role('button', name='Stage exact source bytes').click()
