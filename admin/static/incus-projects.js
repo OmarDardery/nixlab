@@ -2,7 +2,7 @@
 
 // Phase-1 Incus-native project view. Local source previews do NOT upload,
 // execute, or deploy files. All privileged operations require a later broker.
-const nativeSourcePreflight = {files: [], error: "", scanning: false};
+const nativeSourcePreflight = {files: [], error: "", scanning: false, archive: false};
 let nativeSelectedFiles = [];
 let nativePreviewSerial = 0;
 const nativeSourceEditor = {path: "", text: "", error: ""};
@@ -13,9 +13,10 @@ const nativePersistedSource = {loaded: false, loading: false, value: null};
 const nativeProjectTx = {loaded: false, loading: false, busy: false, record: null, error: "",
                          path: "", source: "", linkedSource: "", linkedRevision: ""};
 const nativeWorkspaceInit = {busy: false, error: "", initialized: false};
-const NATIVE_MAX_FILES = 64;
-const NATIVE_MAX_BYTES = 32 * 1024 * 1024;
-const NATIVE_MAX_FILE_BYTES = 8 * 1024 * 1024;
+const NATIVE_MAX_FILES = 256;
+const NATIVE_MAX_BYTES = 128 * 1024 * 1024;
+const NATIVE_MAX_FILE_BYTES = 64 * 1024 * 1024;
+const NATIVE_MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
 
 function nativeSourcePath(file) {
   const name = file.webkitRelativePath || file.name;
@@ -114,9 +115,13 @@ function nativeProjectPage() {
       nativeSourcePreflight.files.map(f => '<tr><td><code>' + esc(f.path) + '</code></td><td>' +
         esc(f.size) + '</td><td><code>' + esc(f.sha256) + '</code></td><td>' +
         '<button type="button" data-native-edit="' + esc(f.path) + '"' +
-        (nativeImportState.busy || nativeSourcePreflight.scanning || f.size > NATIVE_MAX_EDIT_BYTES ? ' disabled' : '') +
+        (nativeImportState.busy || nativeSourcePreflight.scanning || nativeSourcePreflight.archive || f.size > NATIVE_MAX_EDIT_BYTES ? ' disabled' : '') +
         '>Edit text</button></td></tr>').join("") +
-      '</tbody></table></div><p class="note">Original file bytes are preserved unless you explicitly save a text edit. Files are local to this browser until staging.</p>'
+      '</tbody></table></div><p class="note">' +
+      (nativeSourcePreflight.archive
+        ? 'Archive members are validated and shown with per-file SHA-256 hashes after private server-side extraction; archive entries cannot be edited here.'
+        : 'Original file bytes are preserved unless you explicitly save a text edit. Files are local to this browser until staging.') +
+      '</p>'
     : '<p class="note">Selection stays in your browser. No file contents are sent to NixLab.</p>';
   const editor = nativeSourceEditor.path
     ? '<section><h3>Optional text edit: <code>' + esc(nativeSourceEditor.path) + '</code></h3>' +
@@ -188,6 +193,7 @@ function nativeProjectPage() {
       '<p>Preview Dockerfiles, Compose YAML and related build-context files without executing them. Relative paths and exact SHA-256 digests remain visible.</p>' +
       '<label class="field"><span>Choose files</span><input id="native-source-files" type="file" multiple' + (nativeImportState.busy ? ' disabled' : '') + '></label>' +
       '<label class="field"><span>Choose directory</span><input id="native-source-folder" type="file" webkitdirectory directory multiple' + (nativeImportState.busy ? ' disabled' : '') + '></label>' +
+      '<label class="field"><span>Or import ZIP/TAR archive</span><input id="native-source-archive" type="file" accept=".zip,.tar,.tar.gz,.tgz"' + (nativeImportState.busy ? ' disabled' : '') + '></label>' +
       (nativeSourcePreflight.scanning ? '<p role="status">Computing checksums in the browser…</p>' : '') +
       (nativeSourcePreflight.error ? '<p role="alert" class="error">' + esc(nativeSourcePreflight.error) + '</p>' : '') + manifest + editorError + editor) +
     card("Stage source in private review storage",
@@ -202,13 +208,14 @@ function nativeProjectPage() {
       '<p>Original Dockerfile/Compose source publication is not application deployment. OCI building, scoped secrets, new Incus resource creation and data restore require #133/#139/#134 and verified recovery tests.</p>' +
       '<p><a href="/docs/incus-native-plan.md">Implementation phases</a></p>');
 }
-async function nativePreviewFiles(files) {
+async function nativePreviewFiles(files, archive = false) {
   if (nativeImportState.busy) return;
   const serial = ++nativePreviewSerial;
   nativeSourceEditor.path = "";
   nativeSourceEditor.text = "";
   nativeSourceEditor.error = "";
   nativeSourcePreflight.files = [];
+  nativeSourcePreflight.archive = false;
   nativeSelectedFiles = [];
   nativeImportState.result = null;
   nativeImportState.review = null;
@@ -219,7 +226,10 @@ async function nativePreviewFiles(files) {
   if (state.page === "projects") shell();
   try {
     const list = [...files];
-    if (!list.length || list.length > NATIVE_MAX_FILES) throw Error("Choose between 1 and 64 files.");
+    if (!list.length || list.length > NATIVE_MAX_FILES || (archive && list.length !== 1))
+      throw Error(archive ? "Choose exactly one archive." : "Choose 1–256 source files.");
+    if (archive && !/\.(?:zip|tar|tar\.gz|tgz)$/i.test(list[0].name))
+      throw Error("Choose a ZIP, TAR, TAR.GZ or TGZ archive.");
     if (!globalThis.crypto?.subtle) throw Error("SHA-256 unavailable in this browser.");
     let total = 0;
     const paths = new Set();
@@ -228,15 +238,17 @@ async function nativePreviewFiles(files) {
       const path = nativeSourcePath(file);
       if (paths.has(path)) throw Error("Duplicate source path: " + path);
       paths.add(path);
-      if (file.size > NATIVE_MAX_FILE_BYTES) throw Error("Preview limit is 8 MiB per file.");
+      if (file.size > (archive ? NATIVE_MAX_ARCHIVE_BYTES : NATIVE_MAX_FILE_BYTES))
+        throw Error("Source file exceeds the 64 MiB upload limit.");
       total += file.size;
-      if (total > NATIVE_MAX_BYTES) throw Error("Preview limit is 32 MiB per selection.");
+      if (total > NATIVE_MAX_BYTES) throw Error("Source selection exceeds 128 MiB.");
       const hash = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
       const sha256 = [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
       items.push({path, size: file.size, sha256});
     }
     if (serial !== nativePreviewSerial) return;
     nativeSourcePreflight.files = items.sort((a, b) => a.path.localeCompare(b.path));
+    nativeSourcePreflight.archive = archive;
     nativeSelectedFiles = list;
   } catch (error) {
     if (serial !== nativePreviewSerial) return;
@@ -329,7 +341,9 @@ async function nativeStageSource() {
     if (!current) throw Error("Enter your administrator password.");
     const files = nativeSourcePreflight.files;
     const original = new Map(nativeSelectedFiles.map(file => [nativeSourcePath(file), file]));
-    const candidate = await api("project-import/prepare", {project, files, current});
+    const candidate = await api("project-import/prepare", {
+      project, files, archive: nativeSourcePreflight.archive, current
+    });
     for (const item of files) {
       const file = original.get(item.path);
       if (!file || file.size !== item.size) throw Error("Selected source changed before upload.");
@@ -558,10 +572,10 @@ function bindNativeProjects() {
     }
     if (state.page === "projects") shell();
   });
-  for (const id of ["native-source-files", "native-source-folder"]) {
+  for (const id of ["native-source-files", "native-source-folder", "native-source-archive"]) {
     document.getElementById(id)?.addEventListener("change", event => {
       const files = [...(event.currentTarget.files || [])];
-      void nativePreviewFiles(files);
+      void nativePreviewFiles(files, id === "native-source-archive");
     });
   }
 }
