@@ -390,7 +390,7 @@ async function nativeRefreshProjectTransaction() {
   nativeProjectTx.loading = true;
   try {
     const response = await api("project/status");
-    nativeProjectTx.record = response?.active ? response : null;
+    nativeProjectTx.record = response?.id ? response : null;
     nativeProjectTx.error = "";
   } catch {
     nativeProjectTx.error = "Project transaction status is unavailable.";
