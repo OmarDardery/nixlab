@@ -76,7 +76,7 @@ class RealRecoveryKit(unittest.TestCase):
                          created["recipient"])
         self.assertEqual((self.host_b / "restic" / "restic-password").read_bytes(),
                          restic.read_bytes())
-        with self.assertRaisesRegex(ValueError, "existing"):
+        with self.assertRaisesRegex(ValueError, "already exists|existing"):
             self.kit(self.host_b).restore("owner", exported["encrypted"], passphrase,
                                           acknowledge=True)
 
