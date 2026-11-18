@@ -19,6 +19,18 @@ def is_archive_name(name):
     return isinstance(name, str) and name.lower().endswith(ARCHIVE_SUFFIXES)
 
 
+def _member_path(name, *, directory=False):
+    # Standard 'tar -C project .' produces './' and './Dockerfile'.
+    # Remove only redundant LEADING './', never inner '.', '..', or an
+    # absolute path. The resulting relative name remains byte-for-byte
+    # equivalent as a filesystem path, without renaming any file content.
+    while name.startswith("./"):
+        name = name[2:]
+    if directory and name.rstrip("/") in ("", "."):
+        return None
+    return name.rstrip("/") if directory else name
+
+
 def _copy_member(reader, root, relative, stated_size, *, max_file, max_total, total):
     target = root / relative
     target.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
@@ -73,7 +85,7 @@ def extract_archive(archive, destination, *, check_path, max_files, max_file, ma
         entries += 1
         if entries > MAX_ARCHIVE_ENTRIES:
             raise ValueError("Archive has too many members")
-        safe = check_path(name)
+        safe = check_path(_member_path(name))
         if safe in seen:
             raise ValueError("Archive contains duplicate source paths")
         if len(files) >= max_files:
@@ -100,7 +112,9 @@ def extract_archive(archive, destination, *, check_path, max_files, max_file, ma
                     if member.is_dir():
                         if kind not in (0, stat.S_IFDIR):
                             raise ValueError("Unsafe archive directory")
-                        check_path(member.filename.rstrip("/"))
+                        relative = _member_path(member.filename, directory=True)
+                        if relative is not None:
+                            check_path(relative)
                         continue
                     if kind not in (0, stat.S_IFREG):
                         raise ValueError("Archive links and special files are forbidden")
@@ -113,7 +127,9 @@ def extract_archive(archive, destination, *, check_path, max_files, max_file, ma
                     if entries > MAX_ARCHIVE_ENTRIES:
                         raise ValueError("Archive has too many members")
                     if member.isdir():
-                        check_path(member.name.rstrip("/"))
+                        relative = _member_path(member.name, directory=True)
+                        if relative is not None:
+                            check_path(relative)
                         continue
                     if not member.isfile() or getattr(member, "sparse", None):
                         raise ValueError("Archive links, sparse entries and special files are forbidden")
