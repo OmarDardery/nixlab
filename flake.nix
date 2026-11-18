@@ -114,7 +114,7 @@
       };
       # Real crypto tests use the same pinned toolchain as the deployed broker.
       devShells.x86_64-linux.secrets-test = pkgs.mkShell {
-        packages = [ pkgs.python3 pkgs.sops pkgs.age ];
+        packages = [ (pkgs.python3.withPackages (ps: [ ps.cryptography ])) pkgs.sops pkgs.age ];
       };
       packages.x86_64-linux = {
         inherit installer;
