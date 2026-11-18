@@ -150,6 +150,15 @@ class OCIArchiveTests(unittest.TestCase):
             self.stage("source.tar", buf.getvalue())
         self.assertFalse(self.publisher.root.exists())
 
+    def test_zip_central_directory_count_is_bounded_before_python_allocates_entries(self):
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as z:
+            for i in range(1025):
+                z.writestr(f"files/context-{i}", b"")
+        with self.assertRaisesRegex(ValueError, "ZIP directory"):
+            self.stage("too-many.zip", archive.getvalue())
+        self.assertFalse(self.publisher.root.exists())
+
     def test_archive_traversal_secret_files_and_duplicate_paths_refused(self):
         for name in ("../outside", "/etc/shadow", "config/.env", ".ssh/id_ed25519",
                      "dir\\evil", "dir/../../breakout"):
