@@ -104,6 +104,7 @@ def evaluate(source, identity):
         "--property=UMask=0077",
         "--property=InaccessiblePaths=-/var/lib/incus -/var/lib/nixlab-secrets -/var/lib/nixlab-admin -/etc/nixlab -/run/nix -/nix/var/nix/daemon-socket",
         "--setenv=HOME=/tmp",
+        "--setenv=NIX_PATH=",
         "--setenv=NIX_REMOTE=local?read-only=true",
         "--", nix_binary, "--extra-experimental-features", "read-only-local-store",
         "--eval", "--strict", "--json",
@@ -111,6 +112,12 @@ def evaluate(source, identity):
         "--option", "allow-import-from-derivation", "false",
         "--option", "substituters", "",
         "--option", "builders", "",
+        # In restricted mode only NIX_PATH allowlisted paths are readable.
+        # Keep exactly the three previously verified store sources, never
+        # /nix/store wholesale or any host configuration directory.
+        "-I", "nixlab-evaluator=" + evaluator,
+        "-I", "nixlab-lib=" + nixpkgs_lib,
+        "-I", "nixlab-source=" + store_path,
         "--expr", expression,
     ]
     try:
