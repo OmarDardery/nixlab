@@ -76,10 +76,18 @@ function nativeSecretsPanel() {
       '>Prepare encrypted review</button>' +
       '<p class="note">SOPS encrypts the value through the root broker before any review artifact is written. No plaintext .env or build-time secret is published.</p></fieldset>'
     : "";
+  const importPanel = identity.healthy && project && !v.review
+    ? '<fieldset><legend>Import .env values directly into SOPS</legend>' +
+      '<p class="note">The selected .env file is parsed locally. Only validated secret variables are sent to the authenticated encrypted-review endpoint. Raw .env files are never published.</p>' +
+      '<label class="field"><span>Local .env file</span><input id="native-env-import-file" type="file" accept=".env,.txt,text/plain"></label>' +
+      '<label class="field"><span>Current administrator password</span><input id="native-env-import-password" type="password" autocomplete="current-password"></label>' +
+      '<button type="button" id="native-env-import-review"' + (v.busy || !project.indexed ? " disabled" : "") +
+      '>Encrypt and review imported values</button></fieldset>'
+    : "";
   const review = v.review
     ? '<fieldset><legend>Approve ciphertext-only publication</legend>' +
       '<p>Project: <code>' + esc(v.review.project) + '</code> · ' +
-      esc(v.review.action) + ' <code>' + esc(v.review.key) + '</code></p>' +
+      esc(v.review.action) + ' <code>' + esc((v.review.changedKeys || [v.review.key]).join(", ")) + '</code></p>' +
       '<p>From: <code>' + esc(v.review.baseRevision || "none") +
       '</code> → <code>' + esc(v.review.revision) + '</code></p>' +
       '<p class="note">New ciphertext is verified, but publishing it does not automatically deploy or restart a guest.</p>' +
@@ -119,7 +127,7 @@ function nativeSecretsPanel() {
                  (v.message ? '<p role="status">' + esc(v.message) + '</p>' : '');
   return card("Environment & secrets · SOPS/age",
     '<p>Encrypted, declarative variables managed in this Web UI. Only key names and ciphertext hashes are returned; plaintext is never readable through this interface.</p>' +
-    status + setup + choose + summary + form + review + reindexPanel + recoveryPanel + errors +
+    status + setup + choose + summary + form + importPanel + review + reindexPanel + recoveryPanel + errors +
     '<p><a href="/docs/incus-native-secrets-ui.md">Secret management, delivery and recovery boundaries</a></p>');
 }
 
@@ -228,6 +236,64 @@ async function nativeSecretPublish() {
   }
 }
 
+function nativeParseEnv(text) {
+  if (typeof text !== "string" || text.length > 64 * 1024)
+    throw Error(".env import exceeds the 64 KiB limit.");
+  const values = Object.create(null);
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line || line.startsWith("#")) continue;
+    const match = line.match(/^(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*(.*)$/);
+    if (!match) throw Error("Unsupported .env syntax at line " + (i + 1) + ".");
+    const key = match[1];
+    if (Object.hasOwn(values, key)) throw Error("Duplicate secret name at line " + (i + 1) + ".");
+    let value = match[2];
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    } else if (value.startsWith('"') || value.startsWith("'")) {
+      throw Error("Unclosed .env quoted value at line " + (i + 1) + ".");
+    }
+    if (/[\u0000-\u001f]/.test(value) || value.includes("$" + "{") ||
+        value.includes("$(") || value.includes(String.fromCharCode(96)))
+      throw Error("Unsupported control characters or interpolation at line " + (i + 1) + ".");
+    if (new TextEncoder().encode(value).length > 8192)
+      throw Error("A secret value exceeds 8192 bytes.");
+    values[key] = value;
+    if (Object.keys(values).length > 64) throw Error("Import limit is 64 variables.");
+  }
+  if (!Object.keys(values).length) throw Error("The .env file has no importable variables.");
+  return values;
+}
+
+async function nativeEnvImportReview() {
+  const v = nativeSecretsView, project = nativeSecretProject();
+  if (v.busy || !project || v.review) return;
+  const fileInput = document.getElementById("native-env-import-file");
+  const file = fileInput?.files?.[0];
+  const password = document.getElementById("native-env-import-password");
+  const current = password?.value;
+  if (password) password.value = "";
+  if (fileInput) fileInput.value = "";
+  v.busy = true; v.error = ""; v.message = "";
+  try {
+    if (!file || file.size > 64 * 1024 || !current)
+      throw Error("Select a .env file of at most 64 KiB and enter the administrator password.");
+    const values = nativeParseEnv(await file.text());
+    v.review = await api("project-secrets/review", {
+      project: project.project, action: "import", key: null, value: values,
+      expectedRevision: project.revision, current,
+    });
+    v.message = "Environment values encrypted in a review; the original .env was not stored.";
+  } catch (error) {
+    v.error = error.message || "Environment import failed.";
+  } finally {
+    v.busy = false;
+    if (state.page === "projects") shell();
+  }
+}
+
 async function nativeRecoveryExport() {
   const v = nativeSecretsView;
   if (v.busy) return;
@@ -323,6 +389,9 @@ function bindNativeSecrets() {
   });
   document.querySelector("#native-recovery-export")?.addEventListener("click", () => {
     void nativeRecoveryExport();
+  });
+  document.querySelector("#native-env-import-review")?.addEventListener("click", () => {
+    void nativeEnvImportReview();
   });
   document.querySelector("#native-recovery-verify")?.addEventListener("click", () => {
     void nativeRecoveryImport("verify");
