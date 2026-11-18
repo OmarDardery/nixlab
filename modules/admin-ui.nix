@@ -79,6 +79,9 @@ in {
         User = "nixlab-ui"; Group = "nixlab-ui";
         LoadCredential = [ "tls.crt:/var/lib/nixlab-admin/tls.crt" "tls.key:/var/lib/nixlab-admin/tls.key" ];
         Restart = "on-failure"; RestartSec = "3s";
+        # The HTTPS process is deliberately finite even if every trusted-LAN
+        # connection stalls. Root broker jobs run in the separate service.
+        TasksMax = 96; LimitNOFILE = 1024; MemoryMax = "512M";
         NoNewPrivileges = true; PrivateTmp = true; ProtectHome = true;
         ProtectSystem = "strict"; ProtectKernelTunables = true; ProtectKernelModules = true;
         ProtectControlGroups = true; RestrictSUIDSGID = true;

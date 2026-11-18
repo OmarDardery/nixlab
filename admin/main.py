@@ -23,6 +23,73 @@ import accounts as access_accounts
 SOCKET = Path(os.environ.get('NIXLAB_SOCKET', '/run/nixlab-admin/backend.sock'))
 MAX_BODY = 262144
 MAX_HEADERS = 16384
+MAX_REQUEST_LINE = 4096
+MAX_HEADER_SECONDS = 15
+MAX_BODY_SECONDS = 30
+MAX_ACTIVE_CLIENTS = 32
+
+
+def checked_length(method, headers):
+    """Reject ambiguous HTTP framing on ALL routes, including read-only ones."""
+    if headers.get_all('Transfer-Encoding'):
+        raise rt.PublicError('Transfer encoding is not accepted')
+    lengths = headers.get_all('Content-Length', [])
+    if method != 'POST':
+        if lengths:
+            raise rt.PublicError('Request body is not accepted for this method')
+        return None
+    if len(lengths) != 1 or not re.fullmatch(r'[0-9]+', lengths[0].strip()):
+        raise rt.PublicError('Exactly one valid request length is required')
+    length = int(lengths[0].strip())
+    if not 0 < length <= MAX_BODY:
+        raise rt.PublicError('Request body is missing or too large')
+    return length
+
+
+class ReadDeadline:
+    """A wall-clock read budget, not an idle timeout that trickle traffic resets."""
+    def __init__(self, connection, seconds):
+        self.connection = connection
+        self.seconds = seconds
+        self.lock = threading.Lock()
+        self.active = False
+        self.timer = None
+
+    def __enter__(self):
+        with self.lock:
+            self.active = True
+        self.timer = threading.Timer(self.seconds, self.expire)
+        self.timer.daemon = True
+        self.timer.start()
+        return self
+
+    def expire(self):
+        with self.lock:
+            if self.active:
+                try:
+                    self.connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                self.active = False
+
+    def close(self):
+        with self.lock:
+            self.active = False
+        if self.timer is not None:
+            self.timer.cancel()
+
+    def __exit__(self, *_):
+        self.close()
+
+
+def body_read_deadline(handler):
+    # Broker requests arrive over a private Unix socket; its caller already
+    # enforces a timeout. Only the externally reachable HTTPS reader needs this.
+    if getattr(type(handler), 'enforce_body_deadline', False):
+        return ReadDeadline(handler.connection, MAX_BODY_SECONDS)
+    from contextlib import nullcontext
+    return nullcontext()
+
 
 
 class HeaderReader:
@@ -42,30 +109,26 @@ class HeaderReader:
 
 def json_body(handler):
     try:
-        if handler.headers.get_all('Transfer-Encoding'):
-            raise rt.PublicError('Transfer encoding is not accepted')
-        lengths = handler.headers.get_all('Content-Length', [])
-        if len(lengths) != 1 or not re.fullmatch(r'[0-9]+', lengths[0].strip()):
-            raise rt.PublicError('Exactly one valid request length is required')
-        length = int(lengths[0].strip())
-        if not 0 < length <= MAX_BODY:
-            raise rt.PublicError('Request body is missing or too large')
-        raw = handler.rfile.read(length)
+        length = checked_length('POST', handler.headers)
+        with body_read_deadline(handler):
+            raw = handler.rfile.read(length)
         if len(raw) != length:
             raise rt.PublicError('Incomplete request body')
         try:
             body = json.loads(raw)
         except (ValueError, UnicodeError):
             raise rt.PublicError('Invalid JSON request body') from None
-        if not isinstance(body, dict): raise rt.PublicError('Request body must be an object')
+        if not isinstance(body, dict):
+            raise rt.PublicError('Request body must be an object')
         return body
     except OSError:
         handler.close_connection = True
         raise rt.PublicError('Request body could not be read') from None
     except ValueError:
-        # Never parse leftover bytes from a rejected body as the next request.
+        # A rejected body must never become a second, smuggled request.
         handler.close_connection = True
         raise
+
 
 
 def reply(handler, status, data, content_type='application/json', extra=None):
@@ -374,14 +437,81 @@ class Auth:
                     session.pop('certificateDownload', None)
 
 
+class SecuredHttpHandler(BaseHTTPRequestHandler):
+    """Shared bounded HTTP parsing for the web portal (no privileged routes)."""
+    protocol_version = 'HTTP/1.1'
+    enforce_body_deadline = True
+
+    def handle_one_request(self):
+        # BaseHTTPRequestHandler reads the request line before parse_request.
+        # Arm the budget before that read and cancel it as soon as framing is
+        # validated, so long-running root broker actions are not interrupted.
+        self._header_deadline = ReadDeadline(self.connection, MAX_HEADER_SECONDS)
+        self._header_deadline.__enter__()
+        try:
+            return super().handle_one_request()
+        finally:
+            self._header_deadline.close()
+
+    def parse_request(self):
+        try:
+            original = self.rfile
+            self.rfile = HeaderReader(original)
+            try:
+                parsed = super().parse_request()
+            finally:
+                self.rfile = original
+            if not parsed:
+                return False
+            # Initialize command/version via stdlib before sending a 414:
+            # send_error needs both fields to write an actual HTTP response.
+            if len(self.raw_requestline) > MAX_REQUEST_LINE:
+                self.close_connection = True
+                self.send_error(414)
+                return False
+            # HTTP/1.1 keep-alive must never preserve stray request-body bytes.
+            if not self.path.startswith('/') or self.path.startswith('//'):
+                self.close_connection = True
+                self.send_error(400)
+                return False
+            try:
+                checked_length(self.command, self.headers)
+            except ValueError:
+                self.close_connection = True
+                self.send_error(400)
+                return False
+            return True
+        finally:
+            self._header_deadline.close()
+
+    def handle_expect_100(self):
+        # Do not acknowledge a potentially large upload before validating its
+        # framing or authenticating the request; browser JSON doesn't need it.
+        self.close_connection = True
+        self.send_error(417)
+        return False
+
+    def send_error(self, code, message=None, explain=None):
+        # Stdlib error rendering must never echo untrusted methods or headers.
+        super().send_error(code)
+
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(20)
+
+    def log_message(self, *_):
+        pass
+
+
 class BoundedHttpsServer(ThreadingHTTPServer):
     def handle_error(self, request, client_address):
         # Do not let the stdlib print request exceptions into the journal.
         pass
 
     daemon_threads = True
+    request_queue_size = MAX_ACTIVE_CLIENTS
     def __init__(self, address, handler):
-        self.slots = threading.BoundedSemaphore(32)
+        self.slots = threading.BoundedSemaphore(MAX_ACTIVE_CLIENTS)
         super().__init__(address, handler)
     def process_request(self, request, address):
         if not self.slots.acquire(blocking=False):
@@ -432,25 +562,17 @@ def bootstrap_cookie(header):
     return values[0] if len(values) == 1 else None
 
 
+def tls_context(certfile, keyfile):
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.options |= ssl.OP_NO_COMPRESSION
+    context.load_cert_chain(certfile, keyfile)
+    return context
+
+
 def web():
     auth = Auth()
-    class Frontend(BaseHTTPRequestHandler):
-        protocol_version = 'HTTP/1.1'
-        def parse_request(self):
-            original = self.rfile
-            self.rfile = HeaderReader(original)
-            try:
-                return super().parse_request()
-            finally:
-                self.rfile = original
-        def send_error(self, code, message=None, explain=None):
-            # Stdlib errors may otherwise echo an unsupported method or request.
-            super().send_error(code)
-        def setup(self):
-            super().setup()
-            self.connection.settimeout(20)
-        def log_message(self, *_):
-            pass
+    class Frontend(SecuredHttpHandler):
         def access(self):
             settings = broker_request('GET', '/access')
             address = ipaddress.ip_address(self.client_address[0])
@@ -462,7 +584,9 @@ def web():
             host = hosts[0]
             try:
                 parsed = urlsplit('https://' + host)
-                valid = parsed.hostname in settings['hosts'] and not parsed.username and not parsed.password and parsed.path == ''
+                valid = (parsed.hostname in settings['hosts'] and not parsed.username
+                         and not parsed.password and parsed.path == '' and not parsed.query
+                         and not parsed.fragment and parsed.port in (None, self.server.server_port))
             except ValueError:
                 valid = False
             if not valid:
@@ -673,10 +797,8 @@ def web():
                 reply(self, 400, {'error': rt.public_error(exc)})
     server = BoundedHttpsServer(('0.0.0.0', int(os.environ.get('NIXLAB_PORT', '9440'))), Frontend)
     server.daemon_threads = True
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.minimum_version = ssl.TLSVersion.TLSv1_2
     credentials = Path(os.environ.get('CREDENTIALS_DIRECTORY', str(rt.STATE)))
-    context.load_cert_chain(credentials / 'tls.crt', credentials / 'tls.key')
+    context = tls_context(credentials / 'tls.crt', credentials / 'tls.key')
     server.context = context
     server.serve_forever()
 

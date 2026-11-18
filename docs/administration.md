@@ -58,6 +58,42 @@ by later activation. Ensure a working Linux login before ending installation. Se
 available until the corresponding enrollment/recovery release gates are qualified.
 
 
+## Management HTTPS transport and hostile-client limits
+
+The management HTTPS port is a **private trusted-LAN service**, not an
+Internet-facing web application. The portal enforces the declared source CIDRs,
+a validated Host, exact Origin on mutations, CSRF for authenticated changes,
+HttpOnly/Secure/SameSite session cookies, password attempt throttling, idle
+session expiry (30 minutes) and absolute session expiry (8 hours). TLS 1.0/1.1,
+compression and plaintext portal authentication are disabled; TLS 1.2 is the
+minimum. Validate the management certificate/CA or its fingerprint before login.
+
+The existing stdlib HTTP server is constrained to **32 concurrent client
+threads**, a 16 KiB aggregate header budget, a 4 KiB request line, a 256 KiB
+JSON body, a 15-second **total header-read deadline**, a 30-second **total
+body-read deadline**, and a 20-second socket idle/write timeout. Read budgets
+are wall-clock limits, so trickling a byte before each idle timeout cannot
+monopolize all worker slots indefinitely. Accepted POST requests require one
+unambiguous length; GET/other requests reject bodies, duplicate
+Content-Length, Transfer-Encoding, ambiguous request targets and Expect:
+100-continue. An overloaded connection is dropped before a worker is created.
+The UI service additionally has a 96-task and 512 MiB systemd cgroup budget
+and a 1,024-FD soft/hard service limit. Root broker operations are separate
+and not cut short by header/body-read timers.
+
+Bad HTTP framing returns fixed generic errors without echoing submitted
+Authorization, Cookie or body content. Interrupted connections may close
+without a response. Normal browser imports, login and one-time certificate
+downloads remain authenticated; do not expose their traffic to support logs.
+Use the actual `nixlab-ui` unit, HTTPS port and certificate when diagnosing
+clients; no reverse-proxy forwarding or arbitrary internet ingress is assumed.
+
+Validation runs socket-level malformed/duplicate length, header overflow,
+trickle, worker saturation, modern/legacy TLS, real NixOS portal CSRF and
+trusted-CIDR checks. This does **not** establish external penetration-test
+coverage or qualify an internet-exposed deployment; record client-specific
+TLS/import smoke testing before calling a remote setup supported.
+
 ## SSH and Incus CLI
 
 The `operator` account accepts Linux passwords by default and optional declared SSH keys. Root SSH login is disabled. It may use sudo for infrastructure
