@@ -356,6 +356,18 @@ class ProjectSourceTransactionsTests(unittest.TestCase):
                 self.manager.deploy(reviewed["id"], reviewed["planHash"])
             self.assertFalse((self.manager._job(reviewed["id"]) / "deployment.json").exists())
 
+    def test_missing_runtime_sops_adapter_refuses_before_guest_mutation(self):
+        # Reviewing and publishing encrypted references is permitted, but
+        # deploying them without the scoped #134 runtime adapter is not.
+        self.inventory["projects"]["alpha"]["secrets"]["file"] = "secrets.enc.yaml"
+        reviewed = self.review()
+        self.manager.publish(reviewed["id"], reviewed["planHash"])
+        with patch.object(project_plans, "recheck_and_apply",
+                          side_effect=AssertionError("Incus must never be touched")):
+            with self.assertRaisesRegex(ValueError, "#134 adapter"):
+                self.manager.deploy(reviewed["id"], reviewed["planHash"])
+        self.assertFalse((self.manager._job(reviewed["id"]) / "deployment.json").exists())
+
     def test_source_revision_tamper_and_unreferenced_project_fail_closed(self):
         root, revision, content = self._published_source()
         with patch.dict(os.environ, {"NIXLAB_PROJECT_SOURCES": str(root)}):

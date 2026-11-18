@@ -538,6 +538,11 @@ class ProjectTransactions:
             if project_plans.digest(inventory) != plan["inventoryHash"]:
                 raise ValueError("Reviewed inventory is corrupt")
             _recheck_sources(job.get("sourceRefs", {}), inventory)
+            if any(p["enable"] and p["secrets"]["file"] is not None
+                   for p in inventory["projects"].values()):
+                # Approved ciphertext is not a delivered runtime secret. A
+                # partial CPU/VM apply before decryption would be misleading.
+                raise ValueError("Scoped SOPS runtime delivery requires the approved #134 adapter")
             if job.get("sourceRefs"):
                 # A verified source revision is not a built OCI image or a
                 # running Compose guest. Never mark it deployed prematurely.
