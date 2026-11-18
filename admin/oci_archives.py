@@ -8,15 +8,43 @@ import hashlib
 import os
 from pathlib import Path
 import stat
+import struct
 import tarfile
 import zipfile
 
 ARCHIVE_SUFFIXES = (".zip", ".tar", ".tar.gz", ".tgz")
 MAX_ARCHIVE_ENTRIES = 1024
+MAX_ZIP_DIRECTORY_BYTES = 2 * 1024 * 1024
 
 
 def is_archive_name(name):
     return isinstance(name, str) and name.lower().endswith(ARCHIVE_SUFFIXES)
+
+
+def _preflight_zip_directory(archive):
+    """Bound central-directory parsing memory before constructing ZipInfo objects.
+
+    A malicious 64 MiB ZIP can contain hundreds of thousands of empty entries,
+    exhausting the root broker even when the expanded-data limit is small.
+    ZIP64 and multi-disk archives are unnecessary for a 256-file/128-MiB
+    context and are deliberately rejected rather than parsed as exceptions.
+    """
+    with archive.open("rb") as stream:
+        stream.seek(0, os.SEEK_END)
+        size = stream.tell()
+        stream.seek(max(0, size - 65557))
+        tail = stream.read(65557)
+    where = tail.rfind(b"PK\\x05\\x06")
+    if where < 0 or len(tail) - where < 22:
+        raise ValueError("Archive has no valid bounded ZIP directory")
+    signature, disk, directory_disk, disk_entries, entries, length, offset, comment = (
+        struct.unpack_from("<IHHHHIIH", tail, where))
+    if (signature != 0x06054B50 or disk or directory_disk or
+            disk_entries != entries or not 1 <= entries <= MAX_ARCHIVE_ENTRIES or
+            length > MAX_ZIP_DIRECTORY_BYTES or entries == 0xFFFF or
+            offset == 0xFFFFFFFF or length == 0xFFFFFFFF or
+            offset + length > size or where + 22 + comment != len(tail)):
+        raise ValueError("Archive has an unsupported or oversized ZIP directory")
 
 
 def _member_path(name, *, directory=False):
@@ -100,7 +128,8 @@ def extract_archive(archive, destination, *, check_path, max_files, max_file, ma
 
     try:
         if archive.name.lower().endswith(".zip"):
-            with zipfile.ZipFile(archive, "r", allowZip64=True) as z:
+            _preflight_zip_directory(archive)
+            with zipfile.ZipFile(archive, "r", allowZip64=False) as z:
                 # Bound metadata allocations and directory-only attack entries.
                 if len(z.infolist()) > MAX_ARCHIVE_ENTRIES:
                     raise ValueError("Archive has too many members")
