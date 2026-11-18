@@ -441,3 +441,40 @@ class Secrets:
         rt.audit("native-secret-publication-recovered", principal=actor, project=project)
         return {"recovered": True, "revision": base,
                 "note": "Ciphertext reference restored; independently verify any deployed workload"}
+
+
+    def reindex(self, actor, project, *, acknowledge=False):
+        """Explicitly adopt authenticated ciphertext restored from source control.
+
+        The source file is never decrypted into an API response. This is a
+        recovery operation, not a way to bypass the deployed revision guard.
+        """
+        if acknowledge is not True:
+            raise ValueError("Explicit ciphertext recovery approval required")
+        root = self._private_state()
+        recipient = self._identity()
+        directory = self._project(project)
+        self._check_policy(directory, recipient)
+        cipher = self._cipher(directory)
+        if cipher is None:
+            raise ValueError("No encrypted project secrets to adopt")
+        metadata = self._metadata(project)
+        digest = _hash(cipher)
+        store_root = root / "projects"
+        _dir(store_root, private=True, create=True)
+        store = _dir(store_root / project, private=True, create=True)
+        if (store / "pending.json").exists() or (store / "pending.json").is_symlink():
+            raise ValueError("Interrupted publication must be recovered before reindexing")
+        keys = sorted(self._decode(cipher))
+        if metadata.get("revision") == digest and metadata.get("keys") == keys:
+            return {"indexed": True, "noChange": True, "project": project,
+                    "revision": digest, "keys": keys}
+        rt.write_json(store / "index.json", {
+            "project": project, "revision": digest, "keys": keys,
+            "recoveredAt": time.time(),
+        }, mode=0o600)
+        rt.audit("native-secrets-ciphertext-reindexed", principal=actor,
+                 project=project, revision=digest, count=len(keys))
+        return {"indexed": True, "noChange": False, "project": project,
+                "revision": digest, "keys": keys,
+                "note": "Ciphertext authenticated and indexed; no workloads changed"}
