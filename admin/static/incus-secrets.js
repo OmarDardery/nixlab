@@ -89,11 +89,37 @@ function nativeSecretsPanel() {
       '<button id="native-secret-publish" type="button"' + (v.busy ? " disabled" : "") +
       '>Publish encrypted secrets</button></fieldset>'
     : "";
+  const recoveryPanel = '<fieldset><legend>Offline encrypted recovery</legend>' +
+    '<p>Export an authenticated, passphrase-encrypted recovery kit. Keep it offline and separate from the Git-synced SOPS ciphertext. Verify the kit before relying on it.</p>' +
+    (identity.healthy
+      ? '<label class="field"><span>Recovery passphrase (16+ characters)</span><input id="native-recovery-export-passphrase" type="password" autocomplete="new-password"></label>' +
+        '<label class="field"><span>Repeat passphrase</span><input id="native-recovery-export-confirm" type="password" autocomplete="new-password"></label>' +
+        '<label><input type="checkbox" id="native-recovery-backup"> Include present restic unlock/remote credential files</label>' +
+        '<label class="field"><span>Administrator password</span><input id="native-recovery-export-admin" type="password" autocomplete="current-password"></label>' +
+        '<button type="button" id="native-recovery-export"' + (v.busy ? " disabled" : "") +
+        '>Download encrypted recovery kit</button>'
+      : '') +
+    '<p>To verify or restore a kit, select the encrypted JSON file and enter its passphrase. Restoring never overwrites a host age identity or existing backup credentials.</p>' +
+    '<label class="field"><span>Encrypted recovery kit</span><input id="native-recovery-kit-file" type="file" accept=".json,application/json"></label>' +
+    '<label class="field"><span>Recovery passphrase</span><input id="native-recovery-import-passphrase" type="password" autocomplete="off"></label>' +
+    '<label class="field"><span>Administrator password</span><input id="native-recovery-import-admin" type="password" autocomplete="current-password"></label>' +
+    '<label><input type="checkbox" id="native-recovery-import-ack"> I understand restoring changes protected machine identity/credentials</label>' +
+    '<button type="button" id="native-recovery-verify"' + (v.busy ? " disabled" : "") +
+    '>Verify kit without changes</button> ' +
+    '<button type="button" id="native-recovery-restore"' +
+    (v.busy || identity.configured ? ' disabled' : '') + '>Restore kit on new host</button></fieldset>';
+  const reindexPanel = project && !project.indexed
+    ? '<fieldset><legend>Reconcile restored ciphertext</legend>' +
+      '<p class="note">An encrypted project file differs from its metadata index. Inspect source and keys before adopting it; never overwrite the encrypted file.</p>' +
+      '<label class="field"><span>Administrator password</span><input id="native-reindex-password" type="password" autocomplete="current-password"></label>' +
+      '<label><input id="native-reindex-ack" type="checkbox"> Adopt verified SOPS ciphertext and rebuild key-name metadata</label>' +
+      '<button type="button" id="native-secret-reindex">Rebuild metadata</button></fieldset>'
+    : '';
   const errors = (v.error ? '<p role="alert" class="error">' + esc(v.error) + '</p>' : '') +
                  (v.message ? '<p role="status">' + esc(v.message) + '</p>' : '');
   return card("Environment & secrets · SOPS/age",
     '<p>Encrypted, declarative variables managed in this Web UI. Only key names and ciphertext hashes are returned; plaintext is never readable through this interface.</p>' +
-    status + setup + choose + summary + form + review + errors +
+    status + setup + choose + summary + form + review + reindexPanel + recoveryPanel + errors +
     '<p><a href="/docs/incus-native-secrets-ui.md">Secret management, delivery and recovery boundaries</a></p>');
 }
 
@@ -202,11 +228,110 @@ async function nativeSecretPublish() {
   }
 }
 
+async function nativeRecoveryExport() {
+  const v = nativeSecretsView;
+  if (v.busy) return;
+  const passEl = document.getElementById("native-recovery-export-passphrase");
+  const repeatEl = document.getElementById("native-recovery-export-confirm");
+  const adminEl = document.getElementById("native-recovery-export-admin");
+  const passphrase = passEl?.value || "", repeat = repeatEl?.value || "", current = adminEl?.value || "";
+  const includeBackup = document.getElementById("native-recovery-backup")?.checked === true;
+  if (passEl) passEl.value = "";
+  if (repeatEl) repeatEl.value = "";
+  if (adminEl) adminEl.value = "";
+  v.busy = true; v.error = ""; v.message = "";
+  try {
+    if (passphrase.length < 16 || passphrase !== repeat || !current)
+      throw Error("Enter and confirm a 16+ character recovery passphrase and reauthenticate.");
+    const result = await api("project-secrets/recovery-export", {passphrase, includeBackup, current});
+    if (!result.verified) throw Error("Server did not verify the recovery encryption.");
+    const bytes = Uint8Array.from(atob(result.encrypted), c => c.charCodeAt(0));
+    download("nixlab-project-secrets-recovery.json", bytes, "application/json");
+    v.message = "Encrypted recovery kit downloaded; store it offline and verify it before trusting backups.";
+  } catch (error) {
+    v.error = error.message || "Recovery kit export failed.";
+  } finally {
+    v.busy = false;
+    if (state.page === "projects") shell();
+  }
+}
+
+async function nativeRecoveryImport(action) {
+  const v = nativeSecretsView;
+  if (v.busy || !["verify", "restore"].includes(action)) return;
+  const file = document.getElementById("native-recovery-kit-file")?.files?.[0];
+  const passEl = document.getElementById("native-recovery-import-passphrase");
+  const adminEl = document.getElementById("native-recovery-import-admin");
+  const passphrase = passEl?.value || "", current = adminEl?.value || "";
+  const acknowledge = document.getElementById("native-recovery-import-ack")?.checked === true;
+  if (passEl) passEl.value = "";
+  if (adminEl) adminEl.value = "";
+  v.busy = true; v.error = ""; v.message = "";
+  try {
+    if (!file || file.size > 256 * 1024 || !passphrase || !current)
+      throw Error("Select a bounded encrypted recovery kit and enter both passwords.");
+    if (action === "restore" && !acknowledge)
+      throw Error("Explicitly acknowledge the host recovery operation.");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let encoded = "";
+    for (let i = 0; i < bytes.length; i += 16384)
+      encoded += String.fromCharCode(...bytes.subarray(i, i + 16384));
+    const result = await api("project-secrets/recovery-" + action, {
+      encrypted: btoa(encoded), passphrase, current,
+      acknowledge: action === "restore" ? acknowledge : false,
+    });
+    v.message = action === "verify"
+      ? "Recovery kit authenticated for age recipient " + result.recipient + "."
+      : "Recovery identity restored; separately restore and verify encrypted project source/data.";
+    if (action === "restore") await nativeSecretsRefresh();
+  } catch (error) {
+    v.error = error.message || "Recovery kit rejected.";
+  } finally {
+    v.busy = false;
+    if (state.page === "projects") shell();
+  }
+}
+
+async function nativeSecretsReindex() {
+  const v = nativeSecretsView, project = nativeSecretProject();
+  if (v.busy || !project || project.indexed) return;
+  const password = document.getElementById("native-reindex-password");
+  const current = password?.value;
+  if (password) password.value = "";
+  const acknowledge = document.getElementById("native-reindex-ack")?.checked === true;
+  v.busy = true; v.error = ""; v.message = "";
+  try {
+    if (!current || !acknowledge) throw Error("Reauthenticate and acknowledge metadata recovery.");
+    const result = await api("project-secrets/reindex", {
+      project: project.project, current, acknowledge,
+    });
+    v.message = "Encrypted source authenticated and indexed at " + result.revision + ".";
+    await nativeSecretsRefresh();
+  } catch (error) {
+    v.error = error.message || "Secret metadata cannot be recovered.";
+  } finally {
+    v.busy = false;
+    if (state.page === "projects") shell();
+  }
+}
+
 function bindNativeSecrets() {
   if (state.principal?.role !== "admin") return;
   if (!nativeSecretsView.loaded && !nativeSecretsView.loading) void nativeSecretsRefresh();
   document.querySelector("#native-age-enroll")?.addEventListener("click", () => {
     void nativeEnrollIdentity();
+  });
+  document.querySelector("#native-recovery-export")?.addEventListener("click", () => {
+    void nativeRecoveryExport();
+  });
+  document.querySelector("#native-recovery-verify")?.addEventListener("click", () => {
+    void nativeRecoveryImport("verify");
+  });
+  document.querySelector("#native-recovery-restore")?.addEventListener("click", () => {
+    void nativeRecoveryImport("restore");
+  });
+  document.querySelector("#native-secret-reindex")?.addEventListener("click", () => {
+    void nativeSecretsReindex();
   });
   document.querySelector("#native-secret-project")?.addEventListener("change", event => {
     nativeSecretsView.selected = event.currentTarget.value;
