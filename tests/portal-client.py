@@ -9,6 +9,8 @@ import subprocess
 import tarfile
 import urllib.error
 import urllib.request
+import socket
+import warnings
 
 origin = 'https://127.0.0.1:9440'
 context = ssl.create_default_context(cafile='/var/lib/nixlab-admin/ca.crt')
@@ -35,10 +37,52 @@ def login(username, password):
     return result | {'cookie': headers['Set-Cookie'].split(';')[0]}
 
 
+# Exercise the real NixOS TLS service, not just a mocked parser.
+def wire_request(packet):
+    with socket.create_connection(('127.0.0.1', 9440), timeout=8) as raw:
+        with context.wrap_socket(raw, server_hostname='127.0.0.1') as tls:
+            tls.settimeout(8)
+            tls.sendall(packet)
+            return tls.recv(4096)
+
+
+for packet, expected in (
+    (b'GET /api/status HTTP/1.1\\r\\nHost: 127.0.0.1:9440\\r\\n'
+     b'Content-Length: 2\\r\\nConnection: close\\r\\n\\r\\n{}', b'400'),
+    (b'GET /api/status HTTP/1.1\\r\\nHost: 127.0.0.1:9555\\r\\n'
+     b'Connection: close\\r\\n\\r\\n', b'401'),
+    (b'POST /api/login HTTP/1.1\\r\\nHost: 127.0.0.1:9440\\r\\n'
+     b'Content-Length: 2\\r\\nContent-Length: 2\\r\\n'
+     b'Connection: close\\r\\n\\r\\n{}', b'400'),
+):
+    response = wire_request(packet)
+    assert expected in response.split(b'\\r\\n', 1)[0], response[:160]
+
+with warnings.catch_warnings():
+    warnings.simplefilter('ignore', DeprecationWarning)
+    legacy = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    legacy.check_hostname = False
+    legacy.verify_mode = ssl.CERT_NONE
+    legacy.minimum_version = ssl.TLSVersion.TLSv1
+    legacy.maximum_version = ssl.TLSVersion.TLSv1_1
+    try:
+        with socket.create_connection(('127.0.0.1', 9440), timeout=8) as raw:
+            with legacy.wrap_socket(raw, server_hostname='127.0.0.1'):
+                raise AssertionError('Insecure TLS 1.0/1.1 connected')
+    except (ssl.SSLError, OSError):
+        pass
+
 assert request('/api/status')[0] == 401
 assert request('/api/guest-network')[0] == 401
 assert request('/api/main-revision')[0] == 401
 admin = login('admin', 'vm-integration-password')
+# A stale/absent CSRF header must not log out a valid browser.
+wire = (b'POST /api/logout HTTP/1.1\\r\\nHost: 127.0.0.1:9440\\r\\n'
+        b'Origin: https://127.0.0.1:9440\\r\\nCookie: ' + admin['cookie'].encode() +
+        b'\\r\\nContent-Length: 2\\r\\nConnection: close\\r\\n\\r\\n{}')
+assert b'401' in wire_request(wire).split(b'\\r\\n', 1)[0]
+assert request('/api/session', session=admin)[0] == 200
+
 # Disposable legacy input: the authenticated replacement must commit before
 # this private file is removed. Never echo the value through an API/console.
 legacy = Path('/var/lib/nixlab-admin/setup-password')
