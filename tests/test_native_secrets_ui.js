@@ -57,6 +57,14 @@ async function main() {
   panel = run("nativeSecretsPanel()");
   assert.match(panel, /Approve ciphertext-only publication/);
   assert.doesNotMatch(panel, /private-value-not-in-UI/);
+  ctx.envPayload = "export API_TOKEN='quoted secret'\nPASSWORD=abc123\n# comment\n";
+  const parsed = run("nativeParseEnv(envPayload)");
+  assert.equal(parsed.API_TOKEN, "quoted secret");
+  assert.equal(parsed.PASSWORD, "abc123");
+  ctx.badEnv = "KEY=$(run)";
+  assert.throws(() => run("nativeParseEnv(badEnv)"), /interpolation/);
+  ctx.duplicateEnv = "KEY=first\nKEY=second";
+  assert.throws(() => run("nativeParseEnv(duplicateEnv)"), /Duplicate/);
   const serialized = run("JSON.stringify(nativeSecretsView)");
   assert.ok(!serialized.includes("private-value-not-in-UI"),
             "Secret value must never enter persistent UI state");
