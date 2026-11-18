@@ -139,6 +139,9 @@ def backend():
                 elif self.path == '/project-imports':
                     import native_imports
                     result = native_imports.PublishedSources().inventory()
+                elif self.path == '/project-secrets':
+                    import native_secrets
+                    result = native_secrets.Secrets().inventory()
                 elif self.path.startswith('/deployment/'):
                     from deployments import Deployments
                     result = Deployments().status(self.path.removeprefix('/deployment/'))
@@ -212,6 +215,25 @@ def backend():
                             result = native_imports.PublishedSources().publish(
                                 staging, body.get('id'), actor, body.get('reviewId'),
                                 acknowledge=body.get('acknowledge') is True)
+                elif self.path in ('/project-secrets/enroll', '/project-secrets/review',
+                                   '/project-secrets/publish', '/project-secrets/recover'):
+                    import native_secrets
+                    with rt.locked(blocking=False):
+                        manager_secrets = native_secrets.Secrets()
+                        if self.path == '/project-secrets/enroll':
+                            result = manager_secrets.enroll_identity(
+                                actor, body.get('mode'), private_key=body.get('privateKey'),
+                                acknowledge=body.get('acknowledge') is True)
+                        elif self.path == '/project-secrets/review':
+                            result = manager_secrets.review(
+                                actor, body.get('project'), body.get('key'), body.get('action'),
+                                body.get('value'), body.get('expectedRevision'))
+                        elif self.path == '/project-secrets/publish':
+                            result = manager_secrets.publish(
+                                actor, body.get('reviewId'),
+                                acknowledge=body.get('acknowledge') is True)
+                        else:
+                            result = manager_secrets.recover(actor, body.get('project'))
                 elif self.path == '/review':
                     if 'reuseArcanePassword' in body or 'arcaneCurrent' in body:
                         raise rt.PublicError('Legacy application-manager credentials are unsupported by Incus-native')
@@ -540,7 +562,7 @@ def web():
                 if path == '/api/browser-certificates':
                     if session['role'] != 'admin': raise access_accounts.AuthorizationError('Administrator account required')
                     return reply(self, 200, broker_request('GET', '/browser-certificates'))
-                if path in ('/api/releases', '/api/main-revision', '/api/project-imports'):
+                if path in ('/api/releases', '/api/main-revision', '/api/project-imports', '/api/project-secrets'):
                     if session['role'] != 'admin': raise access_accounts.AuthorizationError('Administrator account required')
                     return reply(self, 200, broker_request('GET', path[4:]))
                 if path.startswith('/api/deployment/'):
@@ -595,6 +617,12 @@ def web():
                 body = json_body(self)
                 import accounts
                 accounts.authorize(session, self.path, body)
+                if self.path in ('/api/project-secrets/enroll', '/api/project-secrets/review',
+                                 '/api/project-secrets/publish', '/api/project-secrets/recover'):
+                    # No secret read endpoint exists. Require fresh credentials
+                    # even to prepare encrypted review material.
+                    if not accounts.matches(session['username'], body.pop('current', None)):
+                        raise rt.PublicError('Reauthenticate to manage encrypted project secrets')
                 if self.path in ('/api/project-import/prepare', '/api/project-import/publish'):
                     # Import and publication use separate, fresh password checks.
                     # Review alone never writes persistent project source.
@@ -657,7 +685,8 @@ def web():
                 if self.path in ('/api/recovery-export', '/api/users'):
                     if not accounts.matches(session['username'], body.pop('current', None)):
                         raise rt.PublicError('Reauthenticate before exporting recovery material or changing accounts')
-                actions = {'/api/project-import/prepare', '/api/project-import/chunk', '/api/project-import/finish', '/api/project-import/review', '/api/project-import/publish', '/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests'}
+                actions = {'/api/project-secrets/enroll', '/api/project-secrets/review', '/api/project-secrets/publish', '/api/project-secrets/recover',
+                           '/api/project-import/prepare', '/api/project-import/chunk', '/api/project-import/finish', '/api/project-import/review', '/api/project-import/publish', '/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests'}
                 if self.path not in actions:
                     return reply(self, 404, {'error': 'Unknown action'})
                 body['_actor'] = session['username']
