@@ -9,6 +9,7 @@ const nativeSourceEditor = {path: "", text: "", error: ""};
 const NATIVE_MAX_EDIT_BYTES = 1024 * 1024;
 const nativeImportState = {busy: false, result: null, review: null, published: null, error: ""};
 const nativePublishedInventory = {loaded: false, loading: false, projects: [], error: ""};
+const nativeOCIPlan = {busy: false, record: null, error: ""};
 const nativePersistedSource = {loaded: false, loading: false, value: null};
 const nativeProjectTx = {loaded: false, loading: false, busy: false, record: null, error: "",
                          path: "", source: "", linkedSource: "", linkedRevision: ""};
@@ -78,6 +79,23 @@ function nativeProjectPage() {
       '</code> (manifest <code>' + esc(nativeImportState.result.manifestHash) +
       '</code>). No OCI build or Incus deployment has run.</p>'
     : '<p class="note">Select files and reauthenticate to stage a private import without running code.</p>';
+  const oci = nativeOCIPlan.record;
+  const planPanel = nativeImportState.published
+    ? '<p>The original files remain immutable. Inspect the source-qualified build intent before any OCI work is approved.</p>' +
+      '<button type="button" id="native-oci-plan"' + (nativeOCIPlan.busy ? ' disabled' : '') + '>Inspect immutable OCI build plan</button>' +
+      (nativeOCIPlan.error ? '<p role="alert" class="error">' + esc(nativeOCIPlan.error) + '</p>' : '') +
+      (oci ? '<p>Mode: <code>' + esc(oci.mode) + '</code> · context digest <code>' + esc(oci.buildContextHash) +
+        '</code> · image identity <code>' + esc(oci.buildIdentity) + '</code></p>' +
+        '<p>Entrypoint: <code>' + esc(oci.entrypoint || 'not selected') + '</code></p>' +
+        (oci.generatedCompose ? '<p>Generated launch manifest (separate from original source; read-only)</p><pre>' +
+          esc(oci.generatedCompose) + '</pre>' : '') +
+        '<p>Build/deploy blocked until:</p><ul>' +
+        (oci.blocking || []).map(reason => '<li>' + esc(reason) + '</li>').join('') + '</ul>' +
+        '<div class="table-wrap"><table><thead><tr><th>Source file</th><th>SHA-256</th></tr></thead><tbody>' +
+        (oci.sourceFiles || []).map(file => '<tr><td><code>' + esc(file.path) +
+          '</code></td><td><code>' + esc(file.sha256) + '</code></td></tr>').join('') +
+        '</tbody></table></div>' : '')
+    : '<p>Publish a reviewed source revision to inspect a build plan. No build or Incus change occurs.</p>';
   const published = nativePublishedInventory.loading
     ? '<p>Loading published source revisions…</p>'
     : nativePublishedInventory.error
@@ -207,6 +225,7 @@ function nativeProjectPage() {
       (nativeImportState.busy ? '<p role="status">Transferring verified source chunks…</p>' : '') +
       (nativeImportState.error ? '<p role="alert" class="error">' + esc(nativeImportState.error) + '</p>' : '') + upload) +
     card("Review and publish staged source", reviewPanel) +
+    card("OCI build and Compose compatibility preview", planPanel) +
     card("OCI / Compose deployment",
       '<p>Original Dockerfile/Compose source publication is not application deployment. OCI building, scoped secrets, new Incus resource creation and data restore require #133/#139/#134 and verified recovery tests.</p>' +
       '<p><a href="/docs/incus-native-plan.md">Implementation phases</a></p>');
@@ -405,6 +424,8 @@ async function nativePublishSource() {
       id: staged.id, reviewId: review.reviewId, acknowledge, current,
     });
     nativeImportState.review = null;
+    nativeOCIPlan.record = null;
+    nativeOCIPlan.error = "";
     nativePublishedInventory.loaded = false;
   } catch (error) {
     nativeImportState.error = error.message || "Publication rejected; the previous revision is unchanged.";
@@ -416,6 +437,24 @@ async function nativePublishSource() {
   }
 }
 
+
+async function nativeInspectOCIPlan() {
+  if (nativeOCIPlan.busy || !nativeImportState.published) return;
+  nativeOCIPlan.busy = true;
+  nativeOCIPlan.error = "";
+  try {
+    nativeOCIPlan.record = await api("project-import/plan", {
+      project: nativeImportState.published.project,
+      revision: nativeImportState.published.revision
+    });
+  } catch (error) {
+    nativeOCIPlan.error = error.message || "Build plan inspection was refused.";
+    nativeOCIPlan.record = null;
+  } finally {
+    nativeOCIPlan.busy = false;
+    if (state.page === "projects") shell();
+  }
+}
 
 async function nativeInitializeWorkspace() {
   if (nativeWorkspaceInit.busy) return;
@@ -548,6 +587,7 @@ function bindNativeProjects() {
       if (state.page === "projects") shell();
     });
   }
+  document.querySelector("#native-oci-plan")?.addEventListener("click", () => void nativeInspectOCIPlan());
   document.querySelector("#native-import-stage")?.addEventListener("click", () => {
     void nativeStageSource();
   });

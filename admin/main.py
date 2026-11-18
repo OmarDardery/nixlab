@@ -260,7 +260,7 @@ def backend():
                     import accounts
                     result = accounts.claim_enrollment(body.get('code'), body.get('password'))
                 elif self.path in ('/project-import/prepare', '/project-import/chunk', '/project-import/finish',
-                                   '/project-import/review', '/project-import/publish'):
+                                   '/project-import/review', '/project-import/publish', '/project-import/plan'):
                     import native_imports
                     with rt.locked(blocking=False):
                         staging = native_imports.ImportStaging()
@@ -272,6 +272,9 @@ def backend():
                                                    body.get('offset'), body.get('data'))
                         elif self.path == '/project-import/finish':
                             result = staging.finish(body.get('id'), actor, body.get('manifestHash'))
+                        elif self.path == '/project-import/plan':
+                            from oci_source_plan import source_plan
+                            result = source_plan(body.get('project'), body.get('revision'))
                         elif self.path == '/project-import/review':
                             result = native_imports.PublishedSources().review(
                                 staging, body.get('id'), actor, body.get('manifestHash'))
@@ -810,7 +813,7 @@ def web():
                 if self.path in ('/api/recovery-export', '/api/users'):
                     if not accounts.matches(session['username'], body.pop('current', None)):
                         raise rt.PublicError('Reauthenticate before exporting recovery material or changing accounts')
-                actions = {'/api/project-import/prepare', '/api/project-import/chunk', '/api/project-import/finish', '/api/project-import/review', '/api/project-import/publish', '/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests', '/api/project/initialize', '/api/project/review', '/api/project/publish', '/api/project/rollback', '/api/project/cancel', '/api/project/recover', '/api/project/deploy'}
+                actions = {'/api/project-import/prepare', '/api/project-import/chunk', '/api/project-import/finish', '/api/project-import/review', '/api/project-import/publish', '/api/project-import/plan', '/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests', '/api/project/initialize', '/api/project/review', '/api/project/publish', '/api/project/rollback', '/api/project/cancel', '/api/project/recover', '/api/project/deploy'}
                 if self.path not in actions:
                     return reply(self, 404, {'error': 'Unknown action'})
                 body['_actor'] = session['username']
