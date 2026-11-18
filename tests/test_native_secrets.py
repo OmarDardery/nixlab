@@ -35,7 +35,11 @@ class SecretsTests(unittest.TestCase):
         self.encrypted = {}
         def mocked_run(argv, data=None, *, key_path=None):
             if argv[0] == "age-keygen":
-                if "-y" in argv: return (self.recipient + "\n").encode()
+                if "-y" in argv:
+                    material = Path(argv[-1]).read_bytes() if len(argv) > 2 else data
+                    if material is None or self.private.encode() not in material:
+                        raise ValueError("Age identity is invalid")
+                    return (self.recipient + "\n").encode()
                 return ("# public key: " + self.recipient + "\n" + self.private + "\n").encode()
             if argv[:2] == ["sops", "encrypt"]:
                 assert key_path is None
