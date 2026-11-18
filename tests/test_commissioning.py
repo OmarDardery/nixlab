@@ -58,9 +58,9 @@ class CommissioningTests(unittest.TestCase):
                                 ('invalid-clock', 'failed')]:
             with self.subTest(state=state):
                 result = report()
-                with patch('diagnostics.probe', return_value={'ok': False}), \\
-                     patch('diagnostics.clock_status', return_value={'state': state}) as observed, \\
-                     patch.object(c, 'command', return_value='[]'), \\
+                with patch('diagnostics.probe', return_value={'ok': False}), \
+                     patch('diagnostics.clock_status', return_value={'state': state}) as observed, \
+                     patch.object(c, 'command', return_value='[]'), \
                      patch('builtins.open', side_effect=FileNotFoundError):
                     c.collect(result, ctx, {'apps': {'enable': False}})
                 observed.assert_called_once_with()
