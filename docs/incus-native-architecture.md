@@ -33,3 +33,11 @@ Current production `main` is archived as `archive/pre-incus-native-main-2026-11-
 The NixLab Web UI offers a root-broker-mediated initialize/restore operation for a missing `/srv/nixlab/projects` directory. Supply `flake.nix` and the existing pinned `flake.lock` from a Git backup, reauthenticate and explicitly approve. The NixOS module declares the private parent. The broker validates both files and publishes them atomically; it does not evaluate untrusted top-level Nix, download unpinned inputs, alter host modules or rebuild the host. Subsequent independent project source edits use the same guarded NixLab reviewer, not a separate privileged service.
 
 A Dockerfile or Compose upload is first published as a private immutable byte-exact revision. Link that revision to a typed project in the editor to include its verified SHA-256 in the approved transaction. This is a configuration/source checkpoint only: the OCI builder, runtime secrets and new Incus resource reconciliation are separately gated by #139, #134 and #133.
+
+## Clean-slate scope
+
+The deployment target is a fresh NixOS/Incus host. No earlier real workloads require migrating Docker/Arcane volumes or guests. New installations must not create a legacy applications VM or run a Docker daemon. Legacy platform files in source remain cleanup targets under #126; they are not a target runtime architecture. Existing unknown state must not be removed without explicit review.
+
+## #139 OCI source intake (first slice)
+
+The Projects UI accepts individual Dockerfile/Compose/build-context files, directories and a single ZIP/TAR/TAR.GZ archive. Uploaded source is private and content-addressed outside the Nix store, with per-file byte-exact SHA-256; archives are expanded in a bounded, rejecting parser which never follows member symlinks or interprets Dockerfiles. A read-only plan can generate a **separate** Dockerfile-only Compose preview and a hash-qualified candidate image identity; context edits change the identifier without name-only caching. Original Compose bytes and nested relative paths are untouched. Build, registry access, compatibility checks and Incus `up` are **not enabled** until the separately restricted worker/adapter and SOPS runtime delivery are qualified. See `docs/oci-source-intake.md`.

@@ -25,7 +25,7 @@ No phase is complete merely because its source exists: it requires VM/system tes
 - [x] Guarded Nix source-only transaction and independent typed evaluator: reviewed file edits, exact SHA-256 candidate/plan hashes, isolated DynamicUser Nix evaluation without writable host store/daemon, source publish/rollback, recovery and CLI/HTTPS controls. The evaluator checks NixLab's pinned schema, not arbitrary top-level flake outputs; broader inputs and resource kinds remain gated.
 - [x] Reviewed source+existing-owned Incus resource plan, exact ETags, durable async apply/retry, crash recovery, no-op, health and ownership. Live guest mutation and journal failpoint are included in foundation VM tests; arbitrary new-resource creation remains #133.
 - [ ] Incus project/instance/OCI, profile, network, storage and device adapters with dependency graph.
-- [ ] Byte-exact Dockerfile/Compose import with build context and paths, builder sandbox, OCI digest pinning and documented Compose subset.
+- [x] #139 source-intake foundation: direct files plus bounded ZIP/TAR/TAR.GZ import, secure byte-exact private extraction, 128 MiB total quotas, per-file SHA-256, separate Dockerfile-only launch-manifest preview and source-qualified cache identity. Import/preview do not execute source.\n- [ ] #139 isolated OCI builder, executable Compose compatibility preflight, digest-verified Incus import, source-qualified override and reviewed deployment/rollback qualification for multi-service apps. See `docs/oci-source-intake.md`.
 - [ ] SOPS/age secret reference handling and scoped delivery/rollback failure semantics.
 
 ### Independent project transaction scope
@@ -44,7 +44,7 @@ The foundation NixOS/Incus VM integration exercises review, source publish, real
 
 ## Phase 4 — Backups, existing-host migration, qualification
 - [ ] Encrypted, restorable off-host backup for each project's data plus safe remote nonsecret source checkpoint.
-- [ ] Read-only legacy VM inventory; export/import all named volumes, images/config and service state. Existing legacy apps VM is **never silently destroyed**.
+- [ ] **Clean slate confirmed**: no real NixLab workloads ran before this rewrite; remove all historical Docker/Arcane modules, archived guest artifacts and migration-only pathways from fresh installations under #126. Do not implement a legacy VM/data migration procedure. Treat unexpected on-disk state as an error, never silently delete it.
 - [ ] Independent host replacement test using source, keys and off-host backup, including stateful applications and Klipper-like USB guests.
 - [ ] Installer, Web UI, CLI, Incus, OCI, destructive action guard, rollback and recovery CI all green.
 - [ ] Only after complete parity: merge `incus-native` into reset `main`, close fulfilled issues, publish release notes and cutover instructions.
