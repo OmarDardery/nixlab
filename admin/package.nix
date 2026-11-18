@@ -14,6 +14,8 @@ in pkgs.writeShellApplication {
   text = ''
     NIXLAB_WORKER_RUNTIME="$(dirname "$(dirname "$(readlink -f "$0")")")"
     export NIXLAB_WORKER_RUNTIME
+    export NIXLAB_PROJECT_EVAL_LIB=${../lib/project-workspace.nix}
+    export NIXLAB_PROJECT_NIXPKGS_LIB=${pkgs.path}/lib
     exec python3 ${source}/main.py "$@"
   '';
 }
