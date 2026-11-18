@@ -83,6 +83,36 @@ def _patches(changes):
     return changes
 
 
+def _attest_sources(revisions, inventory):
+    """Pin private OCI context revisions in the reviewed plan, never the Nix store.
+
+    A source reference is inert until the separately qualified #139 adapter
+    builds it. Every return value is metadata, not untrusted source contents.
+    """
+    if revisions is None:
+        return {}
+    if not isinstance(revisions, dict) or len(revisions) > 16:
+        raise ValueError("Invalid published source references")
+    from native_imports import PublishedSources
+    publisher = PublishedSources()
+    approved = {}
+    for project, revision in sorted(revisions.items()):
+        if (not isinstance(project, str) or not NAME.fullmatch(project) or
+                project not in inventory["projects"] or
+                not inventory["projects"][project]["enable"]):
+            raise ValueError("Source revision must reference an enabled declarative project")
+        approved[project] = publisher.attest(project, revision)
+    return approved
+
+
+def _recheck_sources(approved, inventory):
+    if not approved:
+        return
+    revisions = {name: item["revision"] for name, item in approved.items()}
+    if _attest_sources(revisions, inventory) != approved:
+        raise ValueError("Published source bytes changed since project review")
+
+
 def _safe_bytes(root, name, expected):
     """Read file by anchored descriptors; never follow directory/file links."""
     fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -228,14 +258,14 @@ class ProjectTransactions:
         return {key: record.get(key) for key in
                 ("id", "status", "created", "expires", "baseHash", "candidateHash",
                  "planHash", "changes", "principal", "sourceOnly", "errorCode",
-                 "inventoryHash", "runtimeActions")} | {
+                 "inventoryHash", "runtimeActions", "sourceRefs")} | {
                      "deployment": deployment.get("status", "not-started"),
                      "deploymentResources": deployment.get("resources", {}),
                      "recoveryRequired": record["status"] in ("applying-source", "rolling-back", "recovery-required") or
                          deployment.get("status") in ("partial", "interrupted"),
                  }
 
-    def review(self, changes, principal="root"):
+    def review(self, changes, principal="root", source_revisions=None):
         changes = _patches(changes)
         with rt.locked(blocking=False):
             self._root_state()
@@ -270,6 +300,9 @@ class ProjectTransactions:
                 _parse_nix(nix_files)
                 after = validate_workspace(source)
                 inventory = project_plans.evaluate(source, identity)
+                # Uploaded Dockerfile/Compose contexts stay private: only
+                # their sealed revision hashes join the immutable plan.
+                source_refs = _attest_sources(source_revisions, inventory)
                 reviewed_runtime = project_plans.plan(inventory)
                 if before["sourceHash"] == after["sourceHash"]:
                     raise ValueError("Project source has no changes to publish")
@@ -285,6 +318,7 @@ class ProjectTransactions:
                     ),
                     "inventoryHash": reviewed_runtime["inventoryHash"],
                     "runtimeActions": reviewed_runtime["actions"],
+                    "sourceRefs": source_refs,
                 }
                 record["planHash"] = _digest({
                     "id": identity, "base": record["baseHash"],
@@ -292,6 +326,7 @@ class ProjectTransactions:
                     "inventoryHash": reviewed_runtime["inventoryHash"],
                     "runtimePlan": reviewed_runtime,
                     "sourceOnly": record["sourceOnly"],
+                    "sourceRefs": source_refs,
                 })
                 rt.write_json(scratch / "inventory.json", inventory)
                 rt.write_json(scratch / "runtime-plan.json", reviewed_runtime)
@@ -332,6 +367,7 @@ class ProjectTransactions:
             planned_inventory = rt.read_json(self._job(identity) / "inventory.json")
             if project_plans.digest(runtime_inventory) != project_plans.digest(planned_inventory):
                 raise ValueError("Reviewed typed project inventory changed")
+            _recheck_sources(record.get("sourceRefs", {}), runtime_inventory)
             current_plan = project_plans.plan(runtime_inventory)
             if current_plan != rt.read_json(self._job(identity) / "runtime-plan.json"):
                 raise ValueError("Incus observation changed since review; prepare a new project plan")
@@ -457,6 +493,11 @@ class ProjectTransactions:
             inventory = rt.read_json(directory / "inventory.json")
             if project_plans.digest(inventory) != plan["inventoryHash"]:
                 raise ValueError("Reviewed inventory is corrupt")
+            _recheck_sources(job.get("sourceRefs", {}), inventory)
+            if job.get("sourceRefs"):
+                # A verified source revision is not a built OCI image or a
+                # running Compose guest. Never mark it deployed prematurely.
+                raise ValueError("OCI source deployment requires the approved #139 builder and #133 Incus adapter")
             existing = rt.read_json(directory / "deployment.json", {})
             if existing and not resume:
                 if existing.get("status") == "verified":
