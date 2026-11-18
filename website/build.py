@@ -20,7 +20,7 @@ GROUPS = [
     ('GET STARTED', [('index', 'Overview'), ('plain-nixos', 'Install Nixlab'), ('start', 'First steps'), ('home-server-scenario', 'Homelab acceptance'), ('architecture', 'Architecture'), ('target-architecture', 'Target architecture (planned)'), ('homelab', 'Meet the current stack')]),
     ('USE YOUR SERVER', [('administration', 'Accounts & access'), ('networking', 'Networking'), ('guest-deployments', 'Guest updates'), ('file-modules', 'File configuration'), ('hardware', 'Hardware & disks'), ('helpers', 'Application helpers'), ('setup', 'Optional web wizard')]),
     ('WHEN THINGS HAPPEN', [('troubleshooting', 'Troubleshooting'), ('recovery', 'Backups & recovery'), ('operations', 'Operations & updates'), ('commissioning', 'Commissioning'), ('trial', 'Trial checklist'), ('validation', 'What is tested')]),
-    ('INCUS-NATIVE REBUILD', [('incus-native-architecture', 'Architecture contract'), ('incus-native-structure', 'Repository and host layout'), ('incus-native-plan', 'Execution plan'), ('incus-native-file-inventory', 'Full source-file inventory')]),
+    ('INCUS-NATIVE REBUILD', [('incus-native-architecture', 'Architecture contract'), ('incus-native-structure', 'Repository and host layout'), ('incus-native-plan', 'Execution plan'), ('oci-source-intake', 'OCI source uploads & build safety'), ('incus-native-file-inventory', 'Full source-file inventory')]),
     ('PROJECT NOTES', [('deployment', 'Manual deployment'), ('configuration-contract', 'Configuration contract'), ('ownership', 'Ownership'), ('credential-lifecycle', 'Credential lifecycle'), ('staged-transaction-secrets', 'Staged credential lifetime'), ('artifact-audit', 'Artifact audit'), ('migration', 'Migration'), ('arcane', 'Arcane'), ('beta', 'Beta candidate'), ('projects', 'Upstream credits'), ('qualification', 'Release qualification'), ('kvm-qualification', 'KVM qualification'), ('roadmap', 'Roadmap'), ('website', 'Website & DNS')]),
 ]
 DESCRIPTIONS = {
@@ -30,7 +30,7 @@ DESCRIPTIONS = {
     'recovery': 'NixOS can roll back code. Your databases would like a separate plan.',
     'commissioning': 'Prove the stack works on your hardware, including the very important second boot.',
     'website': 'Publish the docs with GitHub Pages and connect nixlab.dardery.work.',
-    'target-architecture': 'NixLab without Arcane: Incus projects, independent Nix flakes, the Compose Web UI and one-time declarative backups. Planned migration.',
+    'target-architecture': 'Clean-slate NixLab: Incus projects, independent Nix flakes, Compose Web UI and one-time declarative backups. No historical server migration.',
 }
 
 
