@@ -201,5 +201,24 @@ class SecretsTests(unittest.TestCase):
                 self.assertNotIn(value.encode(), file.read_bytes())
 
 
+    def test_env_batch_import_is_one_ciphertext_revision(self):
+        self.enrolled()
+        values = {"DATABASE_PASSWORD": "dollars$ and: quotes'\"", "API_TOKEN": "line\\nvalue"}
+        review = self.store.review("admin", "example", None, "import", values, None)
+        self.assertEqual(review["changedKeys"], ["API_TOKEN", "DATABASE_PASSWORD"])
+        self.assertEqual(review["action"], "import")
+        self.assertNotIn("dollars$", json.dumps(review))
+        result = self.store.publish("admin", review["reviewId"], acknowledge=True)
+        self.assertEqual(sorted(self.store.inventory()["projects"][0]["keys"]),
+                         ["API_TOKEN", "DATABASE_PASSWORD"])
+        self.assertNotIn("dollars$", (self.project / "secrets.enc.yaml").read_text())
+        with self.assertRaisesRegex(ValueError, "Import"):
+            self.store.review("admin", "example", None, "import", {}, result["revision"])
+        with self.assertRaisesRegex(ValueError, "Invalid imported"):
+            self.store.review("admin", "example", None, "import",
+                              {"INVALID/NAME": "secret"}, result["revision"])
+
+
+
 if __name__ == "__main__":
     unittest.main()
