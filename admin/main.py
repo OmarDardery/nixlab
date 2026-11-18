@@ -456,6 +456,9 @@ class SecuredHttpHandler(BaseHTTPRequestHandler):
     def parse_request(self):
         try:
             if len(self.raw_requestline) > MAX_REQUEST_LINE:
+                # The base parser has not initialized request_version yet.
+                # Without this, send_error silently drops the 414 response.
+                self.request_version = 'HTTP/1.1'
                 self.close_connection = True
                 self.send_error(414)
                 return False
