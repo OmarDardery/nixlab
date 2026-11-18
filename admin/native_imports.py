@@ -301,6 +301,36 @@ class PublishedSources:
             raise ValueError("Published source reference is invalid")
         return record
 
+    def attest(self, project, revision, *, require_current=True):
+        """Attest the exact private, immutable uploaded source without executing it.
+
+        This is the shared digest boundary for project transactions and future
+        OCI builders. Never copy a build context into the world-readable Nix
+        store, and never trust only the mutable current.json pointer.
+        """
+        if (not isinstance(project, str) or not NAME.fullmatch(project) or
+                not isinstance(revision, str) or not HEX.fullmatch(revision)):
+            raise ValueError("Invalid published source identity")
+        current = self._current(project)
+        if current is None or (require_current and current["revision"] != revision):
+            raise ValueError("Published source revision has changed; review again")
+        folder = self.root / project / "revisions" / revision
+        _directory(folder, private=True)
+        manifest_path = folder / "manifest.json"
+        metadata = manifest_path.lstat()
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.geteuid()
+                or metadata.st_nlink != 1 or metadata.st_mode & 0o077):
+            raise ValueError("Published source manifest is untrusted")
+        manifest = rt.read_json(manifest_path)
+        files = check_files(manifest.get("files"))
+        if (manifest.get("schemaVersion") != 1 or
+                manifest.get("project") != project or
+                manifest.get("sourceHash") != revision or sha(files) != revision):
+            raise ValueError("Published source manifest differs from reviewed bytes")
+        _verified_source(folder / "source", files)
+        return {"revision": revision, "fileCount": len(files),
+                "bytes": sum(item["size"] for item in files)}
+
     def inventory(self):
         if not self.root.exists() and not self.root.is_symlink():
             return {"projects": []}
