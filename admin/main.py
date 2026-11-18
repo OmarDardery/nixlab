@@ -950,7 +950,7 @@ def project_cli(argv):
         else: result = projects.recover(args.id)
         print(json.dumps(result, indent=2))
     except (OSError, ValueError, KeyError):
-        sys.exit('Project transaction failed; inspect source integrity, approvals and recovery state') from None
+        raise SystemExit('Project transaction failed; inspect source integrity, approvals and recovery state') from None
 
 
 def deploy_cli(argv):
