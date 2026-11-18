@@ -233,6 +233,7 @@ class ImportStaging:
         return {"id": identity, "project": record["project"], "status": "ready",
                 "manifestHash": record["manifestHash"], "files": len(record["files"]),
                 "expandedFromArchive": record.get("expandedFromArchive", False),
+                "entries": record["files"],
                 "note": "Private source staging only: no evaluation, build, publication or Incus deployment"}
 
 

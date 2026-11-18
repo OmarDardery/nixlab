@@ -110,15 +110,18 @@ function nativeProjectPage() {
         ? '<button type="button" id="native-review-source"' + (nativeImportState.busy ? ' disabled' : '') +
           '>Review source publication</button>'
         : '<p class="note">Stage files first, then review the immutable revision before publication.</p>';
-  const manifest = nativeSourcePreflight.files.length
+  const reviewedFiles = nativeImportState.result?.entries || nativeSourcePreflight.files;
+  const manifest = reviewedFiles.length
     ? '<div class="table-wrap"><table><thead><tr><th>Original path</th><th>Bytes</th><th>SHA-256</th><th>Optional edit</th></tr></thead><tbody>' +
-      nativeSourcePreflight.files.map(f => '<tr><td><code>' + esc(f.path) + '</code></td><td>' +
+      reviewedFiles.map(f => '<tr><td><code>' + esc(f.path) + '</code></td><td>' +
         esc(f.size) + '</td><td><code>' + esc(f.sha256) + '</code></td><td>' +
         '<button type="button" data-native-edit="' + esc(f.path) + '"' +
-        (nativeImportState.busy || nativeSourcePreflight.scanning || nativeSourcePreflight.archive || f.size > NATIVE_MAX_EDIT_BYTES ? ' disabled' : '') +
+        (nativeImportState.busy || nativeImportState.result || nativeSourcePreflight.scanning || nativeSourcePreflight.archive || f.size > NATIVE_MAX_EDIT_BYTES ? ' disabled' : '') +
         '>Edit text</button></td></tr>').join("") +
       '</tbody></table></div><p class="note">' +
-      (nativeSourcePreflight.archive
+      (nativeImportState.result?.expandedFromArchive
+        ? 'Archive entries were verified by the root broker. Source files are now frozen for reviewed publication.'
+        : nativeSourcePreflight.archive
         ? 'Archive members are validated and shown with per-file SHA-256 hashes after private server-side extraction; archive entries cannot be edited here.'
         : 'Original file bytes are preserved unless you explicitly save a text edit. Files are local to this browser until staging.') +
       '</p>'

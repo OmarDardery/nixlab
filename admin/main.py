@@ -265,7 +265,8 @@ def backend():
                     with rt.locked(blocking=False):
                         staging = native_imports.ImportStaging()
                         if self.path == '/project-import/prepare':
-                            result = staging.prepare(actor, body.get('project'), body.get('files'))
+                            result = staging.prepare(actor, body.get('project'), body.get('files'),
+                                                     archive=body.get('archive', False))
                         elif self.path == '/project-import/chunk':
                             result = staging.chunk(body.get('id'), actor, body.get('path'),
                                                    body.get('offset'), body.get('data'))
