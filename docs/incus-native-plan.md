@@ -22,11 +22,17 @@ No phase is complete merely because its source exists: it requires VM/system tes
 - [ ] Validate actual NixOS VM and physical-host release gate, not solely syntax.
 
 ## Phase 3 — Project engine, native resources, OCI/Compose
-- [ ] Independent project flake and constrained Nix evaluator (no host secrets/Incus access; no writable host Nix store).
+- [x] Guarded Nix source-only transaction and independent typed evaluator: reviewed file edits, exact SHA-256 candidate/plan hashes, isolated DynamicUser Nix evaluation without writable host store/daemon, source publish/rollback, recovery and CLI/HTTPS controls. The evaluator checks NixLab's pinned schema, not arbitrary top-level flake outputs; broader inputs and resource kinds remain gated.
 - [ ] Reviewed source+resource plan, exact ETags, durable async apply/retry, crash recovery, no-op, health and ownership.
 - [ ] Incus project/instance/OCI, profile, network, storage and device adapters with dependency graph.
 - [ ] Byte-exact Dockerfile/Compose import with build context and paths, builder sandbox, OCI digest pinning and documented Compose subset.
 - [ ] SOPS/age secret reference handling and scoped delivery/rollback failure semantics.
+
+### Independent project transaction scope
+
+PR #149 ports the source-transaction work from abandoned PR #141 onto `incus-native`. It supports review, publication, interrupted source recovery, and a narrow, independently journaled native deploy for **pre-existing explicitly NixLab-owned** guest CPU/memory changes. Unapproved Nix input never reaches a privileged evaluator, OCI builder or guest. The broker refuses instance creation/deletion, Compose ownership, volume mutation, USB/mount changes, runtime SOPS injection and automatic adoption until #133/#139/#134 land. Source-only rollback does not restore guest data, nor undo an already applied guest limit.
+
+The `/srv/nixlab/projects` workspace must already exist with a pinned `flake.lock`; workspace bootstrap remains part of Web UI first-run/installation qualification. Manual typed workspace evaluation may use `nix eval` against its pinned `nixlabProjects` output, while privileged review always uses the trusted installed schema in the isolated evaluator to prevent user-supplied flake code from obtaining host privileges. Project transaction approval does not perform `nixos-rebuild`.
 
 ## Phase 4 — Backups, existing-host migration, qualification
 - [ ] Encrypted, restorable off-host backup for each project's data plus safe remote nonsecret source checkpoint.
