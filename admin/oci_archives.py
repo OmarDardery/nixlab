@@ -34,7 +34,7 @@ def _preflight_zip_directory(archive):
         size = stream.tell()
         stream.seek(max(0, size - 65557))
         tail = stream.read(65557)
-    where = tail.rfind(b"PK\\x05\\x06")
+    where = tail.rfind(b"PK\x05\x06")
     if where < 0 or len(tail) - where < 22:
         raise ValueError("Archive has no valid bounded ZIP directory")
     signature, disk, directory_disk, disk_entries, entries, length, offset, comment = (
