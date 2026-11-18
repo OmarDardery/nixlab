@@ -166,7 +166,7 @@ function nativeProjectPage() {
       '<button type="button" id="native-project-refresh">Refresh inventory</button>' +
       message + (rows ? '<div class="table-wrap"><table><thead><tr><th>Project</th><th>Guests</th><th>Observed state</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '') +
       '<p><a href="/docs/incus-native-architecture.md">Runtime and ownership contract</a></p>') +
-    card("Published declarative source", workspace) +
+    card("Published declarative source (read-only)", workspace) +
     card("Review, publish and deploy declarative Nix", txPanel) +
     card("Published application source revisions (not deployed)", published) +
     card("Preview original application files locally",
