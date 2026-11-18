@@ -455,13 +455,6 @@ class SecuredHttpHandler(BaseHTTPRequestHandler):
 
     def parse_request(self):
         try:
-            if len(self.raw_requestline) > MAX_REQUEST_LINE:
-                # The base parser has not initialized request_version yet.
-                # Without this, send_error silently drops the 414 response.
-                self.request_version = 'HTTP/1.1'
-                self.close_connection = True
-                self.send_error(414)
-                return False
             original = self.rfile
             self.rfile = HeaderReader(original)
             try:
@@ -469,6 +462,12 @@ class SecuredHttpHandler(BaseHTTPRequestHandler):
             finally:
                 self.rfile = original
             if not parsed:
+                return False
+            # Initialize command/version via stdlib before sending a 414:
+            # send_error needs both fields to write an actual HTTP response.
+            if len(self.raw_requestline) > MAX_REQUEST_LINE:
+                self.close_connection = True
+                self.send_error(414)
                 return False
             # HTTP/1.1 keep-alive must never preserve stray request-body bytes.
             if not self.path.startswith('/') or self.path.startswith('//'):
