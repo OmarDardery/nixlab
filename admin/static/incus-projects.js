@@ -10,6 +10,8 @@ const NATIVE_MAX_EDIT_BYTES = 1024 * 1024;
 const nativeImportState = {busy: false, result: null, review: null, published: null, error: ""};
 const nativePublishedInventory = {loaded: false, loading: false, projects: [], error: ""};
 const nativePersistedSource = {loaded: false, loading: false, value: null};
+const nativeProjectTx = {loaded: false, loading: false, busy: false, record: null, error: "",
+                         path: "", source: ""};
 const NATIVE_MAX_FILES = 64;
 const NATIVE_MAX_BYTES = 32 * 1024 * 1024;
 const NATIVE_MAX_FILE_BYTES = 8 * 1024 * 1024;
@@ -125,12 +127,47 @@ function nativeProjectPage() {
     : '';
   const editorError = nativeSourceEditor.error
     ? '<p role="alert" class="error">' + esc(nativeSourceEditor.error) + '</p>' : '';
-  return title("INCUS WORKSPACE", "Projects", "Observe Incus resources and inspect source before a future reviewed import.") +
+  const transaction = nativeProjectTx.record || {};
+  const isReviewed = transaction.status === "ready";
+  const isPublished = transaction.status === "published-source";
+  const hasTransaction = !!transaction.id;
+  const scope = (transaction.runtimeActions || []).map(item =>
+    '<p><code>' + esc(item.project + '/' + item.name) + '</code>: ' +
+    esc(item.action) + ' · ' + esc(JSON.stringify(item.before)) + ' → ' +
+    esc(JSON.stringify(item.after)) + (item.potentialDisruption ? ' (possible interruption)' : '') +
+    '</p>').join("");
+  const txPanel =
+    '<p>Review a full Nix module as an independent project revision. Source changes never rebuild NixOS. Deployment only supports already-owned native Incus guest CPU/memory limits until full reconciliation is implemented.</p>' +
+    '<label class="field"><span>Relative workspace Nix file (for example: alpha/default.nix)</span><input id="native-nix-path" type="text" spellcheck="false" value="' +
+    esc(nativeProjectTx.path) + '" placeholder="alpha/default.nix"></label>' +
+    '<label class="field"><span>Complete Nix file content</span><textarea id="native-nix-editor" rows="9" spellcheck="false">' +
+    esc(nativeProjectTx.source) + '</textarea></label>' +
+    '<label class="field"><span>Current administrator password (required separately for every operation)</span><input id="native-nix-password" type="password" autocomplete="current-password"></label>' +
+    '<label><input id="native-nix-ack" type="checkbox"> I approve the reviewed privileged project Nix change and possible service impact</label>' +
+    '<button type="button" id="native-nix-review"' + (nativeProjectTx.busy ? ' disabled' : '') + '>Review exact project revision</button> ' +
+    '<button type="button" id="native-nix-refresh">Refresh transaction</button>' +
+    (nativeProjectTx.error ? '<p role="alert" class="error">' + esc(nativeProjectTx.error) + '</p>' : '') +
+    (hasTransaction ? '<section aria-live="polite"><h3>Transaction: ' + esc(transaction.status) + '</h3>' +
+      '<p>ID <code>' + esc(transaction.id) + '</code> · SHA-256 candidate <code>' + esc(transaction.candidateHash) +
+      '</code> · plan <code>' + esc(transaction.planHash) + '</code></p>' +
+      '<p>Source only: ' + (transaction.sourceOnly ? 'yes' : 'no') +
+      ' · Deployment: ' + esc(transaction.deployment || 'not-started') + '</p>' +
+      (transaction.changes || []).map(item =>
+        '<p>' + esc(item.operation) + ': <code>' + esc(item.path) + '</code></p>').join("") + scope +
+      (isReviewed ? '<button type="button" data-native-nix-action="publish">Publish reviewed source</button> ' +
+        '<button type="button" data-native-nix-action="cancel">Cancel review</button>' : '') +
+      (isPublished ? '<button type="button" data-native-nix-action="deploy">Deploy exact reviewed revision</button> ' +
+        '<button type="button" data-native-nix-action="rollback">Rollback source only</button>' : '') +
+      (transaction.recoveryRequired ? '<button type="button" data-native-nix-action="recover">Recover interrupted source</button> ' +
+        '<button type="button" data-native-nix-action="resume">Resume interrupted deployment</button>' : '') +
+      '</section>' : '<p>No active reviewed project revision.</p>');
+  return title("INCUS WORKSPACE", "Projects", "Manage project source and reviewed native Incus revisions.") +
     card("Observed Incus projects",
       '<button type="button" id="native-project-refresh">Refresh inventory</button>' +
       message + (rows ? '<div class="table-wrap"><table><thead><tr><th>Project</th><th>Guests</th><th>Observed state</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '') +
       '<p><a href="/docs/incus-native-architecture.md">Runtime and ownership contract</a></p>') +
-    card("Published declarative source (read-only)", workspace) +
+    card("Published declarative source", workspace) +
+    card("Review, publish and deploy declarative Nix", txPanel) +
     card("Published application source revisions (not deployed)", published) +
     card("Preview original application files locally",
       '<p>Preview Dockerfiles, Compose YAML and related build-context files without executing them. Relative paths and exact SHA-256 digests remain visible.</p>' +
@@ -146,8 +183,8 @@ function nativeProjectPage() {
       (nativeImportState.busy ? '<p role="status">Transferring verified source chunks…</p>' : '') +
       (nativeImportState.error ? '<p role="alert" class="error">' + esc(nativeImportState.error) + '</p>' : '') + upload) +
     card("Review and publish staged source", reviewPanel) +
-    card("Declarative deployment",
-      '<p>Versioned source publication does not deploy anything. OCI building, secrets, approved Incus apply, rollback and data backups require the privileged deployment adapter and recovery tests.</p>' +
+    card("OCI / Compose deployment",
+      '<p>Original Dockerfile/Compose source publication is not application deployment. OCI building, scoped secrets, new Incus resource creation and data restore require #133/#139/#134 and verified recovery tests.</p>' +
       '<p><a href="/docs/incus-native-plan.md">Implementation phases</a></p>');
 }
 async function nativePreviewFiles(files) {
@@ -347,7 +384,69 @@ async function nativePublishSource() {
   }
 }
 
+
+async function nativeRefreshProjectTransaction() {
+  if (nativeProjectTx.loading || nativeProjectTx.busy) return;
+  nativeProjectTx.loading = true;
+  try {
+    const response = await api("project/status");
+    nativeProjectTx.record = response?.active ? response : null;
+    nativeProjectTx.error = "";
+  } catch {
+    nativeProjectTx.error = "Project transaction status is unavailable.";
+  } finally {
+    nativeProjectTx.loaded = true;
+    nativeProjectTx.loading = false;
+    if (state.page === "projects") shell();
+  }
+}
+
+async function nativeProjectTransaction(action) {
+  if (nativeProjectTx.busy) return;
+  const password = document.querySelector("#native-nix-password")?.value || "";
+  const acknowledged = document.querySelector("#native-nix-ack")?.checked === true;
+  const path = document.querySelector("#native-nix-path")?.value?.trim() || "";
+  const source = document.querySelector("#native-nix-editor")?.value ?? "";
+  nativeProjectTx.path = path;
+  nativeProjectTx.source = source;
+  if (!password || !acknowledged) {
+    nativeProjectTx.error = "Current administrator password and explicit approval are required.";
+    if (state.page === "projects") shell();
+    return;
+  }
+  if (action === "review" && (!path || !source || new TextEncoder().encode(source).length > 65536)) {
+    nativeProjectTx.error = "Choose a relative Nix module path with no more than 64 KiB of text.";
+    if (state.page === "projects") shell();
+    return;
+  }
+  nativeProjectTx.busy = true;
+  nativeProjectTx.error = "";
+  try {
+    const record = nativeProjectTx.record;
+    const request = action === "review" ? {changes: {[path]: source}} : {
+      id: record?.id, planHash: record?.planHash
+    };
+    const endpoint = action === "resume" ? "deploy" : action;
+    if (action === "resume") request.resume = true;
+    nativeProjectTx.record = await api("project/" + endpoint, {
+      ...request, current: password, acknowledgePrivilegedNix: true
+    });
+  } catch (error) {
+    nativeProjectTx.error = error.message || "The project operation was not committed.";
+  } finally {
+    nativeProjectTx.loaded = true;
+    nativeProjectTx.busy = false;
+    if (state.page === "projects") shell();
+  }
+}
+
 function bindNativeProjects() {
+  if (!nativeProjectTx.loaded && !nativeProjectTx.loading) void nativeRefreshProjectTransaction();
+  document.querySelector("#native-nix-review")?.addEventListener("click", () => void nativeProjectTransaction("review"));
+  document.querySelector("#native-nix-refresh")?.addEventListener("click", () => void nativeRefreshProjectTransaction());
+  for (const button of document.querySelectorAll("[data-native-nix-action]")) {
+    button.addEventListener("click", () => void nativeProjectTransaction(button.dataset.nativeNixAction));
+  }
   if (!nativePersistedSource.loaded && !nativePersistedSource.loading) {
     nativePersistedSource.loading = true;
     void api("project-sources").then(value => {
