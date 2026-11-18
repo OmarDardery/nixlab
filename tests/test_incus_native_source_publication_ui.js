@@ -12,6 +12,12 @@ const fields = {
   "native-nix-editor": {value: "{ ... }: { nixlab.project.resources.cpus = 3; }"},
   "native-nix-password": {value: "admin-password"},
   "native-nix-ack": {checked: false},
+  "native-nix-linked-source": {value: "alpha"},
+  "native-nix-linked-revision": {value: "f".repeat(64)},
+  "native-workspace-flake": {value: "{ outputs = { self }: {}; }"},
+  "native-workspace-lock": {value: '{"version":7,"root":"root","nodes":{"root":{}}}'},
+  "native-workspace-password": {value: "admin-password"},
+  "native-workspace-ack": {checked: false},
 };
 const calls = [];
 const context = vm.createContext({
@@ -121,6 +127,8 @@ async function main() {
   assert.equal(reviewed.payload.acknowledgePrivilegedNix, true);
   assert.equal(reviewed.payload.changes["alpha/default.nix"],
     "{ ... }: { nixlab.project.resources.cpus = 3; }");
+  assert.equal(reviewed.payload.sourceRevisions.alpha, "f".repeat(64),
+    "Exact private OCI revision digest must enter the approved project review");
   html = evaluate("nativeProjectPage()");
   assert.match(html, /Publish reviewed source/);
   fields["native-nix-password"].value = "admin-password";
@@ -135,6 +143,27 @@ async function main() {
   assert.equal(evaluate("nativeProjectTx.record.status"), "ready",
     "Refresh must keep the active transaction instead of discarding it");
 
-  console.log("Native source and Nix transaction UI: explicit review, reauth, source/data separation, publish/deploy and refresh passed");
+
+  // First-run initialization is a separate, reauthenticated operation; no
+  // project Nix or uploaded Dockerfile executes when staging/restoring source.
+  evaluate("nativePersistedSource.loaded = true; nativePersistedSource.value = {available:false,reason:'not-configured'}");
+  assert.match(evaluate("nativeProjectPage()"), /Initialize project workspace/);
+  await evaluate("nativeInitializeWorkspace()");
+  assert.equal(calls.some(call => call.route === "project/initialize"), false,
+    "No workspace mutation without explicit approval");
+  fields["native-workspace-ack"].checked = true;
+  context.api = async (route, payload) => {
+    calls.push({route, payload});
+    if (route === "project/initialize") return {available: true, sourceHash: "a".repeat(64)};
+    throw Error("Unexpected endpoint: " + route);
+  };
+  await evaluate("nativeInitializeWorkspace()");
+  const initialized = calls.at(-1);
+  assert.equal(initialized.route, "project/initialize");
+  assert.equal(initialized.payload.current, "admin-password");
+  assert.equal(initialized.payload.acknowledgePrivilegedNix, true);
+  assert.equal(evaluate("nativePersistedSource.loaded"), false,
+    "Successful initialization must refresh the persisted inventory");
+    console.log("Native source and Nix transaction UI: explicit review, reauth, source/data separation, publish/deploy and refresh passed");
 }
 main().catch(error => {console.error(error); process.exitCode = 1;});
