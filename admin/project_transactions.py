@@ -204,6 +204,50 @@ class ProjectTransactions:
         self.jobs = self.state / "project-transactions"
         self.jobs.mkdir(parents=True, mode=0o700, exist_ok=True)
 
+    def initialize(self, flake, lock, principal="root"):
+        """Initialize a portable workspace from a supplied pinned flake/lock.
+
+        Used during browser recovery/import before the first project review.
+        No nix flake update, network fetch, untrusted evaluation or host rebuild.
+        The caller retains responsibility for keeping flake.lock in Git backups.
+        """
+        if (not isinstance(flake, str) or not isinstance(lock, str)
+                or len(flake.encode("utf-8")) > 32768 or
+                len(lock.encode("utf-8")) > 131072 or
+                not flake.strip() or not lock.strip()):
+            raise ValueError("Provide a bounded pinned workspace flake and lock")
+        try:
+            locked = json.loads(lock)
+            if (not isinstance(locked, dict) or locked.get("version") != 7
+                    or not isinstance(locked.get("nodes"), dict)
+                    or locked.get("root") not in locked["nodes"]):
+                raise ValueError
+        except (ValueError, TypeError, RecursionError):
+            raise ValueError("A valid pinned flake.lock is required") from None
+        with rt.locked(blocking=False):
+            self._root_state()
+            self._active()
+            parent = _regular_directory(self.workspace.parent)
+            if (parent.stat().st_uid != os.geteuid() or parent.stat().st_mode & 0o022):
+                raise ValueError("Project workspace parent must be broker-owned")
+            if self.workspace.exists() or self.workspace.is_symlink():
+                raise ValueError("Project workspace already exists; use reviewed revisions")
+            scratch = Path(tempfile.mkdtemp(dir=parent, prefix=".nixlab-initialize-"))
+            try:
+                rt.atomic(scratch / "flake.nix", flake)
+                rt.atomic(scratch / "flake.lock", lock)
+                _parse_nix([scratch / "flake.nix"])
+                manifest = validate_workspace(scratch)
+                os.rename(scratch, self.workspace)
+                _sync_parent(self.workspace)
+            finally:
+                if scratch.exists():
+                    shutil.rmtree(scratch)
+            rt.audit("project-workspace-initialized", principal=principal,
+                     sourceHash=manifest["sourceHash"])
+            return {"available": True, "sourceHash": manifest["sourceHash"],
+                    "files": len(manifest["files"]), "projects": len(manifest["projects"])}
+
     def _job(self, identity):
         return rt.job_directory(self.jobs, identity, "project transaction")
 
