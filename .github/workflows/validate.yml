@@ -44,6 +44,7 @@ jobs:
           node --check admin/static/commands.js
           node tests/test_incus_native_ui.js
           node tests/test_incus_native_source_editor.js
+          node tests/test_incus_native_source_publication_ui.js
           node tests/test_commands_ui.js
           node tests/test_homepage.js
           node tests/test_redesign_ui.js

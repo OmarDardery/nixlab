@@ -31,6 +31,7 @@ def main():
             'helpers': {'sources': json.loads((BASE / 'helpers/sources.json').read_text()),
                         'applications': list(json.loads((BASE / 'helpers/compatibility.json').read_text()).values())}}
     edited_source = b'FROM scratch\nLABEL org.opencontainers.image.title="edited-before-stage"\n'
+    published_source = []
     submitted = []; errors = []; authenticated = [False]; requests = []
     certificate_records = []; certificate_pending = [False]; bootstrap_approved = [False]
     class Quiet(SimpleHTTPRequestHandler):
@@ -68,6 +69,22 @@ def main():
                         assert body['id'] == 'f'*32 and body['manifestHash'] == 'b'*64
                         route.fulfill(json={'id': 'f'*32, 'project': 'qa-app', 'status': 'ready',
                                            'manifestHash': 'b'*64, 'files': 1})
+                        return
+                    if endpoint == 'project-import/review':
+                        assert body == {'id': 'f'*32, 'manifestHash': 'b'*64}
+                        route.fulfill(json={'reviewId': 'e'*32, 'project': 'qa-app',
+                                           'revision': 'b'*64, 'baseRevision': None,
+                                           'fileCount': 1, 'bytes': len(edited_source),
+                                           'changes': {'added': ['Dockerfile'], 'modified': [], 'removed': []},
+                                           'alreadyPublished': False})
+                        return
+                    if endpoint == 'project-import/publish':
+                        assert body == {'id': 'f'*32, 'reviewId': 'e'*32, 'acknowledge': True,
+                                        'current': 'disposable-ui-fixture-password'}
+                        published_source.append({'project': 'qa-app', 'revision': 'b'*64})
+                        route.fulfill(json={'project': 'qa-app', 'revision': 'b'*64,
+                                           'status': 'published', 'previous': None,
+                                           'noChange': False})
                         return
                     if endpoint == 'browser-certificate':
                         record = {'name': 'nixlab-browser-ui-000000000000', 'device': body['device'],
@@ -109,6 +126,7 @@ def main():
                                     {'name': 'web', 'project': 'lab', 'type': 'container', 'status': 'Running', 'observed': ['10.77.0.20'],
                                      'nics': [{'name': 'eth0', 'network': 'incusbr0', 'observed': ['10.77.0.20'], 'reserved': ['10.77.0.20']}]}]},
                                 'project-sources': {'available': True, 'sourceHash': 'a'*64, 'fileCount': 3, 'bytes': 412, 'projects': [{'name': 'sample', 'entrypoint': 'sample/default.nix', 'moduleCount': 1}]},
+                                'project-imports': {'projects': published_source},
                                 'main-revision': {'revision': 'b' * 40},
                                 'browser-certificates': {'certificates': certificate_records},
                                 'operations': {'jobs': [], 'archives': [], 'generations': [], 'backupStatus': {}},
@@ -338,7 +356,21 @@ def main():
             assert [endpoint for endpoint, _ in submitted if endpoint.startswith('project-import')] == [
                 'project-import/prepare', 'project-import/chunk', 'project-import/finish']
             assert page.get_by_text('No OCI build or Incus deployment has run.', exact=False).count() >= 1
-            assert not [endpoint for endpoint, _ in submitted if endpoint in ('project-upload', 'project-deploy')], 'Preview must not dispatch deployment'
+            page.get_by_role('button', name='Review source publication').click()
+            page.wait_for_function("nativeImportState.review?.reviewId === 'e'.repeat(32)")
+            assert page.get_by_text('Publish this exact reviewed source revision', exact=False).is_visible()
+            assert not published_source, 'Review must not write any published source'
+            page.locator('#native-publish-password').fill('disposable-ui-fixture-password')
+            page.locator('#native-publish-ack').check()
+            page.get_by_role('button', name='Publish source only').click()
+            page.wait_for_function("nativeImportState.published?.status === 'published'")
+            assert page.get_by_text('Published inert source revision', exact=False).count() == 1
+            assert page.locator('#native-publish-password').count() == 0, 'Publication form should disappear'
+            assert published_source[0]['revision'] == 'b'*64
+            assert [endpoint for endpoint, _ in submitted if endpoint.startswith('project-import')] == [
+                'project-import/prepare', 'project-import/chunk', 'project-import/finish',
+                'project-import/review', 'project-import/publish']
+            assert not [endpoint for endpoint, _ in submitted if endpoint in ('project-upload', 'project-deploy')], 'Publication must never dispatch deployment'
             assert not errors, errors
             assert not [url for url in requests if not url.startswith(('http://127.0.0.1:', 'blob:http://127.0.0.1:'))], 'Private console assets must stay local'
             assert all(action != 'operation' for action, _ in submitted)
