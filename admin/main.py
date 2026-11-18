@@ -216,7 +216,9 @@ def backend():
                                 staging, body.get('id'), actor, body.get('reviewId'),
                                 acknowledge=body.get('acknowledge') is True)
                 elif self.path in ('/project-secrets/enroll', '/project-secrets/review',
-                                   '/project-secrets/publish', '/project-secrets/recover'):
+                                   '/project-secrets/publish', '/project-secrets/recover',
+                                   '/project-secrets/reindex', '/project-secrets/recovery-export',
+                                   '/project-secrets/recovery-verify', '/project-secrets/recovery-restore'):
                     import native_secrets
                     with rt.locked(blocking=False):
                         manager_secrets = native_secrets.Secrets()
@@ -232,8 +234,28 @@ def backend():
                             result = manager_secrets.publish(
                                 actor, body.get('reviewId'),
                                 acknowledge=body.get('acknowledge') is True)
-                        else:
+                        elif self.path == '/project-secrets/recover':
                             result = manager_secrets.recover(actor, body.get('project'))
+                        elif self.path == '/project-secrets/reindex':
+                            result = manager_secrets.reindex(
+                                actor, body.get('project'),
+                                acknowledge=body.get('acknowledge') is True)
+                        elif self.path.startswith('/project-secrets/recovery-'):
+                            from native_secrets_recovery import RecoveryKit
+                            recovery = RecoveryKit(manager_secrets)
+                            if self.path == '/project-secrets/recovery-export':
+                                result = recovery.export(
+                                    actor, body.get('passphrase'),
+                                    include_backup=body.get('includeBackup') is True)
+                            elif self.path == '/project-secrets/recovery-verify':
+                                result = recovery.inspect(
+                                    actor, body.get('encrypted'), body.get('passphrase'))
+                            else:
+                                result = recovery.restore(
+                                    actor, body.get('encrypted'), body.get('passphrase'),
+                                    acknowledge=body.get('acknowledge') is True)
+                        else:
+                            raise rt.PublicError('Unknown secrets action')
                 elif self.path == '/review':
                     if 'reuseArcanePassword' in body or 'arcaneCurrent' in body:
                         raise rt.PublicError('Legacy application-manager credentials are unsupported by Incus-native')
@@ -619,7 +641,10 @@ def web():
                 import accounts
                 accounts.authorize(session, self.path, body)
                 if self.path in ('/api/project-secrets/enroll', '/api/project-secrets/review',
-                                 '/api/project-secrets/publish', '/api/project-secrets/recover'):
+                                 '/api/project-secrets/publish', '/api/project-secrets/recover',
+                                 '/api/project-secrets/reindex', '/api/project-secrets/recovery-export',
+                                 '/api/project-secrets/recovery-verify',
+                                 '/api/project-secrets/recovery-restore'):
                     # No secret read endpoint exists. Require fresh credentials
                     # even to prepare encrypted review material.
                     if not accounts.matches(session['username'], body.pop('current', None)):
@@ -686,7 +711,8 @@ def web():
                 if self.path in ('/api/recovery-export', '/api/users'):
                     if not accounts.matches(session['username'], body.pop('current', None)):
                         raise rt.PublicError('Reauthenticate before exporting recovery material or changing accounts')
-                actions = {'/api/project-secrets/enroll', '/api/project-secrets/review', '/api/project-secrets/publish', '/api/project-secrets/recover',
+                actions = {'/api/project-secrets/enroll', '/api/project-secrets/review', '/api/project-secrets/publish', '/api/project-secrets/recover', '/api/project-secrets/reindex',
+                           '/api/project-secrets/recovery-export', '/api/project-secrets/recovery-verify', '/api/project-secrets/recovery-restore',
                            '/api/project-import/prepare', '/api/project-import/chunk', '/api/project-import/finish', '/api/project-import/review', '/api/project-import/publish', '/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests'}
                 if self.path not in actions:
                     return reply(self, 404, {'error': 'Unknown action'})
