@@ -29,6 +29,8 @@ jobs:
         run: |
           python3 -m compileall -q admin scripts tests helpers installer
           python3 -m unittest discover -s tests -v
+      - name: Verify real SOPS and age encryption for declarative project secrets
+        run: nix develop .#secrets-test -c python3 tests/test_native_secrets_crypto.py
       - name: Build and verify one-command update entrypoint
         run: |
           nix run .#update -- --help
@@ -47,6 +49,7 @@ jobs:
           node tests/test_incus_native_ui.js
           node tests/test_incus_native_source_editor.js
           node tests/test_incus_native_source_publication_ui.js
+          node tests/test_native_secrets_ui.js
           node tests/test_commands_ui.js
           node tests/test_homepage.js
           node tests/test_redesign_ui.js
