@@ -38,6 +38,7 @@ jobs:
           node --check admin/static/app.js
           node --check admin/static/projects.js
           node --check admin/static/incus-projects.js
+          node --check admin/static/incus-secrets.js
           node --check admin/static/api.js
           node --check admin/static/events.js
           node --check admin/static/operations.js
