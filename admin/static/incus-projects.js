@@ -146,6 +146,7 @@ function nativeProjectPage() {
       (nativeImportState.busy ? '<p role="status">Transferring verified source chunks…</p>' : '') +
       (nativeImportState.error ? '<p role="alert" class="error">' + esc(nativeImportState.error) + '</p>' : '') + upload) +
     card("Review and publish staged source", reviewPanel) +
+    (typeof nativeSecretsPanel === "function" ? nativeSecretsPanel() : "") +
     card("Declarative deployment",
       '<p>Versioned source publication does not deploy anything. OCI building, secrets, approved Incus apply, rollback and data backups require the privileged deployment adapter and recovery tests.</p>' +
       '<p><a href="/docs/incus-native-plan.md">Implementation phases</a></p>');
@@ -348,6 +349,7 @@ async function nativePublishSource() {
 }
 
 function bindNativeProjects() {
+  if (typeof bindNativeSecrets === "function") bindNativeSecrets();
   if (!nativePersistedSource.loaded && !nativePersistedSource.loading) {
     nativePersistedSource.loading = true;
     void api("project-sources").then(value => {
