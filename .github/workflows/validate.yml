@@ -51,6 +51,8 @@ jobs:
           node tests/test_operations_ui.js
           node tests/test_foundation_ui.js
           node tests/test_deployments_ui.js
+      - name: Qualify isolated project evaluator without writable store
+        run: nix build .#checks.x86_64-linux.project-evaluator --no-link -L
       - name: Browser workflow checks
         run: |
           python3 -m venv "$RUNNER_TEMP/nixlab-browser"
