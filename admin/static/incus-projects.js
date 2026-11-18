@@ -287,7 +287,8 @@ async function nativePreviewFiles(files, archive = false) {
 
 // Saving a text file is opt-in. Never re-encode an untouched binary context.
 async function nativeOpenSourceEditor(path) {
-  if (nativeImportState.busy || nativeSourcePreflight.scanning) return;
+  if (nativeImportState.busy || nativeSourcePreflight.scanning || nativeSourcePreflight.archive ||
+      nativeImportState.result) return;
   const serial = nativePreviewSerial;
   nativeSourceEditor.error = "";
   nativeSourceEditor.path = "";
@@ -317,10 +318,10 @@ async function nativeSaveSourceEditor() {
     const index = nativeSelectedFiles.findIndex(item => nativeSourcePath(item) === path);
     if (index < 0) throw Error("Source selection changed; reopen the editor.");
     const bytes = new TextEncoder().encode(text);
-    if (bytes.length > NATIVE_MAX_FILE_BYTES) throw Error("Edited file exceeds 8 MiB.");
+    if (bytes.length > NATIVE_MAX_FILE_BYTES) throw Error("Edited file exceeds 64 MiB.");
     const total = nativeSelectedFiles.reduce((sum, file) => sum + file.size, 0) -
       nativeSelectedFiles[index].size + bytes.length;
-    if (total > NATIVE_MAX_BYTES) throw Error("Edited selection exceeds 32 MiB.");
+    if (total > NATIVE_MAX_BYTES) throw Error("Edited selection exceeds 128 MiB.");
     const old = nativeSelectedFiles[index];
     const blob = new Blob([bytes], {type: "text/plain"});
     // webkitRelativePath on a real File is read-only. Preserve it on the
