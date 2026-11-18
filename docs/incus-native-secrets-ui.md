@@ -1,6 +1,6 @@
 # NixLab Secrets UI — SOPS/age and sops-nix contract
 
-**Status:** implementation specification, not an existing feature. Tracks [#134](https://github.com/OmarDardery/nixlab/issues/134) and the [Incus-native plan](incus-native-plan.md).
+**Status:** implementation underway in #146. Encrypted Web UI edits, revisioned SOPS ciphertext, age onboarding, local dotenv import, encrypted recovery kits, and source-only publication exist on the feature branch. **Incus/NixOS secret delivery, multi-recipient rekey, backup coverage and independent full-host restore are not yet qualified.** Tracks [#134](https://github.com/OmarDardery/nixlab/issues/134) and the [Incus-native plan](incus-native-plan.md).
 
 ## Decision
 
@@ -24,6 +24,17 @@ NixLab has **one Secrets page in the existing Web UI**, not OpenBao, Infisical, 
 The existing `nixlab.project.secrets.file = "secrets.enc.yaml"` typed field is the *ciphertext path*. Extend the typed project schema with references that contain only key names and consumer identities; the Nix evaluator cannot request plaintext. The source-revision metadata identifies ciphertext SHA-256, recipient-policy identity, names of referenced keys, consuming workloads and a revision/deployment status. **Never** expose ciphertext-derived plaintext values through pure Nix evaluation.
 
 Project directories can be Git-synced using **ciphertext only**. `.sops.yaml` contains public recipients. An approved age identity is generated **once**, atomically, only after the user explicitly chooses generate or restore. A missing or damaged key must block secret operations instead of silently regenerating. Additional recipients/rekeys require a separate reviewed rotation. Root is the common trust boundary: one host identity can decrypt all projects; per-project isolation is enforced by broker authorization, separately restricted runtime files, and workload ownership.
+
+
+## Implemented source-only path (#146)
+
+- Project Web UI: write-only masked values, metadata-only key listing, batch import from local `.env`, reauthentication for sensitive operations and separately acknowledged publication.
+- Root broker: one-time age generation/import at `/var/lib/nixlab/keys/projects.agekey`, immutable encrypted SOPS reviews, SHA-256 CAS checks, previous ciphertext revisions, fail-closed source/policy drift, and recovery of interrupted ciphertext commits.
+- Offline kit: passphrase-encrypted age identity and optional existing restic unlock/remote credentials using scrypt + AES-GCM, in-memory verification and refusal to overwrite existing identity/credentials. A kit must be saved independently of encrypted source and checked before being trusted.
+- Typed project declarations: explicit `secrets.bindings` with key names, owned instance names, `nixos-sops` versus `incus-file` target type and restricted `/run/secrets/*` destinations; **no values** in evaluation.
+- Source-only operations never restart guests or claim that ciphertext publication is a successful secret rollout.
+
+**Remaining release gates:** NixOS guest-owned key/recipient provisioning and `sops-nix` activation; Incus OCI file-secret delivery through a verified ownership/ETag-aware adapter; multi-recipient rotation; complete encrypted off-host recovery; full-host VM test including a changed variable and confirmed service restart. Keep #134 open until demonstrated. No host private age identity may enter an Incus guest.
 
 ## Single Web UI information architecture
 
