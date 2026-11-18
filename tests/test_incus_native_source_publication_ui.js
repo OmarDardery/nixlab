@@ -44,6 +44,14 @@ context.api = async (route, payload) => {
     return {project: "hello-world", status: "published", revision: "b".repeat(64),
       previous: null, noChange: false};
   }
+  if (route === "project-import/plan") {
+    return {project: "hello-world", revision: "b".repeat(64), mode: "dockerfile",
+      entrypoint: "Dockerfile", buildContextHash: "b".repeat(64),
+      buildIdentity: "a".repeat(64), canBuild: false, canDeploy: false,
+      blocking: ["isolated-oci-builder-not-qualified"],
+      generatedCompose: 'services:\\n  app:\\n    image: "localhost/nixlab-hello-world:bbbb"\\n',
+      sourceFiles: [{path: "Dockerfile", sha256: "c".repeat(64)}]};
+  }
   throw Error("Unexpected API operation: " + route);
 };
 const evaluate = s => vm.runInContext(s, context);
@@ -90,6 +98,15 @@ async function main() {
   assert.match(html, /No build or Incus change occurred/);
   assert.ok(!calls.some(call => /deploy|build|incus/.test(call.route)),
     "Source-only actions must not call deployment or an OCI builder");
+  await evaluate("nativeInspectOCIPlan()");
+  const inspected = calls.at(-1);
+  assert.equal(inspected.route, "project-import/plan");
+  assert.equal(inspected.payload.revision, "b".repeat(64));
+  const preview = evaluate("nativeProjectPage()");
+  assert.match(preview, /Generated launch manifest/);
+  assert.match(preview, /isolated-oci-builder-not-qualified/);
+  assert.ok(!calls.some(call => /deploy|build|incus/.test(call.route)),
+    "Plan inspection is still inert: no builder or Incus invocation");
 
   // Independent Nix changes use the same authenticated API, but a DIFFERENT
   // transaction than raw Dockerfile/Compose source publication.
