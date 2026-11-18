@@ -90,6 +90,9 @@ jobs:
           assert inventory['projects']['alpha']['backend'] == 'incus-compose'
           assert inventory['projects']['alpha']['resources']['cpus'] == 3
           assert inventory['projects']['alpha']['secrets']['file'] == 'secrets.enc.yaml'
+          assert inventory['projects']['alpha']['secrets']['bindings']['API_TOKEN']['key'] == 'API_TOKEN'
+          assert inventory['projects']['alpha']['secrets']['bindings']['API_TOKEN']['instance'] == 'web'
+          assert inventory['projects']['alpha']['secrets']['bindings']['API_TOKEN']['destination'] == '/run/secrets/API_TOKEN'
           assert inventory['projects']['alpha']['modules'] == ['modules/nested/resources.nix', 'modules/network.nix']
           assert inventory['projects']['beta']['backup']['consistency'] == 'quiesce'
           assert source['projects']['alpha']['modules'] == [
