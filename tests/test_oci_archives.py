@@ -116,6 +116,15 @@ class OCIArchiveTests(unittest.TestCase):
         self.assertNotEqual(plan["proposedImage"], changed["proposedImage"])
         self.assertNotEqual(plan["revision"], changed["revision"])
 
+    def test_standard_tar_dot_prefix_is_canonicalized_without_changing_bytes(self):
+        payload = tar_bytes({"./Dockerfile": b"FROM scratch\\n", "./assets/data.bin": b"abc"})
+        staged = self.stage("source.tgz", payload)
+        self.assertEqual(sorted(item["path"] for item in staged["entries"]),
+                         ["Dockerfile", "assets/data.bin"])
+        published = self.publish(staged)
+        root = self.publisher.root / "sample" / "revisions" / published["revision"] / "source"
+        self.assertEqual((root / "Dockerfile").read_bytes(), b"FROM scratch\\n")
+
     def test_archive_import_is_explicit_not_automatic(self):
         payload = zip_bytes({"Dockerfile": b"FROM scratch\n"})
         staged = self.stage("archive.zip", payload, archive=False)
