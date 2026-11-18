@@ -14,7 +14,8 @@ concurrency:
   cancel-in-progress: true
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    # Playwright 1.55.0 does not ship Chromium for Ubuntu 26.04 runners.
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
