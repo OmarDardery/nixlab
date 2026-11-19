@@ -182,6 +182,30 @@ class SecretsTests(unittest.TestCase):
         self.assertEqual(self.store.inventory()["projects"][0]["keys"], ["K"])
         self.assertFalse((self.store.state / "projects" / "example" / "pending.json").exists())
 
+    def test_first_publication_interruption_after_index_is_recoverable(self):
+        self.enrolled()
+        review = self.store.review("admin", "example", "API_TOKEN", "set",
+                                   "must-not-recover-plaintext", None)
+        original = secrets.rt.durable_unlink
+        def crash_after_index(path):
+            if Path(path).name == "pending.json":
+                raise OSError("simulated power loss after ciphertext/index publication")
+            return original(path)
+        with patch.object(secrets.rt, "durable_unlink", side_effect=crash_after_index):
+            with self.assertRaisesRegex(OSError, "simulated power loss"):
+                self.store.publish("admin", review["reviewId"], acknowledge=True)
+        self.assertTrue((self.project / "secrets.enc.yaml").exists())
+        self.assertTrue((self.store.state / "projects" / "example" / "pending.json").exists())
+        restored = self.store.recover("admin", "example")
+        self.assertTrue(restored["recovered"])
+        self.assertIsNone(restored["revision"])
+        self.assertFalse((self.project / "secrets.enc.yaml").exists())
+        inventory = self.store.inventory()["projects"][0]
+        self.assertEqual(inventory["keys"], [])
+        self.assertIsNone(inventory["revision"])
+        self.assertTrue(inventory["indexed"])
+        self.assertNotIn("must-not-recover-plaintext", json.dumps(inventory))
+
     def test_review_token_expiry_is_enforced(self):
         self.enrolled()
         review = self.store.review("admin", "example", "A", "set", "v", None)
