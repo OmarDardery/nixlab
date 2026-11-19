@@ -38,6 +38,8 @@ On an installed host:
 **Overview** → guests, projects, health, quick actions.
 **Projects** → list/create/import; source tree/upload (byte exact); environment/secret references; build; review; deploy; logs; revisions; rollback; backup/restore.
 **Project Secrets** → masked project secrets, local dotenv import, reviewed SOPS ciphertext revisions, offline key recovery and declared consumer bindings. Runtime delivery remains gated on Incus/NixOS adapter tests. [Secrets UI contract](incus-native-secrets-ui.md). No standalone vault server.
+
+Secrets implementation boundaries (draft #153): `admin/native_secrets.py` manages age identity, reviewed ciphertext revisions and recipient-policy journals; `admin/native_secrets_recovery.py` handles the separately passphrase-encrypted age/restic/tunnel offline kit and its actual /run SOPS unlock test; `admin/native_source_guard.py` blocks plaintext/unsafe uploaded OCI sources without rewriting them; `admin/native_secrets_delivery.py` provides broker-owned per-workload volatile file staging with no Incus or guest master key access; `lib/project-guest-secrets.nix` derives ciphertext-only guest sops-nix service credentials. These files do **not** supply the missing #133 exact-version Incus Compose apply/ownership integration, live Incus persistence audit or NixOS guest key provisioning. Raw Dockerfile/Compose source remains immutable; forbidden env secrets fail closed.
 **Incus** → instances, OCI/VM lifecycle, storage/volumes, networks, profiles, devices, drift and ownership.
 **Host** → network, storage, services, accounts, security, updates, diagnostics.
 **Recovery** → jobs, failed/partial actions, snapshots, encrypted backup status, host replacement and audit.
