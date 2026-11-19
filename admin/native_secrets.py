@@ -302,9 +302,16 @@ class Secrets:
         root = self._private_state()
         public = self._identity()
         project_dir = self._project(project)
-        self._check_policy(project_dir, public)
-        if action not in ("set", "delete", "import"):
+        current_recipients = self._check_policy(project_dir, public)
+        if action not in ("set", "delete", "import", "recipients"):
             raise ValueError("Unsupported secret mutation")
+        new_recipients = current_recipients
+        if action == "recipients":
+            if key is not None:
+                raise ValueError("Recipient changes cannot select a secret key")
+            new_recipients = self._recipients(value, public)
+            if new_recipients == current_recipients:
+                raise ValueError("Recipient policy is already current")
         if action == "import":
             if key is not None or not isinstance(value, dict) or not 1 <= len(value) <= 64:
                 raise ValueError("Import requires 1–64 named secrets")
@@ -314,7 +321,7 @@ class Secrets:
                     or "\x00" in text for name, text in value.items())
                     or sum(len(text.encode("utf-8")) for text in value.values()) > MAX_PLAINTEXT):
                 raise ValueError("Invalid imported environment names or values")
-        else:
+        elif action != "recipients":
             if not isinstance(key, str) or not KEY.fullmatch(key):
                 raise ValueError("Invalid secret variable name")
             if action == "set":
@@ -331,6 +338,8 @@ class Secrets:
         index = self._metadata(project)
         if index.get("revision") != base:
             raise ValueError("Secret metadata/source revision drift; recover before editing")
+        if action == "recipients" and existing is None:
+            raise ValueError("Create a project secret before changing recipients")
         values = self._decode(existing)
         if action == "delete":
             if key not in values:
@@ -340,10 +349,10 @@ class Secrets:
             values.update(value)
         else:
             values[key] = value
-        changed_keys = sorted(value) if action == "import" else [key]
+        changed_keys = sorted(value) if action == "import" else ([] if action == "recipients" else [key])
         if len(values) > 128:
             raise ValueError("Too many project secrets")
-        cipher = self._encode(values, public)
+        cipher = self._encode(values, ",".join(new_recipients))
         # Verify the exact ciphertext can be read by the installed identity.
         if self._decode(cipher) != values:
             raise ValueError("SOPS ciphertext verification failed")
@@ -355,6 +364,7 @@ class Secrets:
         rt.write_json(target / "review.json", {
             "id": token, "actor": actor, "project": project, "key": key, "action": action,
             "base": base, "revision": _hash(cipher), "recipient": public,
+            "recipients": new_recipients, "beforeRecipients": current_recipients,
             "keys": sorted(values), "changedKeys": changed_keys,
             "created": time.time(), "expires": time.time() + REVIEW_TTL,
         }, mode=0o600)
@@ -365,7 +375,7 @@ class Secrets:
         return {"reviewId": token, "project": project, "key": key, "action": action,
                 "changedKeys": changed_keys,
                 "baseRevision": base, "revision": _hash(cipher), "keys": sorted(values),
-                "requiresApply": True, "note": "Ciphertext review only; no secret delivery or guest restart"}
+                "recipients": new_recipients, "requiresApply": True, "note": "Ciphertext review only; no secret delivery or guest restart"}
 
     def _review(self, actor, token):
         if not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{32}", token):
