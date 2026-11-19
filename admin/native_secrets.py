@@ -445,7 +445,7 @@ class Secrets:
             raise
         rt.audit("native-secret-ciphertext-published", principal=actor,
                  project=record["project"], key=record["key"],
-                 action=record["action"], revision=record["revision"])
+                 operation=record["action"], revision=record["revision"])
         return {"project": record["project"], "revision": record["revision"],
                 "previous": base, "published": True, "requiresApply": True,
                 "note": "Ciphertext published; no Incus secret delivery occurred"}
