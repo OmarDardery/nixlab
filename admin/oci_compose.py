@@ -113,10 +113,13 @@ def validate_model(model, *, project, revision, compose_path, files):
         raise ValueError("Custom storage drivers, external volumes and unsafe volume options are forbidden")
     networks = model.get("networks") or {}
     if not isinstance(networks, dict) or any(
-        not isinstance(name, str) or not NAME.fullmatch(name) or
-        props not in ({}, None)
+        name != "default" or props not in (
+            {}, None, {"name": project + "_default"}
+        )
         for name, props in networks.items()
     ):
+        # The parser itself generates a default network with the composed
+        # namespace. This is *not* permission to create custom/external nets.
         raise ValueError("External or customized Compose networks require #133")
     services = model.get("services")
     if not isinstance(services, dict) or not 1 <= len(services) <= MAX_SERVICES:
