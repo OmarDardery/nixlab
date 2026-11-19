@@ -373,7 +373,7 @@ class Secrets:
         _fsync(target)
         _fsync(drafts)
         rt.audit("native-secret-change-reviewed", principal=actor, project=project,
-                 key=key, action=action, revision=_hash(cipher))
+                 key=key, operation=action, revision=_hash(cipher))
         return {"reviewId": token, "project": project, "key": key, "action": action,
                 "changedKeys": changed_keys,
                 "baseRevision": base, "revision": _hash(cipher), "keys": sorted(values),
