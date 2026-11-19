@@ -82,6 +82,8 @@ jobs:
         run: |
           python3 scripts/project_workspace.py tests/project-workspace --unlocked-template > /tmp/nixlab-project-source.json
           nix eval --json .#nixlabProjectChecks > /tmp/nixlab-project-inventory.json
+          nix eval --json .#nixlabGuestSecretsChecks > /tmp/nixlab-guest-secret-checks.json
+          python3 -c 'import json; checks=json.load(open("/tmp/nixlab-guest-secret-checks.json")); assert checks and all(checks.values()), checks'
           nix eval --json .#nixlabProjectValidationChecks > /tmp/nixlab-project-negative.json
           python3 - <<'PY'
           import json
