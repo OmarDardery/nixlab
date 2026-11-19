@@ -44,7 +44,8 @@ def classify_compose_secrets(contents, bindings=None):
         document = yaml.safe_load(source)
     except (UnicodeError, yaml.YAMLError, ValueError, RecursionError):
         raise ValueError("Compose secret preflight could not parse source") from None
-    if not isinstance(document, dict) or not isinstance(document.get("services"), dict):
+    if (not isinstance(document, dict) or not isinstance(document.get("services"), dict)
+            or not document["services"]):
         raise ValueError("Compose source has no valid services")
     if bindings is None:
         bindings = {}
@@ -73,7 +74,8 @@ def classify_compose_secrets(contents, bindings=None):
     sensitive_names = {name for alias, binding in declared.items()
                        for name in (alias, binding["key"])}
     for match in REFERENCE.finditer(source):
-        if (match.group(1) or match.group(2)) in sensitive_names:
+        name = match.group(1) or match.group(2)
+        if name in sensitive_names or CREDENTIAL.search(name):
             reasons.add("secret-interpolation-may-persist-in-incus-config")
 
     consumed = set()
@@ -86,6 +88,8 @@ def classify_compose_secrets(contents, bindings=None):
         env = spec.get("environment", {})
         if env is not None and not isinstance(env, (dict, list)):
             raise ValueError("Invalid Compose environment")
+        if isinstance(env, list) and not all(isinstance(item, str) for item in env):
+            raise ValueError("Compose environment list has an invalid entry")
         entries = env.items() if isinstance(env, dict) else (
             (part.split("=", 1)[0], part.split("=", 1)[1] if "=" in part else None)
             for part in env)
@@ -134,6 +138,8 @@ def classify_compose_secrets(contents, bindings=None):
             reasons.add("incus-compose-secret-persists-in-guest-rootfs-unqualified")
     if declared and set(declared) != consumed:
         reasons.add("declared-secret-not-consumed-by-compose")
+    if set(top_level) - consumed:
+        reasons.add("compose-secrets-without-approved-file-consumer")
     if top_level and not routes:
         reasons.add("compose-secrets-without-approved-file-consumer")
     if routes and (not declared or len(routes) != len(consumed)):
