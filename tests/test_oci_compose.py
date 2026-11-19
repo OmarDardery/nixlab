@@ -47,6 +47,17 @@ class ComposePolicyTests(unittest.TestCase):
         self.assertEqual(json.dumps(model(), sort_keys=True), original, "Never mutate Compose JSON/YAML source")
         self.assertTrue(result["requiresBuilder"])
 
+    def test_parser_default_network_may_have_only_pinned_name(self):
+        m = model()
+        m["networks"] = {"default": {"name": "my-app_default"}}
+        self.assertEqual(len(self.validate(m)["services"]), 2)
+        for config in ({"default": {"name": "another_default"}},
+                       {"default": {"external": True}},
+                       {"host": {}}, {"default": {"driver": "bridge"}}):
+            m["networks"] = config
+            with self.subTest(config=config), self.assertRaises(ValueError):
+                self.validate(m)
+
     def test_changed_build_context_changes_image_identity(self):
         newer = oci.validate_model(model(), project="my-app", revision="b" * 64,
                                    compose_path="apps/compose.yaml", files=FILES)
