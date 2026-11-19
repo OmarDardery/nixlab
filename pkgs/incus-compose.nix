@@ -1,29 +1,30 @@
-# Reproducible upstream incus-compose source build, frozen to audited v1.3.5.
-# Nixpkgs used by the host predates this package; never invoke an unpinned
-# curl/installer script or silently fall back to a host-provided command.
+# Immutable upstream GitHub release, official asset SHA-256 verified by Nix.
+# Current locked Nixpkgs Go compiler is behind upstream's Go patch minimum.
+# Do not weaken the upstream go.mod security/toolchain requirement to build it.
 { pkgs }:
-pkgs.buildGoModule (finalAttrs: {
+pkgs.stdenvNoCC.mkDerivation {
   pname = "incus-compose";
-  version = "1.3.5";
-  src = pkgs.fetchFromGitHub {
-    owner = "lxc";
-    repo = "incus-compose";
-    rev = "v${finalAttrs.version}";
-    hash = "sha256-WLwhEGBZ3/DMjaVUTwyR+DKoQGRcu4q7qjfiBKDCj9Q=";
+  version = "1.4.1";
+  src = pkgs.fetchurl {
+    url = "https://github.com/lxc/incus-compose/releases/download/v1.4.1/incus-compose_1.4.1_linux_amd64.tar.gz";
+    sha256 = "fc9a25bbe8dada4d0710dc64e6116e2d0ac73e9f08d5a09fc10c04a3128b9cf2";
   };
-  vendorHash = "sha256-A6VSF2gTR9NiLT3yMk1jp5neOqrxvWC5mPvVW1OCS8Y=";
-  env.CGO_ENABLED = "0";
-  ldflags = [
-    "-s" "-w"
-    "-X=github.com/lxc/incus-compose/cmd/incus-compose/version.Version=${finalAttrs.version}"
-    "-X=github.com/lxc/incus-compose/cmd/incus-compose/DefaultHealthdImage=ghcr.io/lxc/incus-compose/ic-healthd:${finalAttrs.version}"
-  ];
-  doCheck = false; # Integration is exercised by NixLab's disposable VM gate.
+  dontUnpack = true;
+  nativeBuildInputs = [ pkgs.gnutar pkgs.gzip pkgs.findutils ];
+  installPhase = ''
+    runHook preInstall
+    mkdir -p extracted "$out/bin"
+    tar -xzf "$src" -C extracted
+    binary="$(find extracted -type f -name incus-compose -print -quit)"
+    test -n "$binary"
+    install -m 0755 "$binary" "$out/bin/incus-compose"
+    runHook postInstall
+  '';
   meta = {
-    description = "Pinned daemonless Compose adapter for Incus";
+    description = "Checksum-pinned Incus Compose OCI orchestrator";
     homepage = "https://github.com/lxc/incus-compose";
     license = pkgs.lib.licenses.asl20;
-    platforms = pkgs.lib.platforms.linux;
+    platforms = [ "x86_64-linux" ];
     mainProgram = "incus-compose";
   };
-})
+}
