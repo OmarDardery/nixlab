@@ -292,7 +292,9 @@ class Secrets:
             digest = _hash(actual) if actual is not None else None
             listed.append({"project": candidate.name, "keys": record["keys"],
                            "revision": digest, "indexed": digest == record.get("revision"),
-                           "secretCount": len(record["keys"])})
+                           "secretCount": len(record["keys"]),
+                           "recipients": self._check_policy(project, status["recipient"])
+                           if status["healthy"] else []})
             if len(listed) > 128:
                 raise ValueError("Too many secret projects")
         return {"identity": status, "projects": listed,
@@ -401,13 +403,17 @@ class Secrets:
         if public != record.get("recipient"):
             raise ValueError("Age identity changed after review")
         project_dir = self._project(record["project"])
-        self._check_policy(project_dir, public)
+        current_recipients = self._check_policy(project_dir, public)
+        if current_recipients != record.get("beforeRecipients", [public]):
+            raise ValueError("Recipient policy changed after review")
+        new_recipients = self._recipients(record.get("recipients", [public]), public)
         source = self._cipher(project_dir)
         base = _hash(source) if source is not None else None
         if base != record.get("base") or self._metadata(record["project"]).get("revision") != base:
             raise ValueError("Secret ciphertext revision changed; review again")
         self._decode(cipher)  # verify installed identity still decrypts
         index = {"project": record["project"], "keys": record["keys"],
+                 "recipients": new_recipients,
                  "revision": record["revision"], "previous": base,
                  "changedKey": record["key"], "updated": time.time()}
         project_state = _dir(self.state / "projects", private=True, create=True)
@@ -425,11 +431,12 @@ class Secrets:
         if pending.exists() or pending.is_symlink():
             raise ValueError("Unrecovered secret publication; restore before retrying")
         rt.write_json(pending, {"project": record["project"], "before": base,
-                                "after": record["revision"], "reviewId": token}, mode=0o600)
+                                "after": record["revision"], "reviewId": token,
+                                "beforeRecipients": current_recipients,
+                                "afterRecipients": new_recipients}, mode=0o600)
         try:
             policy = project_dir / ".sops.yaml"
-            if not policy.exists() and not policy.is_symlink():
-                rt.atomic(policy, self._policy(public), mode=0o644)
+            rt.atomic(policy, self._policy(new_recipients), mode=0o644)
             rt.atomic(project_dir / "secrets.enc.yaml", cipher, mode=0o600)
             rt.write_json(store / "index.json", index, mode=0o600)
             rt.durable_unlink(pending)
