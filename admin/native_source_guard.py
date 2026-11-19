@@ -106,7 +106,7 @@ def check_source(directory, files):
     for item in files:
         relative = item["path"]
         basename = Path(relative).name.lower()
-        if basename == ".env" or (basename.startswith(".env.") and
+        if basename.endswith(".env") or basename == ".env" or (basename.startswith(".env.") and
                                   basename not in (".env.example", ".env.sample", ".env.template")):
             _fail(relative, "plaintext .env upload is not publishable")
         docker = DOCKERFILE.fullmatch(basename) is not None
