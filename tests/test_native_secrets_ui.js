@@ -82,6 +82,31 @@ async function main() {
   assert.match(panel, /Encrypted; value never returned/);
   assert.doesNotMatch(panel, /private-value-not-in-UI/);
 
+  const hostRecipient = ctx.inventory.identity.recipient;
+  const secondRecipient = "age1" + "p".repeat(58);
+  controls["native-recipient-list"] = {value: hostRecipient + "\n" + secondRecipient};
+  controls["native-recipient-password"] = {value: "admin-test-password"};
+  await run("nativeRecipientReview()");
+  const recipientRequest = sent.at(-1);
+  assert.equal(recipientRequest.route, "project-secrets/review");
+  assert.equal(recipientRequest.body.action, "recipients");
+  assert.equal(recipientRequest.body.key, null);
+  assert.deepEqual(Array.from(recipientRequest.body.value), [hostRecipient, secondRecipient]);
+  assert.equal(recipientRequest.body.current, "admin-test-password");
+  assert.equal(controls["native-recipient-password"].value, "");
+  assert.ok(!JSON.stringify(run("nativeSecretsView")).includes("admin-test-password"));
+  assert.match(run("nativeSecretsPanel()"), /Approve ciphertext-only publication/);
+
+  // A rejected/expired authorization never publishes a revision, and the
+  // password field is cleared even on an API error.
+  run("nativeSecretsView.review = null");
+  controls["native-recipient-password"].value = "about-to-expire-password";
+  ctx.api = async () => {throw Error("Session expired or administrator reauthentication required");};
+  await run("nativeRecipientReview()");
+  assert.equal(run("nativeSecretsView.review"), null);
+  assert.match(run("nativeSecretsView.error"), /Session expired/);
+  assert.equal(controls["native-recipient-password"].value, "");
+
   ctx.state.principal.role = "viewer";
   panel = run("nativeSecretsPanel()");
   assert.match(panel, /Only administrators can manage/);
