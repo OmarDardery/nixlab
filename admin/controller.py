@@ -1,0 +1,392 @@
+"""Restricted root broker. Only typed settings, fixed transactions and enrollment."""
+import base64
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from model import command, differences, inventory, merge, validate_settings
+import runtime as rt
+from settings_reader import read_settings
+
+
+class Manager:
+    def __init__(self, root=None, state=None):
+        self.root = Path(root or rt.ROOT)
+        self.state = Path(state or rt.STATE)
+        self.state.mkdir(parents=True, exist_ok=True)
+        (self.state / 'jobs').mkdir(mode=0o700, exist_ok=True)
+
+    def settings(self):
+        return read_settings(self.root)
+
+    def effective_settings(self, desired=None):
+        return merge(self.settings() if desired is None else desired,
+                     rt.read_json(Path('/etc/nixlab/effective-settings.json'), {}))
+
+    def migrate_layout(self):
+        return rt.migrate_idle_layout(self.root, self.state)
+
+    def job_path(self, job_id):
+        return rt.job_directory(self.state / 'jobs', job_id)
+
+    def job(self, job_id):
+        directory = self.job_path(job_id)
+        job = rt.read_job_record(directory / 'job.json')
+        job['log'] = rt.public_progress(rt.tail_log(directory / 'build.log'))
+        # Older workers recorded arbitrary child/exception output. Never replay it.
+        for field in ('error', 'rollbackError'):
+            if job.get(field):
+                job[field] = 'Transaction did not complete; inspect host status before retrying'
+        if job.get('guestPlan'):
+            from deployments import Deployments
+            job['guestDeployment'] = Deployments(self.root, self.state).status(job_id)
+        return job
+
+    def prune_jobs(self, apply=False, keep=20):
+        """Preview or remove old terminal configuration jobs, retaining recovery references."""
+        if not isinstance(keep, int) or not 1 <= keep <= 1000:
+            raise ValueError('Keep between 1 and 1000 recent jobs')
+        with rt.locked(blocking=False):
+            protected = {rt.read_json(self.state / name, {}).get('id')
+                         for name in ('active.json', 'pending.json', 'last-confirmed.json', 'deployment-active.json')}
+            jobs = []
+            for directory in (self.state / 'jobs').iterdir():
+                if directory.is_symlink() or not directory.is_dir() or not re.fullmatch(r'[0-9a-f]{32}', directory.name): continue
+                job = rt.read_job_record(directory / 'job.json', {})
+                if job.get('status') in ('confirmed', 'rolled-back', 'failed', 'cancelled'):
+                    jobs.append((directory.stat().st_mtime, directory))
+            jobs.sort(key=lambda item: item[0], reverse=True)
+            candidates = [path for _, path in jobs[keep:] if path.name not in protected]
+            if apply:
+                for path in candidates: shutil.rmtree(path)
+                rt.audit('configuration-history-pruned', count=len(candidates))
+            return {'applied': apply, 'keep': keep, 'jobs': [path.name for path in candidates]}
+
+    def status(self):
+        import upgrades
+        active = rt.read_json(self.state / 'active.json', {})
+        job = self.job(active['id']) if active.get('id') else None
+        if job and job['status'] in ('building', 'applying') and time.time() - job.get('appliedAt', job['created']) > 30:
+            phase = 'build' if job['status'] == 'building' else 'apply'
+            if not rt.worker_active('nixlab-' + phase + '-' + job['id']):
+                latest = self.job(job['id'])
+                if latest['status'] == job['status']:
+                    latest.pop('log', None)
+                    latest.update(status='failed', error=phase.capitalize() + ' worker stopped; rerun the installer to recover and retry')
+                    rt.write_json(self.job_path(job['id']) / 'job.json', latest)
+                job = self.job(job['id'])
+        current = str(Path('/run/current-system').resolve())
+        last = rt.read_json(self.state / 'last-confirmed.json')
+        if last and rt.read_job_record(self.job_path(last['id']) / 'job.json')['status'] != 'confirmed':
+            last = None
+        desired = self.settings()
+        stored = rt.read_json(rt.machine_path(self.root, 'settings'), {}) or {}
+        effective = self.effective_settings(desired)
+        try:
+            import diagnostics
+            observed_address = diagnostics.management_address(effective)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            observed_address = None
+        booted, active = Path('/run/booted-system/kernel'), Path('/run/current-system/kernel')
+        reboot = booted.exists() and active.exists() and booted.resolve() != active.resolve()
+        return {'release': upgrades.metadata(self.root), 'managementAddress': observed_address, 'rebootRequired': reboot, 'effectiveSettings': effective, 'codeOverrides': differences(desired, effective), 'settings': desired, 'job': job, 'lastConfirmed': last, 'pending': rt.read_json(self.state / 'pending.json'),
+                'moduleDirectory': str(rt.machine_path(self.root, 'modules')), 'layoutVersion': 1 if rt.modern_layout(self.root) else 0, 'currentSystem': current, 'setupComplete': desired['ready'],
+                'settingsSchema': {'stored': stored.get('schemaVersion', 0), 'desired': desired.get('schemaVersion', 0)}}
+
+    def host_inventory(self):
+        data = inventory()
+        helper_base = rt.SOURCE if (rt.SOURCE / 'helper-sources.json').is_file() else rt.SOURCE.parent / 'helpers'
+        data['helpers'] = {'sources': rt.read_json(helper_base / ('helper-sources.json' if helper_base == rt.SOURCE else 'sources.json'), {}),
+                           'applications': list(rt.read_json(helper_base / ('helper-compatibility.json' if helper_base == rt.SOURCE else 'compatibility.json'), {}).values())}
+        try:
+            data['evaluated'] = json.loads(command(['nix', '--extra-experimental-features', 'nix-command flakes',
+                                                  'eval', '--json', 'path:' + str(self.root) + '#nixlabOverview'], timeout=120))
+        except (ValueError, subprocess.TimeoutExpired) as exc:
+            data['evaluationError'] = 'Host inventory evaluation failed'
+        import ipaddress
+        networks = [ipaddress.ip_network(r['dst'], strict=False) for r in data['routes'] if r.get('dst', 'default') != 'default']
+        suggestion = next((ipaddress.ip_network(c) for c in ('10.77.0.0/24', '10.78.0.0/24', '172.30.77.0/24', '192.168.240.0/24')
+                           if not any(ipaddress.ip_network(c).overlaps(n) for n in networks)), None)
+        if suggestion:
+            prefix = str(suggestion.network_address).rsplit('.', 1)[0]
+            data['suggestedGuests'] = {'cidr': str(suggestion), 'gatewayCIDR': prefix + '.1/24',
+                                       'dhcpRange': prefix + '.100-' + prefix + '.199', 'appsAddress': prefix + '.10'}
+        data['secretPresent'] = {key: path.exists() for key, path in rt.SECRET_PATHS.items()}
+        return data
+
+    def spawn(self, phase, job_id):
+        rt.pin_worker_runtime(self.job_path(job_id))
+        args = ['systemd-run', '--quiet', '--collect', '--no-block', '--unit=nixlab-' + phase + '-' + job_id,
+                '--property=RuntimeMaxSec=10800', '--setenv=NIXLAB_ROOT=' + str(self.root),
+                '--setenv=NIXLAB_STATE=' + str(self.state), '--setenv=PATH=' + os.environ['PATH'],
+                sys.executable, str(rt.SOURCE / 'main.py'), 'job', phase, job_id]
+        subprocess.run(args, check=True, capture_output=True, text=True)
+
+    def review(self, changes, secret_values=None, update_inputs=False, modules=None, revision=None, principal='root', host_role='hypervisor', staged_source=None, expected_base_digest=None):
+        if host_role not in ('hypervisor', 'bootstrap'):
+            raise ValueError('Unsupported host role')
+        if host_role == 'bootstrap' and (principal != 'root-wizard-install' or update_inputs or modules or revision or secret_values):
+            raise ValueError('Bootstrap review is reserved for initial local installer onboarding')
+        # An installer-supplied source is a ROOT-ONLY local planning snapshot.
+        # The portal cannot select it or inject an arbitrary directory through
+        # the broker. Review/activation still use the existing Manager worker.
+        if staged_source is not None and (principal not in ('root-direct-install', 'root-wizard-install')
+                                          or revision is not None or update_inputs or modules
+                                          or expected_base_digest is None):
+            raise ValueError('Staged source is reserved for the local installer')
+        with rt.locked(blocking=False):
+            if staged_source is not None and rt.digest_source(self.root) != expected_base_digest:
+                raise ValueError('Installed source changed during planning; restart review')
+            from deployments import check_idle
+            check_idle(self.state)
+            if rt.read_json(self.state / 'project-deploy-active.json', {}).get('id'):
+                raise ValueError('Finish or recover the project deployment before rebuilding the host')
+            if revision is not None and (not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{40}', revision)):
+                raise ValueError('Specify the full reviewed platform commit SHA')
+            modules = rt.validate_modules({} if modules is None else modules)
+            if rt.read_json(self.state / 'pending.json'):
+                raise ValueError('Finish the pending activation or its recovery before starting another review')
+            active = rt.read_json(self.state / 'active.json', {})
+            if active.get('id'):
+                previous = self.job(active['id'])
+                if previous['status'] in ('building', 'applying', 'awaiting-confirmation', 'rolling-back'):
+                    raise ValueError('Finish the active transaction first')
+            if not isinstance(changes, dict):
+                raise ValueError('Settings must be an object')
+            current = self.settings()
+            if host_role == 'bootstrap' and (current['ready'] or self.effective_settings(current)['ready']):
+                raise ValueError('Bootstrap cannot replace an already configured host')
+            stored = rt.read_json(rt.machine_path(self.root, 'settings'), {}) or {}
+            requested = merge(current, changes)
+            if (secret_values or {}).get('cockpitPassword'):
+                requested['cockpit']['managePassword'] = True
+            if host_role == 'bootstrap':
+                from model import validate_bootstrap
+                if requested != current:
+                    raise ValueError('Bootstrap review cannot change settings; use the full host review')
+                candidate = requested
+                validate_bootstrap(candidate, inventory())
+            else:
+                candidate = validate_settings(requested, current, inventory())
+            for section, key in [('backup', 'passwordFile'), ('backup', 'environmentFile'), ('tunnel', 'credentialsFile')]:
+                if candidate[section][key] != current[section][key]:
+                    raise ValueError('Secret file paths are source-managed')
+            with tempfile.NamedTemporaryFile(mode='w', dir=self.state) as public_key_file:
+                for key in candidate['adminKeys']:
+                    public_key_file.seek(0); public_key_file.truncate(); public_key_file.write(key + '\n'); public_key_file.flush()
+                    command(['ssh-keygen', '-l', '-f', public_key_file.name])
+            install = rt.read_json(rt.machine_path(self.root, 'installation'), {})
+            wifi = candidate['radios']['wifi']
+            if install.get('legacyWpaProfiles') and wifi['enable'] and not wifi['manageProfile']:
+                raise ValueError('This host used Nix wpa_supplicant profiles. Declare its SSID/password when moving Wi-Fi to NetworkManager/iwd')
+            encoded = rt.encode_secrets(secret_values or {}, candidate)
+            if candidate['cockpit']['enable'] and candidate['cockpit']['managePassword'] and not candidate['secrets']['enable']:
+                if 'cockpitPassword' not in encoded and not rt.SECRET_PATHS['cockpitPassword'].exists():
+                    raise ValueError('Set the Cockpit operator password, or retain existing local-account authentication')
+            if candidate['radios']['wifi']['manageProfile'] and candidate['radios']['wifi']['enable']:
+                if 'wifiPassword' not in encoded and not rt.SECRET_PATHS['wifiPassword'].exists():
+                    raise ValueError('Provide the WPA password for the managed Wi-Fi profile')
+            if candidate['apps']['enable'] or candidate['apps']['enableDemo']:
+                raise ValueError('Legacy applications VM cannot be managed from the Incus-native broker; migrate data explicitly')
+            if 'arcanePassword' in (secret_values or {}) or 'demoPassword' in (secret_values or {}):
+                raise ValueError('Retired application-manager secrets cannot be staged')
+            if candidate['backup']['enable'] and not candidate['secrets']['enable']:
+                if 'resticPassword' not in encoded and not rt.SECRET_PATHS['resticPassword'].exists():
+                    raise ValueError('Provide the restic repository password')
+                # Native service needs an EnvironmentFile even with no cloud credentials.
+                if 'resticEnvironment' not in encoded and not rt.SECRET_PATHS['resticEnvironment'].exists():
+                    encoded['resticEnvironment'] = ''
+            if candidate['tunnel']['enable'] and not candidate['secrets']['enable'] and 'tunnelCredentials' not in encoded and not rt.SECRET_PATHS['tunnelCredentials'].exists():
+                raise ValueError('Provide the tunnel-specific credentials JSON')
+            initialized = Path('/var/lib/incus/database').exists()
+            runtime_settings = previous['settings'] if initialized and not current['ready'] and active.get('id') and previous.get('previousSystem') else current
+            # Valid migration proposals can be built and explained, but the
+            # evaluated impact gate must refuse them before any activation.
+            # Detect overlaps with real host routes, ignoring the bridge we own and the default route.
+            guest_net = __import__('ipaddress').ip_network(candidate['guests']['cidr']) if host_role == 'hypervisor' else None
+            for route in inventory()['routes'] if host_role == 'hypervisor' else []:
+                if route.get('dst', 'default') == 'default' or route.get('dev') == candidate['guests'].get('bridge', 'incusbr0'):
+                    continue
+                if guest_net.overlaps(__import__('ipaddress').ip_network(route['dst'], strict=False)):
+                    raise ValueError('Guest address space overlaps an existing host/LAN/VPN route')
+            staged_changes = []
+            if staged_source is not None:
+                from upgrades import platform_path
+                staged_source = Path(staged_source)
+                if not rt.machine_path(staged_source, 'installation').is_file():
+                    raise ValueError('Installer source lacks installation inventory')
+                # Refuse unstated changes to local modules, installed-system or
+                # any other non-platform state; only the reviewed JSON overlay
+                # and installation inventory may differ from the live source.
+                def digest_files(root):
+                    return {name: hashlib.sha256(path.read_bytes()).hexdigest()
+                            for name, path in rt.source_files(root)}
+                base_files, proposed_files = digest_files(self.root), digest_files(staged_source)
+                mutable = {str(rt.machine_path(self.root, 'settings').relative_to(self.root)),
+                           str(rt.machine_path(self.root, 'installation').relative_to(self.root))}
+                if any(base_files.get(name) != proposed_files.get(name)
+                       for name in set(base_files) | set(proposed_files)
+                       if not platform_path(name) and name not in mutable and name != '.nixlab-files.json'):
+                    raise ValueError('Installer source modifies unreviewed local machine files')
+                staged_changes = sorted(name for name in set(base_files) | set(proposed_files)
+                                        if platform_path(name) and base_files.get(name) != proposed_files.get(name))
+            job_id = secrets.token_hex(16)
+            directory = self.state / 'jobs' / job_id
+            rt.snapshot(directory / 'source', staged_source if staged_source is not None else self.root)
+            for name, content in modules.items():
+                rt.atomic(rt.machine_path(directory / 'source', 'modules') / name, content, mode=0o644)
+            rt.write_json(rt.machine_path(directory / 'source', 'settings'), candidate)
+            import impact
+            before = self.effective_settings(current) if current['ready'] else runtime_settings
+            rt.write_json(directory / 'impact-base.json', impact.baseline(before))
+            job = {'id': job_id, 'status': 'building', 'created': time.time(), 'baseDigest': rt.digest_source(self.root), 'hostRole': host_role,
+                   'settingsMigration': {'from': stored.get('schemaVersion', 0), 'to': candidate.get('schemaVersion', 0)},
+                   'settings': candidate, 'changes': differences(current, candidate), 'principal': principal,
+                   'moduleChanges': [{'path': name, 'before': (rt.machine_path(self.root, 'modules') / name).read_text() if (rt.machine_path(self.root, 'modules') / name).exists() else None, 'after': content} for name, content in modules.items()],
+                   'secretChanges': sorted(encoded), 'updateInputs': bool(update_inputs), 'platformRevision': revision,
+                   'sourceStaged': staged_source is not None, 'sourcePlatformUpdated': bool(staged_changes),
+                   'platformChanges': [{'path': name, 'kind': 'staged-installer-update'} for name in staged_changes]}
+            rt.write_json(directory / 'job.json', job)
+            rt.write_json(self.state / 'active.json', {'id': job_id})
+            if active.get('id') and previous['status'] in ('ready', 'failed', 'cancelled'):
+                obsolete = self.job_path(active['id'])
+                record = rt.read_job_record(obsolete / 'job.json'); record['status'] = 'superseded'
+                rt.write_json(obsolete / 'job.json', record)
+                rt.remove_staged_secrets(obsolete)
+                rt.durable_unlink(obsolete / 'system')
+            rt.audit('review', job=job_id, changes=len(job['changes']), secrets=list(encoded))
+            try:
+                if encoded:
+                    rt.stage_secrets(directory, encoded)
+                self.spawn('build', job_id)
+            except Exception:
+                job['status'] = 'failed'; job['error'] = 'Could not stage credentials or start the build service'
+                rt.write_json(directory / 'job.json', job)
+                raise
+            return {'id': job_id}
+
+    def apply(self, job_id):
+        with rt.locked(blocking=False):
+            from deployments import check_idle
+            check_idle(self.state)
+            if rt.read_json(self.state / 'project-deploy-active.json', {}).get('id'):
+                raise ValueError('Finish or recover the project deployment before rebuilding the host')
+            directory = self.job_path(job_id)
+            job = rt.read_job_record(directory / 'job.json')
+            if rt.read_json(self.state / 'active.json', {}).get('id') != job_id:
+                raise ValueError('This candidate was superseded; review the active transaction')
+            if job['status'] != 'ready':
+                raise ValueError('Build and review this transaction before activation')
+            rt.require_fresh_staged_secrets(job)
+            if job['baseDigest'] != rt.digest_source(self.root):
+                raise ValueError('Source/settings changed since review; build a new transaction')
+            if job.get('candidateDigest') != rt.digest_source(directory / 'source'):
+                raise ValueError('Reviewed snapshot changed; refusing activation')
+            import impact
+            impact.recheck(directory)
+            job = rt.read_job_record(directory / 'job.json')
+            job['status'] = 'applying'; job['appliedAt'] = time.time()
+            rt.write_json(directory / 'job.json', job)
+            try:
+                self.spawn('apply', job_id)
+            except Exception:
+                job.update(status='failed', error='Could not start the activation worker')
+                rt.write_json(directory / 'job.json', job)
+                raise
+            rt.audit('apply-requested', job=job_id)
+            return {'id': job_id}
+
+    def confirm(self, job_id):
+        with rt.locked(blocking=False):
+            pending = rt.read_json(self.state / 'pending.json')
+            job = rt.read_job_record(self.job_path(job_id) / 'job.json')
+            if not pending or pending['id'] != job_id or job['status'] != 'awaiting-confirmation':
+                raise ValueError('No completed activation is awaiting confirmation')
+            if time.time() >= pending['deadline']:
+                raise ValueError('Confirmation window expired; recovery is required')
+            if str(Path('/run/current-system').resolve()) != str((self.job_path(job_id) / 'system').resolve()):
+                raise ValueError('The running generation differs from the reviewed build')
+            job['status'] = 'confirmed'; job['confirmedAt'] = time.time()
+            rt.write_json(self.job_path(job_id) / 'job.json', job)
+            last = rt.read_json(self.state / 'last-confirmed.json')
+            if last and last['id'] != job_id:
+                old = self.job_path(last['id'])
+                rt.durable_unlink(old / 'system'); rt.durable_unlink(old / 'previous-system')
+                if (old / 'recovery').exists():
+                    shutil.rmtree(old / 'recovery')
+            rt.write_json(self.state / 'last-confirmed.json', {'id': job_id})
+            rt.durable_unlink(self.state / 'pending.json')
+            # Staged plaintext is no longer needed; live root-only runtime files remain.
+            rt.remove_staged_secrets(self.job_path(job_id))
+            rt.audit('confirmed', job=job_id)
+            return {'ok': True}
+
+    def rollback(self, job_id):
+        with rt.locked(blocking=False):
+            from deployments import check_idle
+            check_idle(self.state)
+            if rt.read_json(self.state / 'project-deploy-active.json', {}).get('id'):
+                raise ValueError('Finish or recover the project deployment before rebuilding the host')
+            job = self.job(job_id)
+            if job['status'] not in ('awaiting-confirmation', 'confirmed', 'failed') or not job.get('previousSystem'):
+                raise ValueError('This transaction has no recoverable previous generation')
+            active = rt.read_json(self.state / 'active.json', {})
+            if active.get('id') != job_id:
+                if rt.read_json(self.state / 'last-confirmed.json', {}).get('id') != job_id or rt.read_json(self.state / 'pending.json'):
+                    raise ValueError('Only the current or last confirmed transaction can be rolled back')
+                other = self.job(active['id']) if active.get('id') else None
+                if other and other['status'] in ('applying', 'awaiting-confirmation', 'rolling-back'):
+                    raise ValueError('Finish the active activation first')
+                if other and other['status'] == 'building':
+                    subprocess.run(['systemctl', 'stop', 'nixlab-build-' + other['id']], check=True, timeout=30)
+                if other:
+                    record = rt.read_job_record(self.job_path(other['id']) / 'job.json'); record['status'] = 'superseded'
+                    rt.write_json(self.job_path(other['id']) / 'job.json', record)
+                    rt.remove_staged_secrets(self.job_path(other['id']))
+                    rt.durable_unlink(self.job_path(other['id']) / 'system')
+                rt.write_json(self.state / 'active.json', {'id': job_id})
+            self.spawn('rollback', job_id)
+            rt.audit('rollback-requested', job=job_id)
+            return {'ok': True}
+
+    def cancel(self, job_id):
+        with rt.locked(blocking=False):
+            directory = self.job_path(job_id)
+            job = rt.read_job_record(directory / 'job.json')
+            if rt.read_json(self.state / 'pending.json', {}).get('id') == job_id:
+                raise ValueError('Recover the pending activation before discarding its candidate')
+            if job['status'] not in ('building', 'ready', 'failed'):
+                raise ValueError('Only an unapplied candidate can be discarded')
+            if job['status'] == 'building':
+                subprocess.run(['systemctl', 'stop', 'nixlab-build-' + job_id], check=True, timeout=30)
+            job['status'] = 'cancelled'
+            rt.write_json(directory / 'job.json', job)
+            rt.remove_staged_secrets(directory)
+            rt.durable_unlink(directory / 'system')
+            rt.audit('candidate-discarded', job=job_id)
+            return {'ok': True}
+
+    def change_password(self, password):
+        import accounts
+        if self.state != rt.STATE:
+            raise ValueError('Use the active portal account authority')
+        return accounts.change_password('admin', password)
+
+    def browser_certificate(self, device=None, password=None, owner='root', full_admin=False, renew=None):
+        import browser_certificates
+        return browser_certificates.issue(self.state, device, password, owner, full_admin, renew)
+
+    def browser_certificates(self):
+        import browser_certificates
+        return browser_certificates.inventory(self.state)
+
+    def revoke_browser_certificate(self, fingerprint, owner='root'):
+        import browser_certificates
+        return browser_certificates.revoke(self.state, fingerprint, owner)

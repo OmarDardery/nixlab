@@ -1,0 +1,1 @@
+{"id":"history","title":"Metrics history","description":"Enable the existing local Prometheus history with seven-day retention; no additional dashboard is installed.","settings":{"monitoring":{"history":true,"retentionDays":7}}}

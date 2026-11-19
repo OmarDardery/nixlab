@@ -1,0 +1,959 @@
+"""Schema, secret boundaries, snapshot integrity and real HTTPS authentication tests."""
+import base64
+import contextlib
+import copy
+import http.client
+import importlib.util
+import json
+import os
+from pathlib import Path
+import shutil
+import socket
+import ssl
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+import urllib.error
+import urllib.request
+from unittest.mock import patch
+
+BASE = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(BASE / 'admin'), str(BASE / 'scripts')]
+import runtime as rt
+import model
+from controller import Manager
+from main import Auth
+
+DEFAULTS = json.loads((BASE / 'tests/fixtures/defaults.json').read_text())
+KEY = 'ssh-ed25519 ' + base64.b64encode(struct.pack('>I', 11) + b'ssh-ed25519' + struct.pack('>I', 32) + b'\x01' * 32).decode() + ' test-only'
+
+def settings():
+    value = copy.deepcopy(DEFAULTS)
+    value.update(cpuVendor='intel', system='x86_64-linux', hostName='fixture', adminKeys=[KEY])
+    value['setup']['enable'] = True
+    value['management'].update(interface='eth0', address='192.0.2.10', prefixLength=24,
+                               trustedCIDRs=['192.0.2.0/24'], gateway='192.0.2.1', dns=['192.0.2.1'])
+    value['guests'].update(cidr='10.77.0.0/24', gatewayCIDR='10.77.0.1/24', appsAddress='10.77.0.10', dhcpRange='10.77.0.100-10.77.0.199')
+    value['maintenance']['timeZone'] = 'UTC'
+    value['apps']['enable'] = False
+    return value
+
+HOST = {'architecture':'x86_64','cpuVendor':'intel','kvm':True,
+        'interfaces':[{'name':'eth0','wireless':False,'addresses':['192.0.2.10/24']}],
+        'routes':[{'dst':'192.0.2.0/24','dev':'eth0'}],
+        'disks':[{'uuid':'aaaa-bbbb','fstype':'ext4','mountpoints':[],'path':'/dev/test','type':'part','size':1000000}]}
+
+class SettingsFixture(unittest.TestCase):
+    """Domain unit tests consume evaluated fixtures; Nix has separate golden checks."""
+    def setUp(self):
+        reader = patch('controller.read_settings', side_effect=lambda root:
+                       rt.read_json(rt.machine_path(root, 'settings'), {}))
+        reader.start()
+        self.addCleanup(reader.stop)
+
+
+class ModuleUploadTests(SettingsFixture):
+    def test_effective_transition_protects_initialized_mounts(self):
+        import worker
+        old=settings();new=copy.deepcopy(old)
+        old['mounts']=[{'name':'guests','role':'guests'}]
+        with self.assertRaisesRegex(ValueError,'Migrate initialized'):
+            worker.validate_effective_transition(new,{},old,{},True)
+        # Explicitly uninitialized inventories do not pretend an Incus pool exists.
+        worker.validate_effective_transition(new,{},old,{},False)
+        with self.assertRaisesRegex(ValueError,'Migrate active disk'):
+            worker.validate_effective_transition(new,{},old,{'archive':{'uuid':'aaaa'}},False)
+
+    def test_build_validates_file_disks_before_marking_ready(self):
+        import worker
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)/'repo';root.mkdir();directory=Path(folder)/'job';directory.mkdir()
+            subprocess.run(['git','init','-q',str(root)],check=True)
+            rt.write_json(root/'local/settings.json',settings())
+            rt.snapshot(directory/'source',root)
+            rt.write_json(directory/'job.json',{'updateInputs':False})
+            disk={'name':'archive','uuid':'aaaa-bbbb','path':'/srv/nixlab/archive','fsType':'ext4','role':'pool','required':True,'readOnly':False}
+            projection={'settings':settings(),'disks':{'archive':disk}}
+            host=copy.deepcopy(HOST)
+            host['disks'].append({'uuid':'different-uuid','mountpoints':['/srv/nixlab/archive']})
+            result=subprocess.CompletedProcess([],0,stdout=json.dumps(projection))
+            with patch('worker.run') as run,patch('worker.subprocess.run',return_value=result),patch('model.inventory',return_value=host):
+                with self.assertRaisesRegex(ValueError,'different filesystem'):
+                    worker.build(directory)
+            self.assertNotEqual(rt.read_json(directory/'job.json').get('status'),'ready')
+            self.assertEqual(run.call_args.args[0], [str(directory/'system/bin/switch-to-configuration'), 'dry-activate'])
+            self.assertFalse((root/'site-modules').exists())
+
+    def test_root_cli_uses_same_review_transaction(self):
+        from main import config_cli
+        with tempfile.TemporaryDirectory() as folder:
+            source=Path(folder)/'archive.nix';source.write_text('{}')
+            with patch('main.broker_request',return_value={'id':'example'}) as broker,patch('builtins.print'):
+                config_cli(['review','--module','disks/archive.nix='+str(source)])
+            self.assertEqual(broker.call_args.args,('POST','/review',{'settings':{},'modules':{'disks/archive.nix':'{}'},'updateInputs':False}))
+
+    def test_path_limits_and_content_validation(self):
+        for value in ({'../escape.nix':'{}'}, {'a//b.nix':'{}'}, {'x.txt':'{}'}, {'x.nix':None}, {'x.nix':'\x00'}, {'x.nix':'a'*65537}):
+            with self.subTest(value=str(value)[:50]), self.assertRaises(ValueError):
+                rt.validate_modules(value)
+        self.assertEqual(rt.validate_modules({'disks/archive.nix':'{}'}), {'disks/archive.nix':'{}'})
+
+    def test_review_stages_module_without_touching_live_source(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)/'repo';root.mkdir();state=Path(folder)/'state';state.mkdir()
+            subprocess.run(['git','init','-q',str(root)],check=True)
+            rt.write_json(root/'local/settings.json',settings())
+            manager=Manager(root,state)
+            with patch.object(rt,'STATE',state),patch('controller.inventory',return_value=HOST),patch.object(manager,'spawn'):
+                result=manager.review({}, modules={'disks/archive.nix':'{ ... }: {}'})
+            job=manager.job_path(result['id'])
+            self.assertFalse((root/'site-modules/disks/archive.nix').exists())
+            self.assertEqual((job/'source/site-modules/disks/archive.nix').read_text(),'{ ... }: {}')
+            self.assertEqual(manager.job(result['id'])['moduleChanges'][0]['before'],None)
+            digest=rt.digest_source(job/'source')
+            rt.atomic(job/'source/site-modules/disks/archive.nix','changed')
+            self.assertNotEqual(digest,rt.digest_source(job/'source'))
+
+    def test_apply_publishes_modules_and_activates_exact_closure(self):
+        import worker
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)/'repo';root.mkdir();state=Path(folder)/'state';state.mkdir()
+            subprocess.run(['git','init','-q',str(root)],check=True)
+            cfg=settings();rt.write_json(root/'local/settings.json',cfg)
+            directory=state/'jobs/example';directory.mkdir(parents=True)
+            rt.snapshot(directory/'source',root)
+            rt.atomic(directory/'source/site-modules/archive.nix','{}')
+            closure=Path(folder)/'reviewed-system';closure.mkdir()
+            (directory/'system').symlink_to(closure)
+            rt.write_json(directory/'job.json',{'settings':cfg,'baseDigest':rt.digest_source(root),'candidateDigest':rt.digest_source(directory/'source'),'updateInputs':False})
+            original_run = subprocess.run
+            def fake_run(args, **kwargs):
+                if args[0] == 'git': return original_run(args, **kwargs)
+                return subprocess.CompletedProcess(args,0,stdout='{}')
+            with patch.object(rt,'ROOT',root),patch.object(rt,'STATE',state),patch.object(rt,'SECRET_PATHS',{}),patch('worker.subprocess.run',side_effect=fake_run),patch('diagnostics.wait_ready', return_value={'ok': True}),patch('worker.run') as run:
+                import impact
+                projection = {'settings': cfg, 'disks': {}, 'preseed': {}, 'instances': []}
+                impact.prepare(directory, projection, projection)
+                worker.apply(directory)
+            self.assertTrue((root/'site-modules/archive.nix').exists())
+            commands=[call.args[0] for call in run.call_args_list]
+            self.assertIn([str(closure)+'/bin/switch-to-configuration','switch'],commands)
+            self.assertFalse(any(c[0]=='nixos-rebuild' for c in commands))
+
+class MachineLayoutTests(SettingsFixture):
+    def test_layout_migration_is_blocked_by_pending_transaction(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)/'repo';root.mkdir();state=Path(folder)/'state';state.mkdir()
+            rt.write_json(state/'pending.json',{'id':'example'})
+            with patch.object(rt,'STATE',state):
+                with self.assertRaisesRegex(ValueError,'Finish or discard'):
+                    Manager(root,state).migrate_layout()
+            self.assertFalse((root/'machine').exists())
+
+    def test_layout_migration_is_atomic_idempotent_and_preserves_legacy(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)/'repo';root.mkdir()
+            subprocess.run(['git','init','-q',str(root)],check=True)
+            rt.write_json(root/'local/settings.json',settings())
+            rt.atomic(root/'site-modules/disks/archive.nix','{}')
+            rt.atomic(root/'installed-system/configuration.nix','{ ... }: {}')
+            self.assertTrue(rt.migrate_layout(root)['changed'])
+            self.assertFalse(rt.migrate_layout(root)['changed'])
+            self.assertEqual(rt.read_json(rt.machine_path(root,'settings')),settings())
+            self.assertTrue((root/'site-modules/disks/archive.nix').exists())
+            self.assertTrue((root/'machine/modules/disks/archive.nix').exists())
+            self.assertTrue((root/'machine/installed-system/configuration.nix').exists())
+            names=[name for name,_ in rt.source_files(root)]
+            self.assertIn('machine/settings.json',names)
+            self.assertNotIn('local/settings.json',names)
+
+    def test_migrated_review_uses_only_canonical_settings_and_modules(self):
+        import worker
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)/'repo';root.mkdir();state=Path(folder)/'state';state.mkdir()
+            subprocess.run(['git','init','-q',str(root)],check=True)
+            rt.write_json(root/'local/settings.json',settings());rt.migrate_layout(root)
+            manager=Manager(root,state)
+            with patch.object(rt,'ROOT',root),patch.object(rt,'STATE',state),patch.object(rt,'SECRET_PATHS',{}),patch('controller.inventory',return_value=HOST),patch.object(manager,'spawn'):
+                output=manager.review({'hostName':'changed'},modules={'archive.nix':'{}'})
+                directory=manager.job_path(output['id'])
+                self.assertEqual(rt.read_json(directory/'source/machine/settings.json')['hostName'],'changed')
+                self.assertFalse((directory/'source/local/settings.json').exists())
+                self.assertTrue((directory/'source/machine/modules/archive.nix').exists())
+                worker.save_recovery(directory)
+                rt.install_modules(directory/'source',root)
+                worker.restore_files(directory)
+                self.assertFalse((root/'machine/modules/archive.nix').exists())
+                self.assertEqual(manager.settings()['hostName'],'fixture')
+
+    def test_machine_directory_rejects_credentials_and_unknown_version(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            subprocess.run(['git','init','-q',str(root)],check=True)
+            rt.write_json(root/'machine/format.json',{'version':1})
+            rt.atomic(root/'machine/password.txt','DO-NOT-COPY')
+            with self.assertRaisesRegex(ValueError,'Unexpected file'):
+                list(rt.source_files(root))
+            rt.write_json(root/'machine/format.json',{'version':2})
+            with self.assertRaisesRegex(ValueError,'Unsupported'):
+                rt.machine_path(root,'settings')
+
+class ModelTests(unittest.TestCase):
+    def test_lightweight_defaults_and_monitoring_limits(self):
+        self.assertFalse(DEFAULTS['apps']['enable'])
+        self.assertFalse(DEFAULTS['monitoring']['history'])
+        current = settings()
+        proposed = copy.deepcopy(current)
+        proposed['monitoring'].update(history=True, retentionDays=7, scrapeSeconds=120)
+        self.assertEqual(model.validate_settings(proposed, current, HOST, False)['monitoring']['retentionDays'], 7)
+        for key, invalid in (('retentionDays', 0), ('retentionDays', 91), ('scrapeSeconds', 14), ('scrapeSeconds', 301)):
+            proposed = copy.deepcopy(current)
+            proposed['monitoring'][key] = invalid
+            with self.assertRaisesRegex(ValueError, 'Monitoring'):
+                model.validate_settings(proposed, current, HOST, False)
+
+    def test_unknown_nix_code_field_rejected(self):
+        current=settings(); proposed=copy.deepcopy(current); proposed['rawNix']='builtins.readFile /etc/shadow'
+        with self.assertRaisesRegex(ValueError,'Unknown setting'):
+            model.validate_settings(proposed,current,HOST)
+
+    def test_existing_filesystem_becomes_pool_with_stable_source(self):
+        current=settings(); proposed=copy.deepcopy(current)
+        proposed['mounts']=[{'name':'guests','uuid':'aaaa-bbbb','path':'/srv/nixlab/guests','fsType':'ext4','role':'guests','required':True,'readOnly':False}]
+        out=model.validate_settings(proposed,current,HOST,require_devices=False)
+        self.assertEqual(out['storage']['source'],'/srv/nixlab/guests/incus')
+        self.assertTrue(out['ready'])
+
+    def test_wrong_filesystem_and_system_disk_rejected(self):
+        current=settings(); proposed=copy.deepcopy(current)
+        proposed['mounts']=[{'name':'data','uuid':'aaaa-bbbb','path':'/srv/nixlab/data','fsType':'ext4','role':'data','required':False,'readOnly':False}]
+        host=copy.deepcopy(HOST);host['disks'][0]['mountpoints']=['/']
+        with self.assertRaisesRegex(ValueError,'already mounted'):
+            model.validate_settings(proposed,current,host)
+        host['disks'][0]['mountpoints']=[];host['disks'][0]['fstype']='xfs'
+        with self.assertRaisesRegex(ValueError,'differs'):
+            model.validate_settings(proposed,current,host)
+
+    def test_mount_path_cannot_shadow_host_files(self):
+        current=settings();proposed=copy.deepcopy(current)
+        proposed['mounts']=[{'name':'data','uuid':'aaaa-bbbb','path':'/etc','fsType':'ext4','role':'data','required':False,'readOnly':False}]
+        with self.assertRaisesRegex(ValueError,'mount only'):
+            model.validate_settings(proposed,current,HOST,False)
+
+    def test_wifi_uplink_cannot_be_disabled(self):
+        current=settings();host=copy.deepcopy(HOST);host['interfaces'][0]['wireless']=True
+        with self.assertRaisesRegex(ValueError,'Wi-Fi cannot be disabled'):
+            model.validate_settings(copy.deepcopy(current),current,host)
+
+    def test_setup_cannot_remove_its_recovery_path(self):
+        current=settings();proposed=copy.deepcopy(current);proposed['setup']['enable']=False
+        with self.assertRaisesRegex(ValueError,'recovery'):
+            model.validate_settings(proposed,current,HOST,False)
+
+class SecretTests(unittest.TestCase):
+    def test_backup_credentials_cannot_execute_shell_substitutions(self):
+        with tempfile.TemporaryDirectory() as folder:
+            marker=Path(folder)/'executed';value='$(touch '+str(marker)+')'
+            encoded=rt.encode_secrets({'resticEnvironment':json.dumps({'AWS_SECRET_ACCESS_KEY':value})},settings())
+            env=Path(folder)/'credentials';env.write_text(encoded['resticEnvironment'])
+            result=subprocess.check_output(['sh','-c','. "$1"; printf "%s" "$AWS_SECRET_ACCESS_KEY"','sh',str(env)],text=True)
+            self.assertEqual(result,value);self.assertFalse(marker.exists())
+
+    def test_command_environment_and_mismatched_tunnel_refused(self):
+        with self.assertRaises(ValueError):
+            rt.encode_secrets({'resticEnvironment':'{"LD_PRELOAD":"/evil"}'},settings())
+        with self.assertRaises(ValueError):
+            rt.encode_secrets({'tunnelCredentials':json.dumps({'AccountTag':'x','TunnelSecret':'abc','TunnelID':'wrong'})},settings())
+
+    def test_password_hash_roundtrip_and_no_plaintext(self):
+        record=rt.password_record('a-long-test-password')
+        self.assertTrue(rt.password_matches('a-long-test-password',record))
+        self.assertFalse(rt.password_matches('wrong',record))
+        self.assertNotIn('a-long-test-password',json.dumps(record))
+
+class SnapshotTests(unittest.TestCase):
+    def test_untracked_modules_are_hashed_but_credentials_rejected(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            subprocess.run(['git', 'init', '-q', str(root)], check=True)
+            rt.atomic(root/'site-modules/disks/archive.nix', '{}')
+            first = rt.digest_source(root)
+            rt.atomic(root/'site-modules/disks/archive.nix', '{ changed = true; }')
+            self.assertNotEqual(first, rt.digest_source(root))
+            rt.atomic(root/'site-modules/password.txt', 'DO-NOT-COPY')
+            with self.assertRaisesRegex(ValueError, 'Only Nix'):
+                rt.snapshot(root/'candidate', root)
+
+    def test_symlinked_module_tree_is_rejected(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)/'root'; root.mkdir()
+            outside = Path(folder)/'outside'; outside.mkdir()
+            (root/'site-modules').symlink_to(outside, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, 'symlink'):
+                rt.module_files(root)
+
+    def test_untracked_credentials_excluded_and_snapshot_integrity_changes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)/'repo';root.mkdir();subprocess.run(['git','init','-q',str(root)],check=True)
+            (root/'flake.nix').write_text('{}');subprocess.run(['git','-C',str(root),'add','flake.nix'],check=True)
+            (root/'secret.txt').write_text('DO-NOT-COPY')
+            rt.write_json(root/'local/settings.json',settings())
+            destination=Path(folder)/'snapshot';rt.snapshot(destination,root)
+            self.assertFalse((destination/'secret.txt').exists())
+            digest=rt.digest_source(destination)
+            (destination/'flake.nix').write_text('{ changed = true; }')
+            self.assertNotEqual(digest,rt.digest_source(destination))
+
+    def test_hardware_import_excludes_non_nix_secrets(self):
+        spec=importlib.util.spec_from_file_location('nixlab_install',BASE/'installer/install.py')
+        install=importlib.util.module_from_spec(spec);spec.loader.exec_module(install)
+        with tempfile.TemporaryDirectory() as folder:
+            source=Path(folder)/'old';source.mkdir();target=Path(folder)/'new'
+            (source/'configuration.nix').write_text('{}');(source/'hardware-configuration.nix').write_text('{}')
+            (source/'private-key').write_text('DO-NOT-COPY')
+            install.copy_nix_modules(source,target)
+            self.assertFalse((target/'private-key').exists())
+            self.assertTrue((target/'hardware-configuration.nix').exists())
+
+class TransactionTests(SettingsFixture):
+    def test_review_keeps_live_settings_and_secrets_unchanged(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)/'repo';root.mkdir();state=Path(folder)/'state';state.mkdir()
+            subprocess.run(['git','init','-q',str(root)],check=True)
+            (root/'flake.nix').write_text('{}');subprocess.run(['git','-C',str(root),'add','flake.nix'],check=True)
+            current=settings();rt.write_json(root/'local/settings.json',current)
+            manager=Manager(root,state)
+            with patch.object(rt,'STATE',state),patch('controller.inventory',return_value=HOST),patch.object(manager,'spawn') as spawn:
+                output=manager.review({'hostName':'changed'}, {'resticPassword':'New-backup-password-1!'})
+                self.assertEqual(manager.settings()['hostName'],'fixture')
+                directory=manager.job_path(output['id'])
+                snapshot=(directory/'source/local/settings.json').read_text()
+                self.assertNotIn('new-initial-password',snapshot)
+                self.assertNotIn('new-initial-password',(directory/'job.json').read_text())
+                self.assertTrue((directory/'secrets.json').exists())
+                spawn.assert_called_once_with('build',output['id'])
+
+    def test_confirmation_expiry_does_not_accept_or_delete_recovery(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state=Path(folder);manager=Manager(state/'repo',state)
+            job_id='a'*32;directory=state/'jobs'/job_id;directory.mkdir()
+            rt.write_json(directory/'job.json',{'status':'awaiting-confirmation'})
+            rt.write_json(state/'pending.json',{'id':job_id,'deadline':time.time()-1})
+            with patch.object(rt,'STATE',state):
+                with self.assertRaisesRegex(ValueError,'expired'):
+                    manager.confirm(job_id)
+            self.assertTrue((state/'pending.json').exists())
+
+    def test_source_drift_blocks_apply(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state=Path(folder);manager=Manager(state/'repo',state);job_id='b'*32
+            directory=state/'jobs'/job_id;directory.mkdir()
+            rt.write_json(directory/'job.json',{'status':'ready','baseDigest':'old'})
+            rt.write_json(state/'active.json',{'id':job_id})
+            with patch.object(rt,'STATE',state),patch.object(rt,'digest_source',return_value='new'):
+                with self.assertRaisesRegex(ValueError,'changed since review'):
+                    manager.apply(job_id)
+
+
+class StagedInstallerTransactionTests(SettingsFixture):
+    """Installer may prepare sources but cannot publish them before a review."""
+
+    def create_sources(self, directory):
+        root = directory / 'source'
+        staged = directory / 'staged'
+        state = directory / 'state'
+        rt.write_json(root / '.nixlab-files.json', [
+            'flake.nix', 'admin/main.py', 'machine/format.json',
+            'machine/settings.json', 'machine/installation.json'])
+        rt.atomic(root / 'flake.nix', '{}')
+        rt.atomic(root / 'admin/main.py', 'old platform')
+        rt.write_json(root / 'machine/format.json', {'version': 1})
+        rt.write_json(root / 'machine/settings.json', settings())
+        rt.write_json(root / 'machine/installation.json', {'interface': 'eth0'})
+        rt.snapshot(staged, root)
+        rt.atomic(staged / 'admin/main.py', 'new platform')
+        rt.write_json(staged / 'machine/installation.json', {'interface': 'eth0', 'pendingTasks': ['reboot']})
+        return root, staged, state
+
+    def test_installer_stages_code_and_inventory_only_in_transaction(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root, staged, state = self.create_sources(Path(folder))
+            original = {name: (root / name).read_bytes()
+                        for name in ('admin/main.py', 'machine/installation.json', 'machine/settings.json')}
+            manager = Manager(root, state)
+            with patch.object(rt, 'STATE', state), patch('controller.inventory', return_value=HOST), patch.object(manager, 'spawn') as worker_spawn:
+                reviewed = manager.review(settings(), principal='root-direct-install',
+                                          staged_source=staged, expected_base_digest=rt.digest_source(root))
+            job_dir = manager.job_path(reviewed['id'])
+            self.assertTrue(rt.read_json(job_dir / 'job.json')['sourceStaged'])
+            self.assertTrue(rt.read_json(job_dir / 'job.json')['sourcePlatformUpdated'])
+            self.assertEqual((job_dir / 'source/admin/main.py').read_text(), 'new platform')
+            self.assertEqual(rt.read_json(job_dir / 'source/machine/installation.json')['pendingTasks'], ['reboot'])
+            worker_spawn.assert_called_once_with('build', reviewed['id'])
+            for name, previous in original.items():
+                self.assertEqual((root / name).read_bytes(), previous, name)
+
+    def test_stale_or_untrusted_installer_stage_cannot_start_a_job(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root, staged, state = self.create_sources(Path(folder))
+            manager = Manager(root, state)
+            digest = rt.digest_source(root)
+            rt.atomic(root / 'admin/main.py', 'concurrent source edit')
+            with patch.object(rt, 'STATE', state), patch('controller.inventory', return_value=HOST), patch.object(manager, 'spawn') as spawn:
+                with self.assertRaisesRegex(ValueError, 'changed during planning'):
+                    manager.review(settings(), principal='root-direct-install',
+                                   staged_source=staged, expected_base_digest=digest)
+                with self.assertRaisesRegex(ValueError, 'local installer'):
+                    manager.review(settings(), principal='web-admin',
+                                   staged_source=staged, expected_base_digest=rt.digest_source(root))
+                spawn.assert_not_called()
+            self.assertEqual(list((state / 'jobs').iterdir()), [])
+            self.assertEqual((root / 'admin/main.py').read_text(), 'concurrent source edit')
+
+    def test_installer_stage_cannot_alter_unreviewed_modules(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root, staged, state = self.create_sources(Path(folder))
+            rt.atomic(root / 'machine/modules/operator.nix', 'old')
+            rt.atomic(staged / 'machine/modules/operator.nix', 'new')
+            manager = Manager(root, state)
+            with patch.object(rt, 'STATE', state), patch('controller.inventory', return_value=HOST), patch.object(manager, 'spawn') as spawn:
+                with self.assertRaisesRegex(ValueError, 'unreviewed local machine files'):
+                    manager.review(settings(), principal='root-direct-install',
+                                   staged_source=staged, expected_base_digest=rt.digest_source(root))
+                spawn.assert_not_called()
+            self.assertEqual((root / 'machine/modules/operator.nix').read_text(), 'old')
+
+
+class CandidateLifecycleTests(unittest.TestCase):
+    def test_superseded_candidate_cannot_activate(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state=Path(folder);manager=Manager(state/'repo',state);old='f'*32;new='1'*32
+            rt.write_json(state/'jobs'/old/'job.json',{'status':'ready'})
+            rt.write_json(state/'active.json',{'id':new})
+            with patch.object(rt,'STATE',state):
+                with self.assertRaisesRegex(ValueError,'superseded'):
+                    manager.apply(old)
+
+    def test_discard_releases_candidate_root_and_credentials(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state=Path(folder);manager=Manager(state/'repo',state);job_id='2'*32;directory=state/'jobs'/job_id
+            rt.write_json(directory/'job.json',{'status':'ready'})
+            rt.atomic(directory/'secrets.json','SECRET')
+            target=state/'retained-os';target.write_text('OS');(directory/'system').symlink_to(target)
+            with patch.object(rt,'STATE',state):manager.cancel(job_id)
+            self.assertEqual(rt.read_json(directory/'job.json')['status'],'cancelled')
+            self.assertFalse((directory/'system').exists());self.assertFalse((directory/'secrets.json').exists())
+            self.assertTrue(target.exists())
+
+class RecoveryTests(unittest.TestCase):
+    def test_module_recovery_restores_changes_and_removes_new_files(self):
+        import worker
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)/'repo'; root.mkdir()
+            state = Path(folder)/'state'; state.mkdir()
+            job = state/'jobs/example'; job.mkdir(parents=True)
+            rt.atomic(root/'site-modules/disks/archive.nix', 'original')
+            rt.write_json(root/'local/settings.json', {'old': True})
+            with patch.object(rt, 'ROOT', root), patch.object(rt, 'STATE', state), patch.object(rt, 'SECRET_PATHS', {}):
+                worker.save_recovery(job)
+                rt.atomic(root/'site-modules/disks/archive.nix', 'changed')
+                rt.atomic(root/'site-modules/new.nix', 'new')
+                worker.restore_files(job)
+                worker.restore_files(job)  # Recovery is idempotent.
+            self.assertEqual((root/'site-modules/disks/archive.nix').read_text(), 'original')
+            self.assertFalse((root/'site-modules/new.nix').exists())
+
+    def test_confirmed_transaction_does_not_rollback_after_interrupted_cleanup(self):
+        import worker
+        with tempfile.TemporaryDirectory() as folder:
+            state=Path(folder);job_id='c'*32
+            rt.write_json(state/'jobs'/job_id/'job.json',{'status':'confirmed'})
+            rt.write_json(state/'pending.json',{'id':job_id,'deadline':time.time()-1})
+            with patch.object(rt,'STATE',state),patch('operations.Operations.recover_interrupted'),patch.object(worker,'rollback') as rollback:
+                worker.guard()
+                rollback.assert_not_called()
+            self.assertFalse((state/'pending.json').exists())
+
+    def test_expired_pending_activation_invokes_recovery(self):
+        import worker
+        with tempfile.TemporaryDirectory() as folder:
+            state=Path(folder);job_id='d'*32
+            rt.write_json(state/'jobs'/job_id/'job.json',{'status':'awaiting-confirmation'})
+            rt.write_json(state/'pending.json',{'id':job_id,'deadline':time.time()-1})
+            with patch.object(rt,'STATE',state),patch('operations.Operations.recover_interrupted'),patch.object(worker,'rollback') as rollback:
+                worker.guard()
+                rollback.assert_called_once_with(state/'jobs'/job_id,'confirmation timed out')
+
+    def test_recovery_restores_old_settings_and_removes_new_secret(self):
+        import worker
+        with tempfile.TemporaryDirectory() as folder:
+            state=Path(folder)/'state';state.mkdir();root=Path(folder)/'repo';root.mkdir();directory=state/'jobs'/'e';directory.mkdir(parents=True)
+            rt.write_json(root/'local/settings.json',{'old':True});(root/'flake.lock').write_text('old-lock')
+            secret=state/'live-secret'
+            with patch.object(rt,'STATE',state),patch.object(rt,'ROOT',root),patch.object(rt,'SECRET_PATHS',{'example':secret}):
+                worker.save_recovery(directory)
+                rt.write_json(root/'local/settings.json',{'new':True});rt.atomic(secret,'NEW-SECRET')
+                worker.restore_files(directory)
+            self.assertEqual(rt.read_json(root/'local/settings.json'),{'old':True})
+            self.assertFalse(secret.exists())
+
+
+    def test_staged_platform_and_installation_rollback_restores_original_files(self):
+        import worker
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / 'repo'
+            state = Path(folder) / 'state'
+            job = state / 'jobs' / ('a' * 32)
+            rt.write_json(root / '.nixlab-files.json', [
+                'flake.nix', 'admin/main.py', 'machine/format.json',
+                'machine/settings.json', 'machine/installation.json'])
+            rt.atomic(root / 'flake.nix', '{}')
+            rt.atomic(root / 'admin/main.py', 'original-platform')
+            rt.write_json(root / 'machine/format.json', {'version': 1})
+            rt.write_json(root / 'machine/settings.json', settings())
+            rt.write_json(root / 'machine/installation.json', {'interface': 'eth0'})
+            rt.write_json(state / 'platform-baseline.json', {'admin/main.py': 'prior'})
+            rt.write_json(job / 'job.json', {'sourceStaged': True, 'sourcePlatformUpdated': True,
+                                             'effectiveSettings': {'cockpit': {'managePassword': False}}})
+            with patch.object(rt, 'ROOT', root), patch.object(rt, 'STATE', state), \
+                 patch.object(rt, 'SECRET_PATHS', {}):
+                worker.save_recovery(job)
+                rt.atomic(root / 'admin/main.py', 'updated-platform')
+                rt.write_json(root / 'machine/installation.json', {'interface': 'eth1'})
+                rt.write_json(root / 'machine/settings.json', dict(settings(), hostName='new'))
+                rt.write_json(state / 'platform-baseline.json', {'admin/main.py': 'changed'})
+                worker.restore_files(job)
+                worker.restore_files(job)  # Interrupted recovery must remain retryable.
+            self.assertEqual((root / 'admin/main.py').read_text(), 'original-platform')
+            self.assertEqual(rt.read_json(root / 'machine/installation.json'), {'interface': 'eth0'})
+            self.assertEqual(rt.read_json(root / 'machine/settings.json')['hostName'], 'fixture')
+            self.assertEqual(rt.read_json(state / 'platform-baseline.json'), {'admin/main.py': 'prior'})
+
+
+
+class FreshPortalConfirmationTests(unittest.TestCase):
+    def test_only_post_activation_authenticated_remote_session_can_confirm(self):
+        from main import require_fresh_web_confirmation as check
+        transaction = {'id': 'a' * 32, 'status': 'awaiting-confirmation', 'awaitingAt': 102.5,
+                       'appliedAt': 100}
+        self.assertTrue(check({'authenticatedAt': 103}, transaction, '192.0.2.15'))
+        for ip, issued in (('127.0.0.1', 103), ('::1', 103),
+                           ('192.0.2.15', 99), ('192.0.2.15', 102.5)):
+            with self.subTest(ip=ip, issued=issued), self.assertRaises(PermissionError):
+                check({'authenticatedAt': issued}, transaction, ip)
+        with self.assertRaises(PermissionError):
+            check({}, transaction, '192.0.2.15')
+        with self.assertRaises(ValueError):
+            check({'authenticatedAt': 120}, {'status': 'confirmed'}, '192.0.2.15')
+
+    def test_legacy_pending_without_fresh_timestamp_requires_new_login(self):
+        from main import require_fresh_web_confirmation as check
+        legacy = {'status': 'awaiting-confirmation', 'appliedAt': 100}
+        self.assertTrue(check({'authenticatedAt': 101}, legacy, '192.0.2.2'))
+        with self.assertRaises(PermissionError):
+            check({'authenticatedAt': 200}, {'status': 'awaiting-confirmation'}, '192.0.2.2')
+
+
+
+class FreshCliConfirmationTests(unittest.TestCase):
+    def test_only_new_ssh_session_or_physical_console_can_confirm(self):
+        from main import require_fresh_cli_confirmation as check
+        job = {'status': 'awaiting-confirmation', 'awaitingAt': 100}
+        self.assertTrue(check(job, tty='/dev/tty1'))
+        self.assertTrue(check(job, tty='/dev/ttyS0'))
+        self.assertTrue(check(job, tty='/dev/pts/3', ssh_started_at=101))
+        for tty, timestamp in (('/dev/pts/3', 99), ('/dev/pts/3', 100),
+                               ('/dev/pts/3', 0), ('/run/tty', 200)):
+            with self.subTest(tty=tty, timestamp=timestamp), self.assertRaises(ValueError):
+                check(job, tty=tty, ssh_started_at=timestamp)
+        with self.assertRaises(ValueError):
+            check({'status': 'awaiting-confirmation'}, tty='/dev/tty1')
+        with self.assertRaises(ValueError):
+            check({'status': 'confirmed', 'awaitingAt': 100}, tty='/dev/tty1')
+
+    def test_proc_session_start_is_bounded_to_nearest_remote_ancestor(self):
+        from main import ssh_login_epoch
+        with tempfile.TemporaryDirectory() as folder:
+            proc = Path(folder)
+            (proc / 'stat').write_text('cpu 1 2 3\nbtime 1000\n')
+            for pid, comm, parent in ((999, 'python3', 200), (200, 'sshd-session', 1)):
+                directory = proc / str(pid); directory.mkdir()
+                (directory / 'comm').write_text(comm)
+                (directory / 'status').write_text('Name:\t' + comm + '\nPPid:\t' + str(parent) + '\n')
+                fields = ['S'] + ['0'] * 21
+                fields[19] = '5000'
+                (directory / 'stat').write_text(str(pid) + ' (' + comm + ') ' + ' '.join(fields))
+            with patch('main.os.sysconf', return_value=100):
+                self.assertEqual(ssh_login_epoch(proc, 999), 1050)
+            (proc / '200/comm').write_text('untrusted-daemon')
+            self.assertIsNone(ssh_login_epoch(proc, 999))
+
+    def test_cli_denies_old_session_without_contacting_confirm_broker(self):
+        from main import config_cli
+        job_id = 'a' * 32
+        def broker(method, path, data=None):
+            if method == 'GET':
+                return {'job': {'id': job_id, 'status': 'awaiting-confirmation', 'awaitingAt': 100}}
+            self.fail('No POST permitted before fresh access proof')
+        with patch('main.broker_request', side_effect=broker), \
+             patch('main.require_fresh_cli_confirmation', side_effect=ValueError('old SSH session')):
+            with self.assertRaisesRegex(ValueError, 'old SSH session'):
+                config_cli(['confirm', job_id])
+
+
+class HttpsTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temp=tempfile.TemporaryDirectory();cls.folder=Path(cls.temp.name)
+        cls.root=cls.folder/'repo';cls.root.mkdir();cls.state=cls.folder/'state';cls.state.mkdir()
+        cfg=settings();cfg['management']['address']='127.0.0.1'
+        rt.write_json(cls.root/'local/settings.json',cfg)
+        rt.write_json(cls.state/'auth.json',rt.password_record('https-test-password'))
+        with patch.object(rt,'STATE',cls.state):rt.issue_tls('127.0.0.1','fixture')
+        with socket.socket() as sock:sock.bind(('127.0.0.1',0));cls.port=sock.getsockname()[1]
+        cls.origin=f'https://localhost:{cls.port}'
+        env=os.environ|{'NIXLAB_ROOT':str(cls.root),'NIXLAB_STATE':str(cls.state),'NIXLAB_SOCKET':str(cls.folder/'broker.sock'),
+                        'NIXLAB_PORT':str(cls.port),'NIXLAB_TEST':'1','PYTHONPATH':str(BASE/'scripts')}
+        cls.addClassCleanup(cls.temp.cleanup)
+        # This workspace denies filesystem UNIX socket connections. Test the exact
+        # broker/HTTPS handlers through a loopback-only transport adapter; production
+        # has no TCP broker mode. Unix permissions are checked separately on NixOS.
+        with socket.socket() as sock:sock.bind(('127.0.0.1',0));broker_port=sock.getsockname()[1]
+        env['PYTHONPATH']=str(BASE/'admin')+os.pathsep+str(BASE/'scripts')
+        backend_code="""import main
+import controller, runtime
+# HTTP transport/auth tests use an evaluated fixture, not a Nix evaluator.
+controller.read_settings=lambda root:runtime.read_json(runtime.machine_path(root,'settings'),{})
+# Synthetic private broker payload for real HTTPS transport/auth/download tests.
+import base64
+def certificate(self, device=None, password=None, owner='root', full_admin=False, renew=None):
+ return {'name':'nixlab-browser-http-000000000000','device':device,'fingerprint':'a'*64,
+         'owner':owner,'issuedAt':1000,'expiresAt':'fixture-expiry','restricted':not full_admin,
+         'projects':[] if full_admin else ['lab'],'status':'active','validDays':90,
+         'pkcs12':base64.b64encode(b'encrypted-transport-fixture').decode()}
+original_review=controller.Manager.review
+def review(self, changes, secret_values=None, update_inputs=False, modules=None, revision=None, principal='root'):
+ if changes != {'hostName':'authorized-fixture'}: return original_review(self,changes,secret_values,update_inputs,modules,revision,principal=principal)
+ directory=runtime.STATE/'jobs'/('d'*32)
+ runtime.write_json(directory/'job.json', {'settings':changes,'modules':modules,'revision':revision,'principal':principal})
+ return {'id':'d'*32}
+controller.Manager.review=review
+import host_proof, hashlib
+HOST_PROOF_HASH='9d18b304b9c3f86edae7aef9f88a395b88cc8c5a9c10f931d22fdaa261701fcf'
+def verify_host(username,password):
+ if username!='fixture-admin' or not isinstance(password,str) or hashlib.sha256(password.encode()).hexdigest()!=HOST_PROOF_HASH: raise ValueError('denied')
+ return username
+host_proof.verify=verify_host
+controller.Manager.browser_certificate=certificate
+controller.Manager.revoke_browser_certificate=lambda *a: {'ok':True}
+controller.Manager.browser_certificates=lambda self: {'certificates':[]}
+from http.server import ThreadingHTTPServer
+class TestTransport(ThreadingHTTPServer):
+ def __init__(self,address,handler):
+  super().__init__(('127.0.0.1',BROKER_PORT),handler)
+  main.SOCKET.touch()
+main.UnixHTTPServer=TestTransport
+main.backend()
+""".replace('BROKER_PORT',str(broker_port))
+        cls.backend=subprocess.Popen([sys.executable,'-c',backend_code],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        frontend_code="import main,http.client; main.UnixConnection=lambda *a,**k:http.client.HTTPConnection('127.0.0.1',"+str(broker_port)+",timeout=30); main.web()"
+        frontend_code = frontend_code.replace("main.web()", """original=main.broker_request
+def broker(method,path,data=None):
+ if path=='/review' and method=='POST': main.rt.write_json(main.SOCKET.parent/'review-forwarded.json',data)
+ return original(method,path,data)
+main.broker_request=broker
+main.web()""")
+        cls.web=subprocess.Popen([sys.executable,'-c',frontend_code],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        cls.addClassCleanup(lambda: (cls.web.terminate(), cls.web.wait(timeout=10), cls.backend.terminate(), cls.backend.wait(timeout=10)))
+        cls.context=ssl.create_default_context(cafile=str(cls.state/'ca.crt'))
+        for _ in range(100):
+            try:
+                _,_,status=cls.request('/',auth=False)
+                if status==200:break
+                time.sleep(.05)
+            except Exception:time.sleep(.05)
+        else:raise RuntimeError('HTTPS test server failed to start')
+        result,headers,_=cls.request('/api/login',{'password':'https-test-password'},origin=cls.origin,auth=False)
+        if 'csrf' not in result: raise RuntimeError(str(result))
+        cls.csrf=result['csrf'];cls.cookie=headers['Set-Cookie'].split(';')[0]
+    @classmethod
+    def tearDownClass(cls):
+        pass
+    @classmethod
+    def request(cls,path,body=None,origin=None,auth=True,csrf=True,host=None,extra=None):
+        headers={}
+        if auth and hasattr(cls,'cookie'):headers['Cookie']=cls.cookie
+        if csrf and hasattr(cls,'csrf'):headers['X-Nixlab-CSRF']=cls.csrf
+        if origin:headers['Origin']=origin
+        if host:headers['Host']=host
+        if extra:headers.update(extra)
+        data=None
+        if body is not None:data=json.dumps(body).encode();headers['Content-Type']='application/json'
+        request=urllib.request.Request(cls.origin+path,data=data,headers=headers)
+        try:
+            response=urllib.request.urlopen(request,context=cls.context,timeout=5)
+        except urllib.error.HTTPError as exc:response=exc
+        raw=response.read();ctype=response.headers.get('Content-Type','')
+        result=json.loads(raw) if 'application/json' in ctype else raw
+        return result,response.headers,response.status
+    def test_bootstrap_https_binding_claim_session_and_replay(self):
+        import enrollment
+        import browser_bootstrap as bootstrap
+        names = ('auth.json', 'users.json', enrollment.STATE_FILE, bootstrap.FILE, 'web-enrollment', 'web-enrollment-approval.json')
+        saved = {name: ((self.state/name).read_bytes(), (self.state/name).stat().st_mode & 0o777)
+                 for name in names if (self.state/name).exists()}
+        try:
+            for name in names: (self.state/name).unlink(missing_ok=True)
+            with patch.object(rt, 'STATE', self.state): accounts = __import__('accounts'); accounts.enable_enrollment()
+            first, headers, code = self.request('/api/bootstrap', auth=False, csrf=False)
+            self.assertEqual(code, 200)
+            self.assertNotIn('token', first)
+            cookie = headers['Set-Cookie'].split(';')[0]
+            for flag in ('__Host-nixlab_bootstrap=', 'HttpOnly', 'Secure', 'SameSite=Strict', 'Path=/'):
+                self.assertIn(flag, headers['Set-Cookie'])
+            second, headers, code = self.request('/api/bootstrap', auth=False, csrf=False)
+            other_cookie = headers['Set-Cookie'].split(';')[0]
+            good = {'Cookie': cookie, 'X-Nixlab-CSRF': first['csrf']}
+            host = {'hostUsername': 'fixture-admin', 'hostPassword': 'http-host-admin-test-password'}
+            for extra, origin in (({}, self.origin), ({'Cookie': cookie}, self.origin),
+                    ({'Cookie': other_cookie, 'X-Nixlab-CSRF': first['csrf']}, self.origin),
+                    (good, 'https://attacker.invalid')):
+                _, _, code = self.request('/api/bootstrap/verify', host, origin=origin, auth=False, csrf=False, extra=extra)
+                self.assertIn(code, (400, 401))
+            _, _, code = self.request('/api/bootstrap/verify', host | {'hostPassword': 'wrong'}, origin=self.origin, auth=False, csrf=False, extra=good)
+            self.assertEqual(code, 400)
+            _, _, code = self.request('/api/bootstrap/verify', host, origin=self.origin, auth=False, csrf=False, extra=good)
+            self.assertEqual(code, 200)
+            claim = {'username': 'firstowner', 'password': 'https-new-first-admin-password'}
+            _, _, code = self.request('/api/enrollment', claim | {'code': first['approvalCode']}, origin=self.origin, auth=False, csrf=False)
+            self.assertEqual(code, 401)  # copied code cannot bypass the browser cookie
+            _, _, code = self.request('/api/bootstrap/claim', claim, origin=self.origin, auth=False, csrf=False,
+                extra={'Cookie': other_cookie, 'X-Nixlab-CSRF': second['csrf']})
+            self.assertEqual(code, 400)
+            result, headers, code = self.request('/api/bootstrap/claim', claim, origin=self.origin, auth=False, csrf=False, extra=good)
+            self.assertEqual(code, 200)
+            self.assertEqual(result['username'], 'firstowner'); self.assertEqual(result['role'], 'admin')
+            cookies = headers.get_all('Set-Cookie')
+            self.assertTrue(any('__Host-nixlab_bootstrap=' in item and 'Max-Age=0' in item for item in cookies))
+            ordinary = next(item.split(';')[0] for item in cookies if item.startswith('nixlab_session='))
+            _, _, code = self.request('/api/session', auth=False, csrf=False, extra={'Cookie': ordinary})
+            self.assertEqual(code, 200)
+            for endpoint in ('/api/bootstrap/claim', '/api/enrollment'):
+                _, _, code = self.request(endpoint, claim, origin=self.origin, auth=False, csrf=False, extra=good)
+                self.assertEqual(code, 400)
+            _, _, code = self.request('/api/bootstrap', auth=False, csrf=False, extra={'Cookie': cookie})
+            self.assertEqual(code, 400)
+            stored = ''.join((self.state/name).read_text() for name in ('users.json', bootstrap.FILE, enrollment.STATE_FILE))
+            self.assertTrue(all(value not in stored for value in (host['hostPassword'], claim['password'], cookie.split('=',1)[1], first['csrf'], first['approvalCode'])),
+                            'Durable enrollment state disclosed credentials or browser material')
+        finally:
+            for name in names: (self.state/name).unlink(missing_ok=True)
+            for name, (data, mode) in saved.items(): rt.atomic(self.state/name, data, mode=mode)
+
+    def test_enrollment_rejects_cross_origin_and_an_existing_administrator(self):
+        state, _, status = self.request('/api/enrollment', auth=False)
+        self.assertEqual((status, state), (200, {'available': False, 'recoveryRequired': False}))
+        payload = {'code': 'a' * 32, 'password': 'new-enrollment-test-password'}
+        _, _, status = self.request('/api/enrollment', payload, origin='https://attacker.invalid', auth=False)
+        self.assertEqual(status, 401)
+        state, _, status = self.request('/api/enrollment', payload, origin=self.origin, auth=False)
+        self.assertEqual(status, 401)
+        self.assertEqual(state['error'], 'Request rejected; check inputs and authentication, then retry')
+
+    def test_private_status_requires_authentication(self):
+        _,_,status=self.request('/api/status',auth=False)
+        self.assertEqual(status,401)
+
+    def test_browser_identity_requires_reauthentication_and_single_claim_https_delivery(self):
+        from concurrent.futures import ThreadPoolExecutor
+        body = {'device': 'http', 'passphrase': 'synthetic-bundle-passphrase', 'current': 'wrong'}
+        _, _, status = self.request('/api/browser-certificate', body, origin=self.origin)
+        self.assertEqual(status, 400)
+        body['current'] = 'https-test-password'
+        metadata, headers, status = self.request('/api/browser-certificate', body, origin=self.origin)
+        self.assertEqual(status, 200)
+        self.assertNotIn('pkcs12', metadata); self.assertNotIn('passphrase', metadata)
+        self.assertEqual(headers['Cache-Control'], 'no-store')
+        self.assertTrue(metadata['restricted']); self.assertEqual(metadata['projects'], ['lab'])
+        _, _, status = self.request('/api/browser-certificate/download', {}, origin=self.origin, auth=False)
+        self.assertEqual(status, 401)
+        _, _, status = self.request('/api/browser-certificate/download', {}, origin=self.origin, csrf=False)
+        self.assertEqual(status, 401)
+        # Another authenticated browser session cannot claim this browser's bytes.
+        primary_cookie, primary_csrf = self.__class__.cookie, self.__class__.csrf
+        other, other_headers, _ = self.request('/api/login', {'password': 'https-test-password'}, origin=self.origin, auth=False)
+        try:
+            self.__class__.cookie = other_headers['Set-Cookie'].split(';')[0]
+            self.__class__.csrf = other['csrf']
+            _, _, status = self.request('/api/browser-certificate/download', {}, origin=self.origin)
+            self.assertEqual(status, 400)
+        finally:
+            self.__class__.cookie, self.__class__.csrf = primary_cookie, primary_csrf
+        def claim(_): return self.request('/api/browser-certificate/download', {}, origin=self.origin)
+        with ThreadPoolExecutor(max_workers=2) as pool: results = list(pool.map(claim, range(2)))
+        self.assertEqual(sorted(result[2] for result in results), [200, 400])
+        data, headers, _ = next(result for result in results if result[2] == 200)
+        self.assertEqual(data, b'encrypted-transport-fixture')
+        self.assertIn('attachment;', headers['Content-Disposition'])
+        self.assertEqual(headers['Cache-Control'], 'no-store')
+        body['fullAdmin'] = True
+        _, _, status = self.request('/api/browser-certificate', body, origin=self.origin)
+        self.assertEqual(status, 400)
+        body['acknowledgeFullAdmin'] = True
+        metadata, _, status = self.request('/api/browser-certificate', body, origin=self.origin)
+        self.assertEqual(status, 200); self.assertFalse(metadata['restricted'])
+        self.request('/api/browser-certificate/download', {}, origin=self.origin)
+
+    def test_browser_revocation_requires_reauthentication(self):
+        _, _, status = self.request('/api/revoke-browser-certificate', {'fingerprint': 'a' * 64}, origin=self.origin)
+        self.assertEqual(status, 400)
+        _, _, status = self.request('/api/revoke-browser-certificate', {'fingerprint': 'a' * 64, 'current': 'https-test-password'}, origin=self.origin)
+        self.assertEqual(status, 200)
+    def test_authenticated_read_and_secure_cookie(self):
+        _,headers,status=self.request('/api/login',{'password':'https-test-password'},origin=self.origin,auth=False)
+        self.assertEqual(status,200)
+        for flag in ('HttpOnly','Secure','SameSite=Strict'):self.assertIn(flag,headers['Set-Cookie'])
+        data,_,status=self.request('/api/status');self.assertEqual(status,200);self.assertEqual(data['settings']['hostName'],'fixture')
+    def test_layout_migration_requires_reauthentication(self):
+        data,_,status=self.request('/api/migrate-layout',{'current':'wrong'},origin=self.origin)
+        self.assertEqual(status,400)
+        self.assertIn('Reauthenticate',data['error'])
+
+    def test_privileged_review_requires_distinct_approval_and_password_checks(self):
+        for code in ({'modules': {'archive.nix': '{}'}}, {'revision': 'a' * 40}):
+            for extra, expected in (
+                ({}, 'Explicitly approve'),
+                ({'adminPassword': 'https-test-password'}, 'Explicitly approve'),
+                ({'acknowledgePrivilegedModules': 'true'}, 'Explicitly approve'),
+                ({'acknowledgePrivilegedModules': True}, 'Reauthenticate with your current portal password'),
+                ({'acknowledgePrivilegedModules': True, 'adminPassword': 'wrong'}, 'Reauthenticate with your current portal password'),
+            ):
+                data, _, status = self.request('/api/review', {'settings': {}} | code | extra, origin=self.origin)
+                self.assertEqual(status, 400)
+                self.assertIn(expected, data['error'])
+                self.assertTrue('https-test-password' not in json.dumps(data), 'HTTP errors must not disclose credentials')
+                self.assertTrue('wrong' not in json.dumps(data), 'HTTP errors must not echo supplied credentials')
+        self.assertEqual(list((self.state/'jobs').iterdir()), [])
+
+    def test_authorized_review_strips_password_before_broker_and_job_storage(self):
+        for code in ({'modules': {'archive.nix': '{}'}}, {'revision': 'a' * 40}, {}):
+            result, _, status = self.request('/api/review', {'settings': {'hostName':'authorized-fixture'}, 'adminPassword': 'https-test-password',
+                'acknowledgePrivilegedModules': True} | code, origin=self.origin)
+            self.assertEqual(status, 200)
+            forwarded = rt.read_json(self.folder/'review-forwarded.json')
+            recorded = rt.read_json(self.state/'jobs'/result['id']/'job.json')
+            for value in (result, forwarded, recorded):
+                self.assertTrue('adminPassword' not in json.dumps(value), 'Reauthentication field must stay at the web boundary')
+                self.assertTrue('https-test-password' not in json.dumps(value), 'Reauthentication secret must stay at the web boundary')
+            self.assertEqual(forwarded['_actor'], 'admin')
+            shutil.rmtree(self.state/'jobs'/result['id'])
+
+    def test_viewer_cannot_mutate_and_role_changes_revoke_live_https_session(self):
+        username='viewer-http'
+        rt.write_json(self.state/'users.json',{username:{'role':'viewer','password':rt.password_record('viewer-http-password')}})
+        result,headers,status=self.request('/api/login',{'username':username,'password':'viewer-http-password'},origin=self.origin,auth=False)
+        self.assertEqual(status,200);self.assertEqual(result['role'],'viewer')
+        with patch.object(type(self),'cookie',headers['Set-Cookie'].split(';')[0]),patch.object(type(self),'csrf',result['csrf']):
+            _,_,status=self.request('/api/status');self.assertEqual(status,200)
+            for endpoint,body in [('/api/review',{'settings':{}}),('/api/operation',{'action':'start','name':'guest'}),('/api/recovery-export',{}),('/api/browser-certificate',{}),('/api/browser-certificate/download',{}),('/api/revoke-browser-certificate',{})]:
+                _,_,status=self.request(endpoint,body,origin=self.origin);self.assertEqual(status,403)
+            _,_,status=self.request('/api/browser-certificates');self.assertEqual(status,403)
+            record=rt.read_json(self.state/'users.json');record[username]['role']='operator';rt.write_json(self.state/'users.json',record)
+            _,_,status=self.request('/api/status');self.assertEqual(status,401)
+
+    def test_csrf_and_cross_origin_mutation_refused(self):
+        _,_,status=self.request('/api/review',{'settings':{}},origin=self.origin,csrf=False);self.assertEqual(status,401)
+        _,_,status=self.request('/api/review',{'settings':{}},origin='https://attacker.invalid');self.assertEqual(status,401)
+    def test_dns_rebinding_hostname_refused(self):
+        _,_,status=self.request('/api/status',host='attacker.invalid');self.assertEqual(status,401)
+
+    def test_conflicting_framing_and_duplicate_host_refused_over_tls(self):
+        for headers, expected in [
+            ([('Content-Length', '2'), ('Content-Length', '3')], 400),
+            ([('Content-Length', '2'), ('Content-Length', '2')], 400),
+            ([('Content-Length', '2'), ('Transfer-Encoding', 'chunked')], 400),
+            ([('Content-Length', '2'), ('Host', 'attacker.invalid')], 401),
+            ([('X-Oversized', 'x' * 17000), ('Content-Length', '2')], 431),
+        ]:
+            with self.subTest(expected=expected, headerNames=[h[0] for h in headers]):
+                connection = http.client.HTTPSConnection('localhost', self.port, context=self.context, timeout=5)
+                try:
+                    connection.putrequest('POST', '/api/login', skip_host=True)
+                    connection.putheader('Host', f'localhost:{self.port}')
+                    connection.putheader('Origin', self.origin)
+                    for name, value in headers:
+                        connection.putheader(name, value)
+                    connection.endheaders(b'{}')
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, expected)
+                    response.read()
+                    # Rejected framing must not leave a live reusable stream.
+                    if connection.sock is not None:
+                        try:
+                            remainder = connection.sock.recv(1)
+                        except (ConnectionResetError, BrokenPipeError, ssl.SSLEOFError):
+                            remainder = b''
+                        self.assertEqual(remainder, b'')
+                finally:
+                    connection.close()
+
+    def test_unsupported_method_is_not_echoed_in_public_error(self):
+        connection = http.client.HTTPSConnection('localhost', self.port, context=self.context, timeout=5)
+        try:
+            connection.request('SENTINEL_PRIVATE_METHOD', '/')
+            response = connection.getresponse()
+            self.assertEqual(response.status, 501)
+            self.assertNotIn(b'SENTINEL_PRIVATE_METHOD', response.read())
+        finally:
+            connection.close()
+
+    def test_parallel_stalled_tls_clients_are_bounded_and_recover(self):
+        tasks = Path('/proc') / str(self.web.pid) / 'task'
+        if not tasks.is_dir():
+            self.skipTest('Linux procfs is required for process resource observation')
+        baseline = len(list(tasks.iterdir()))
+        clients = []
+        try:
+            for _ in range(100):
+                clients.append(socket.create_connection(('127.0.0.1', self.port), timeout=2))
+            self.assertLessEqual(len(list(tasks.iterdir())), baseline + 32)
+        finally:
+            for client in clients:
+                client.close()
+        for _ in range(50):
+            try:
+                if self.request('/', auth=False)[2] == 200:
+                    break
+            except (OSError, urllib.error.URLError):
+                pass
+            time.sleep(.1)
+        else:
+            self.fail('Portal did not recover after stalled clients closed')
+    def test_invalid_settings_do_not_create_transaction(self):
+        _,_,status=self.request('/api/review',{'settings':{'hostName':'x; execute'}},origin=self.origin)
+        self.assertEqual(status,400);self.assertEqual(list((self.state/'jobs').iterdir()),[])
+    def test_ca_can_be_verified_before_login(self):
+        data,_,status=self.request('/ca.crt',auth=False)
+        self.assertEqual(status,200);self.assertIn(b'BEGIN CERTIFICATE',data)
+
+    def test_login_brand_assets_are_local_and_available_before_authentication(self):
+        for path, mime, signature in (
+            ('/commands.js', 'text/javascript', b'function commandsPage'),
+            ('/brand.css', 'text/css', b'@font-face'),
+            ('/favicon.svg', 'image/svg+xml', b'<svg'),
+            ('/fonts/dm-sans-latin.woff2', 'font/woff2', b'wOF2'),
+            ('/fonts/space-grotesk-latin.woff2', 'font/woff2', b'wOF2'),
+        ):
+            with self.subTest(path=path):
+                data,headers,status=self.request(path,auth=False)
+                self.assertEqual(status,200)
+                self.assertIn(mime,headers['Content-Type'])
+                self.assertIn(signature,data)
+                self.assertIn("default-src 'self'",headers['Content-Security-Policy'])
+                self.assertNotIn('unsafe-inline',headers['Content-Security-Policy'])
+
+if __name__=='__main__':unittest.main()
+

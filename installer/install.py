@@ -1,0 +1,510 @@
+"""Install a verified Nixlab stack on conventional NixOS, preserving the installed machine."""
+import argparse
+import ipaddress
+import json
+import os
+from pathlib import Path
+import secrets
+import shutil
+import socket
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'admin'))
+sys.path.append(str(Path(__file__).resolve().parents[1] / 'scripts'))
+import runtime as rt
+from settings_reader import read_settings
+
+REPOSITORY = 'https://github.com/OmarDardery/nixlab.git'
+TARGET = Path('/var/lib/nixlab/config')
+ORIGINAL = Path('/etc/nixos')
+
+
+def run(args, **kwargs):
+    if not kwargs.get('capture_output'):
+        kwargs.setdefault('stdout', subprocess.DEVNULL)
+        kwargs.setdefault('stderr', subprocess.DEVNULL)
+    try:
+        return subprocess.run(args, check=True, **kwargs)
+    except subprocess.CalledProcessError:
+        raise ValueError('Installer host command failed') from None
+
+
+def choose_network(interface=None, address=None):
+    routes = json.loads(run(['ip', '-j', '-4', 'route', 'show', 'default'], capture_output=True, text=True).stdout)
+    if not interface:
+        routes.sort(key=lambda route: route.get('metric', 0))
+        if not routes:
+            raise ValueError('No default IPv4 route; pass --interface for the management interface')
+        interface = routes[0]['dev']
+    links = json.loads(run(['ip', '-j', '-4', 'address', 'show', 'dev', interface], capture_output=True, text=True).stdout)
+    assigned = [a for link in links for a in link.get('addr_info', []) if a.get('scope') == 'global']
+    if address:
+        assigned = [a for a in assigned if a['local'] == address]
+    if not assigned:
+        raise ValueError('The selected management interface must already have a usable IPv4 address')
+    selected = assigned[0]
+    gateway = next((r.get('gateway', '') for r in routes if r.get('dev') == interface), '')
+    return interface, selected['local'], selected['prefixlen'], gateway
+
+
+def copy_nix_modules(source, target):
+    paths = list(source.rglob('*.nix'))
+    if not (source / 'configuration.nix').is_file() or not (source / 'hardware-configuration.nix').is_file():
+        raise ValueError('/etc/nixos must contain configuration.nix and hardware-configuration.nix')
+    # Secret files, private keys and unrelated assets never enter the flake source.
+    for path in paths:
+        if path.is_symlink():
+            raise ValueError('Resolve configuration symlinks before conversion: ' + str(path))
+        destination = target / path.relative_to(source)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, destination)
+
+
+def copy_embedded_checkout(source, target, repository, revision=None):
+    """Accept either the packaged source tree or a launcher's Git checkout."""
+    if not (source / 'flake.nix').is_file() or not (source / 'flake.lock').is_file():
+        raise ValueError('Bundled checkout needs flake.nix and flake.lock')
+    if (source / '.git').exists():
+        run(['git', 'clone', '--no-hardlinks', str(source), str(target)])
+        run(['git', '-C', str(target), 'remote', 'set-url', 'origin', repository])
+        return
+    shutil.copytree(source, target, symlinks=False)
+    if revision and len(revision) == 40 and all(c in '0123456789abcdef' for c in revision):
+        import upgrades
+        rt.write_json(target / 'platform-release.json', {'version': upgrades.version(source), 'revision': revision, 'repository': repository})
+    run(['git', '-C', str(target), 'init', '-q', '-b', 'nixlab-source'])
+    run(['git', '-C', str(target), 'add', '.'])
+    run(['git', '-C', str(target), '-c', 'user.name=Nixlab installer', '-c',
+         'user.email=installer@nixlab.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '-q', '-m', 'Initialize bundled Nixlab source'])
+    run(['git', '-C', str(target), 'remote', 'add', 'origin', repository])
+
+
+def parser_args():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--checkout', type=Path, help='Reviewed source supplied by the Nix launcher')
+    parser.add_argument('--repo', default=REPOSITORY)
+    parser.add_argument('--ref', default='main')
+    parser.add_argument('--interface')
+    parser.add_argument('--address', help='An IPv4 address already assigned to the selected interface')
+    parser.add_argument('--trusted-cidr', action='append')
+    parser.add_argument('--resume', action='store_true', help='Compatibility flag; retries resume automatically')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--switch', dest='switch', action='store_true', help='Install the full stack (default)')
+    mode.add_argument('--wizard', dest='switch', action='store_false', help='Only bootstrap the optional web wizard')
+    parser.set_defaults(switch=True)
+    parser.add_argument('--web-enrollment', action='store_true', help='Use console-approved administrator enrollment with --wizard')
+    parser.add_argument('--ssh-key', action='append', default=[], type=Path, help='Client public key file, never a private key')
+    ssh = parser.add_mutually_exclusive_group()
+    ssh.add_argument('--ssh-password-login', action='store_true', dest='ssh_password_login', help='Enable SSH password login for non-root Linux accounts (default on fresh installs)')
+    ssh.add_argument('--no-ssh-password-login', action='store_false', dest='ssh_password_login', help='Disable SSH password login; remote installs need a client public key')
+    parser.set_defaults(ssh_password_login=True)
+    parser.add_argument('--guest-subnet', help='Unused private IPv4 /24')
+    parser.add_argument('--no-apps', action='store_true', help='Compatibility flag; no Docker/Arcane VM on new installations')
+    parser.add_argument('--adopt-incus', action='store_true', help='Back up existing Incus guests and add an isolated Nixlab namespace')
+    parser.add_argument('--no-update', action='store_true', help='Keep the current platform source on retry')
+    interaction = parser.add_mutually_exclusive_group()
+    interaction.add_argument('--interactive', action='store_true', help='Interview on a terminal and review planned services')
+    interaction.add_argument('--non-interactive', action='store_true', help='Keep unattended defaults and never prompt')
+    parser.add_argument('--answers', type=Path, help='Versioned, non-secret JSON answers file (for unattended use)')
+    parser.add_argument('--plan-only', action='store_true', help='Preview the plan; never publish or activate changes')
+    parser.add_argument('--workloads', choices=['containers', 'compose', 'both'])
+    parser.add_argument('--access-mode', choices=['lan', 'private', 'public'])
+    parser.add_argument('--guest-network', choices=['nat', 'lan', 'vlan'])
+    parser.add_argument('--laptop-mode', action='store_true', help='Enable always-on laptop lid policy')
+    parser.add_argument('--no-monitoring', action='store_true', help='Disable host metric collection')
+    args = parser.parse_args()
+    if args.web_enrollment and args.switch:
+        parser.error('--web-enrollment requires --wizard')
+    return parser, args
+
+
+def evaluate(root, attribute):
+    return json.loads(run(['nix', '--extra-experimental-features', 'nix-command flakes', 'eval', '--json',
+                           'path:' + str(root) + '#' + attribute], capture_output=True, text=True).stdout)
+
+
+def validate_keys(keys):
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w') as key:
+        for value in keys:
+            key.seek(0); key.truncate(); key.write(value + '\n'); key.flush()
+            run(['ssh-keygen', '-l', '-f', key.name], stdout=subprocess.DEVNULL)
+
+
+def validate_kvm(vendor):
+    run(['modprobe', 'kvm_amd' if vendor == 'amd' else 'kvm_intel'])
+    import fcntl
+    with open('/dev/kvm', 'rb+', buffering=0) as kvm:
+        if fcntl.ioctl(kvm, 0xAE00, 0) != 12:
+            raise ValueError('Hardware virtualization is unavailable; enable it in firmware')
+
+
+def installed_host():
+    return os.geteuid() == 0 and Path('/etc/NIXOS').exists()
+
+
+def ensure_portal_account():
+    """Keep legacy private provisioning compatible without returning plaintext.
+
+    Console-approved enrollment is still an explicit release-gated option. A
+    legacy credential may be loaded privately to establish its existing verifier;
+    summaries and callers never receive that credential.
+    """
+    import enrollment
+    enrollment.ensure_legacy_account()
+
+
+def publish_etc():
+    backup = Path('/etc/nixos.pre-nixlab')
+    if ORIGINAL.is_symlink() and ORIGINAL.resolve() == TARGET.resolve():
+        return
+    if ORIGINAL.exists():
+        if backup.exists():
+            raise ValueError('Both /etc/nixos and /etc/nixos.pre-nixlab exist; inspect them before linking the managed config')
+        ORIGINAL.rename(backup)
+        backup.chmod(0o700)
+    ORIGINAL.symlink_to(TARGET)
+
+
+def summarize(settings, record=None):
+    if record is not None and not isinstance(record, dict):
+        raise ValueError('Installer summaries accept transaction metadata only')
+    import diagnostics
+    address = diagnostics.management_address(settings)
+    if not settings['management']['configure']:
+        print('Preserving current addressing: ' + address + '. DHCP is retained; no static address was assigned.')
+    print('Nixlab: https://' + address + ':' + str(settings['setup']['port']) + ' (username: admin)')
+    if (rt.STATE / 'web-enrollment').is_file() and not (rt.STATE / 'auth.json').exists():
+        print('Open the portal, then approve its browser code with sudo nixlab-admin approve-enrollment.')
+    else:
+        print('Use your existing portal account. Choose a replacement password from an authorized host terminal: sudo nixlab-admin reset-password.')
+    if settings['ready']:
+        print('Incus: https://' + address + ':8443 (create/import a browser certificate from the Nixlab portal)')
+        if settings['cockpit']['enable']:
+            print('Cockpit: https://' + address + ':' + str(settings['cockpit']['port']) + ' (existing non-root Linux account/password)')
+            if settings['cockpit']['managePassword']:
+                print('Set a persistent managed Linux operator password in the portal under Host > Services, then review and activate it.')
+            else:
+                print('Linux operator recovery: use an authorized host terminal and sudo passwd operator.')
+        print('All enabled management endpoints passed health checks. No disks were formatted.')
+        if (record or {}).get('rebootRequired'):
+            print('Reboot to use the new kernel; then run sudo nixlab doctor.')
+    fingerprint = run(['openssl', 'x509', '-in', str(rt.STATE / 'ca.crt'), '-noout', '-fingerprint', '-sha256'], capture_output=True, text=True).stdout.strip()
+    print('Local management CA: ' + fingerprint)
+    if not settings['adminKeys']:
+        print('No administrator key enrolled. Local console access remains available.')
+        print('Enroll your laptop PUBLIC key later: sudo nixlab enroll-key /path/to/laptop.pub')
+    print('SSH password login: ' + ('enabled for existing non-root accounts' if settings.get('access', {}).get('sshPasswordLogin') else 'disabled'))
+    print('Later rebuilds: sudo nixos-rebuild switch --flake path:/etc/nixos#hypervisor')
+    print('Diagnostics: sudo nixlab doctor')
+
+
+def main():
+    import tempfile
+    import direct
+    import bootstrap as wizard
+    import workflow
+    import intent
+    from model import inventory, merge, validate_settings
+    from controller import Manager
+    parser, args = parser_args()
+    if not installed_host():
+        parser.error('Run as root on an installed NixOS system')
+    if os.uname().machine != 'x86_64':
+        parser.error('This release supports Intel/AMD x86_64 NixOS hosts')
+    remote = workflow.remote_session()
+    if args.interactive and not sys.stdin.isatty():
+        parser.error('--interactive requires a terminal; use --answers for unattended provisioning')
+    selected_flags = any((args.workloads, args.access_mode, args.guest_network,
+                          args.laptop_mode, args.no_monitoring,
+                          args.guest_subnet, args.no_apps))
+    if args.plan_only and not sys.stdin.isatty() and args.answers is None and not selected_flags:
+        parser.error('--plan-only without a terminal requires --answers or explicit CLI selections')
+    if args.answers and args.interactive:
+        parser.error('Choose either --answers or --interactive, not both')
+    if not args.switch and (args.interactive or args.answers or args.plan_only or
+                            args.workloads or args.access_mode or args.guest_network or
+                            args.laptop_mode or args.no_monitoring):
+        parser.error('--wizard bootstraps only the web UI; use --switch for a reviewed home-server plan')
+    if TARGET.exists() and not rt.machine_path(TARGET, 'installation').is_file():
+        parser.error('Existing checkout has no intact installation inventory; inspect it before proceeding (no configuration changed)')
+    if TARGET.exists():
+        manager = Manager()
+        status = manager.status()
+        current = status.get('job') or {}
+        if args.plan_only and (current.get('status') in
+                               ('building', 'ready', 'applying', 'awaiting-confirmation', 'rolling-back')
+                               or rt.read_json(rt.STATE / 'pending.json', {})):
+            parser.error('A transaction or recovery is active; --plan-only will not resume or mutate it')
+        current = workflow.finish_interrupted_recovery(manager, current)
+        if current.get('status') in ('building', 'ready', 'applying', 'awaiting-confirmation', 'rolling-back'):
+            bootstrap_job = current.get('hostRole') == 'bootstrap'
+            if bootstrap_job and args.switch:
+                parser.error('An initial wizard transaction is active; rerun with --wizard or finish it in the portal')
+            if not bootstrap_job and not args.switch:
+                parser.error('A full installation transaction is active; rerun without --wizard to resume it')
+            print('Resuming transaction ' + current['id'], flush=True)
+            resumed = wizard.resume(manager, current) if bootstrap_job else direct.resume(manager, current)
+            if resumed['status'] != 'rolled-back':
+                settings = manager.effective_settings()
+                publish_etc()
+                ensure_portal_account()
+                summarize(settings, resumed)
+                return
+        if not args.switch and (status.get('setupComplete') or (status.get('effectiveSettings') or {}).get('ready')):
+            parser.error('--wizard is for initial onboarding only; this host is already configured. '
+                         'Use the existing portal or #update. For account recovery use sudo nixlab-admin reset-password.')
+    interface, address, prefix, gateway = choose_network(args.interface, args.address)
+    trusted = args.trusted_cidr or [str(ipaddress.ip_interface(f'{address}/{prefix}').network)]
+    if os.environ.get('SSH_CONNECTION'):
+        client = ipaddress.ip_address(os.environ['SSH_CONNECTION'].split()[0])
+        if client.version != 4:
+            parser.error('Use the local console for an IPv6-only SSH session')
+        trusted = sorted(set(trusted + [str(client) + '/32']))
+    for network in trusted:
+        if ipaddress.ip_network(network, strict=True).version != 4:
+            parser.error('Use trusted IPv4 CIDRs for this release')
+    if not any(ipaddress.ip_address(address) in ipaddress.ip_network(network) for network in trusted):
+        trusted.append(address + '/32')  # local endpoint probes also need access
+    host = inventory()
+    host['memoryKiB'] = int(next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemTotal:')))
+    if host['cpuVendor'] not in ('intel', 'amd'):
+        parser.error('CPU vendor could not be identified safely')
+    existing = TARGET.exists()
+    adoption = None
+    if not existing and Path('/var/lib/incus/database').exists():
+        adoption = workflow.incus_inventory()
+        print('Existing Incus: ' + str(len(adoption['instances'])) + ' guests. Adoption creates separate resources and backs up existing guests.')
+        if not args.adopt_incus and not args.plan_only:
+            if not sys.stdin.isatty() or input('Back up and adopt this Incus host? [y/N] ').strip().lower() not in ('y', 'yes'):
+                parser.error('Adoption was not selected; no changes made. Use --adopt-incus after reviewing existing guests.')
+        if args.plan_only:
+            print('Plan only: existing Incus adoption would require --adopt-incus and a complete independent backup.')
+    # All source changes and evaluations happen in a disposable planning tree.
+    # Publish only after key/network/Wi-Fi/KVM/adoption validation succeeds.
+    with tempfile.TemporaryDirectory(prefix='nixlab-plan-') as temporary:
+        stage = Path(temporary) / 'config'
+        incoming = args.checkout
+        changed = False
+        if existing:
+            source_digest = rt.digest_source(TARGET)
+            changed, edits = workflow.stage_update(TARGET, None if args.no_update else incoming, stage,
+                                                    rt.STATE / 'platform-baseline.json')
+            if edits:
+                print('Preserving local platform edits; source update skipped: ' + ', '.join(edits))
+            default = read_settings(stage)
+        else:
+            if not ORIGINAL.is_dir() or not (ORIGINAL / 'configuration.nix').is_file() or not (ORIGINAL / 'hardware-configuration.nix').is_file():
+                parser.error('A conventional /etc/nixos installation with both configuration files is required')
+            if Path('/etc/nixos.pre-nixlab').exists():
+                parser.error('/etc/nixos.pre-nixlab already exists; inspect it before conversion')
+            if incoming:
+                copy_embedded_checkout(incoming.resolve(), stage, args.repo, args.ref)
+            else:
+                run(['git', 'clone', '--single-branch', '--branch', args.ref, args.repo, str(stage)])
+            rt.write_json(stage / 'machine/format.json', {'version': 1})
+            copy_nix_modules(ORIGINAL.resolve(), rt.machine_path(stage, 'installed'))
+            default = evaluate(stage, 'nixlabDefaults')
+            default.update(system='x86_64-linux', cpuVendor=host['cpuVendor'], hostName=socket.gethostname().split('.')[0])
+            default['setup']['enable'] = True
+            wireless = Path('/sys/class/net', interface, 'wireless').exists()
+            default['radios']['wifi'].update(enable=wireless, interface=interface if wireless else '')
+            zone = str(Path('/etc/localtime').resolve())
+            if '/zoneinfo/' in zone:
+                default['maintenance']['timeZone'] = zone.split('/zoneinfo/', 1)[1]
+            memory_kib = int(next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemTotal:')))
+        if not default['management']['configure']:
+            default['management'].update(interface=interface, address=address, prefixLength=prefix, gateway=gateway, trustedCIDRs=trusted)
+        if adoption:
+            workflow.adoption_settings(default, adoption)
+        # A fresh terminal installation offers the interview automatically.
+        # Unattended installations keep historical flags/defaults; no prompt.
+        flags = {}
+        for arg, field in (('workloads', 'workloads'), ('access_mode', 'access'), ('guest_network', 'network')):
+            if getattr(args, arg) is not None:
+                flags[field] = getattr(args, arg)
+        for arg, field in (('laptop_mode', 'laptop'),):
+            if getattr(args, arg): flags[field] = True
+        if args.no_monitoring: flags['monitoring'] = False
+        if args.guest_subnet: flags['guestSubnet'] = args.guest_subnet
+        explicit_intent = (args.answers is not None or args.interactive or bool(flags) or args.plan_only or
+                           (not existing and sys.stdin.isatty() and not args.non_interactive))
+        proposal = None
+        if explicit_intent:
+            draft = rt.STATE / 'installer-intent-draft.json'
+            chosen = intent.load(args.answers) if args.answers else intent.defaults()
+            if existing and default['ready'] and not args.answers:
+                # Re-running the interview must never silently disable an
+                # existing apps VM, host metrics, or laptop lid policy.
+                chosen.update(workloads='both' if default['apps']['enable'] else 'containers',
+                              laptop=default['maintenance']['laptopMode'],
+                              monitoring=default['monitoring']['collection'])
+            interview_mode = args.interactive or (not existing and sys.stdin.isatty() and
+                                                  not args.non_interactive and not args.answers)
+            if interview_mode:
+                if draft.is_file() and not args.plan_only and not args.answers:
+                    chosen = intent.normalize(rt.read_json(draft))
+                    print('Resuming previous non-secret installer interview draft.', flush=True)
+                def checkpoint(value):
+                    if not args.plan_only:
+                        rt.write_json(draft, value)
+                chosen = intent.interview(existing=chosen, on_answer=checkpoint)
+            chosen.update(flags)  # Explicit CLI flags override an answers file.
+            # Legacy --no-apps remains an explicit override.
+            if args.no_apps: chosen['workloads'] = 'containers'
+            chosen = intent.normalize(chosen)
+            if existing and default['ready'] and ((chosen['workloads'] != 'containers') != default['apps']['enable']):
+                raise ValueError('Do not change existing apps VM ownership via the installer; use the reviewed Changes page')
+            proposal = intent.plan(chosen, host, default, remote=remote)
+            intent.preview(proposal)
+            if args.plan_only:
+                print('Plan only: no source, network, guest, or system changes were made.')
+                return
+            if (args.interactive or (not existing and sys.stdin.isatty() and not args.non_interactive and not args.answers)):
+                if input('Apply this reviewed plan using the guarded NixLab installer? [y/N] ').strip().lower() not in ('y', 'yes'):
+                    print('Cancelled before publishing any configuration.')
+                    return
+        rt.write_json(rt.machine_path(stage, 'settings'), default)
+        overview = evaluate(stage, 'nixlabOverview')
+        # Reuse client keys already authorized for the installer account. Server
+        # host keys and arbitrary public-key files are never enrollment sources.
+        for home in (Path('/root'), Path('/home') / os.environ.get('SUDO_USER', '')):
+            path = home / '.ssh/authorized_keys'
+            if path.is_file():
+                overview['adminKeys'] = overview.get('adminKeys', []) + [line.strip()
+                    for line in path.read_text().splitlines() if line.startswith(('ssh-ed25519 ', 'ssh-rsa ', 'ecdsa-sha2-'))]
+        installation = rt.read_json(rt.machine_path(stage, 'installation'), {})
+        prior = {}
+        if existing:
+            active = rt.read_json(rt.STATE / 'active.json', {})
+            prior = rt.read_json(rt.STATE / 'jobs' / active.get('id', '-') / 'job.json', {})
+        previous_guests = default['guests'] if default['ready'] else prior.get('settings', {}).get('guests') if prior.get('previousSystem') else None
+        candidate = None
+        effective_candidate = None
+        if args.switch:
+            candidate = direct.prepare(default, overview, host, args.ssh_key,
+                proposal['guestSubnet'] if proposal else args.guest_subnet,
+                False,
+                previous_guests=previous_guests, remote=remote,
+                password_login=args.ssh_password_login)
+            if proposal:
+                candidate = intent.apply(candidate, proposal)
+                candidate = validate_settings(candidate, default, host)
+            validate_keys(candidate['adminKeys'])
+            validate_kvm(candidate['cpuVendor'])
+            import local_access
+            if not local_access.cockpit_accounts():
+                candidate['cockpit']['managePassword'] = True
+                print('No usable local administrator password was found; a stable operator login will be provisioned for SSH and Cockpit.')
+            # File-owned settings can enable services or select another port.
+            # Provision and report the evaluated stack, while the transaction
+            # continues to store the administrator's original JSON overlay.
+            rt.write_json(rt.machine_path(stage, 'settings'), candidate)
+            effective_candidate = evaluate(stage, 'nixlabSettings')
+            rt.write_json(rt.machine_path(stage, 'settings'), default)
+            validate_keys(effective_candidate['adminKeys'])
+            if remote and not effective_candidate['adminKeys'] and not effective_candidate['access']['sshPasswordLogin']:
+                raise ValueError('File-owned SSH settings remove remote login access; enroll a client key before activation')
+            if effective_candidate['cockpit']['enable'] and not local_access.cockpit_accounts() and not effective_candidate['cockpit']['managePassword']:
+                raise ValueError('File-owned Cockpit settings require an existing usable Linux password or managePassword=true')
+            print('SSH policy after activation: ' + ('password login retained for existing non-root accounts' if effective_candidate['access']['sshPasswordLogin'] else 'password login disabled; keys/console remain available'))
+        installation.update(interface=interface, trustedCIDRs=trusted, legacyWpaProfiles=overview['wpaProfiles'])
+        if proposal:
+            # Root-owned machine state; only typed non-secret choices and pending
+            # manual tasks. Kept with installation inventory for retriable setup.
+            installation['intent'] = proposal['answers']
+            installation['pendingTasks'] = proposal['pending']
+        if not existing:
+            installation.update(installedAt=time.time(), originalSystem=str(Path('/run/current-system').resolve()), repository=args.repo, ref=args.ref)
+        rt.write_json(rt.machine_path(stage, 'installation'), installation)
+        # Backups complete before source publication or activation.
+        if adoption:
+            destination = rt.STATE / 'incus-adoption' / str(time.time_ns())
+            workflow.backup_incus(adoption, destination)
+            print('Incus backups: ' + str(destination))
+        rt.STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if not existing:
+            original_backup = rt.STATE / 'original-config'
+            if not original_backup.exists():
+                shutil.copytree(ORIGINAL.resolve(), original_backup, symlinks=True)
+                original_backup.chmod(0o700)
+            TARGET.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            # Stage on the same filesystem, then rename: interruption cannot leave a partial checkout.
+            publishing = TARGET.with_name('.config-installing')
+            if publishing.exists():
+                shutil.rmtree(publishing)
+            shutil.copytree(stage, publishing)
+            publishing.chmod(0o700)
+            publishing.rename(TARGET)
+            run(['nix-store', '--add-root', str(rt.STATE / 'original-system'), '--indirect', '--realise', installation['originalSystem']])
+            rt.write_json(rt.STATE / 'platform-baseline.json', workflow.hashes(TARGET))
+        else:
+            # An existing host must not publish source, settings or installation
+            # metadata until the Manager worker has saved a rollback manifest.
+            # The digest is rechecked under Manager.review's mutation lock so
+            # a competing portal or update cannot slip in after this plan.
+            if rt.digest_source(TARGET) != source_digest:
+                raise ValueError('Source changed during planning; retry to preserve the latest local changes')
+            if args.switch:
+                rt.write_json(rt.machine_path(stage, 'settings'), candidate)
+    if args.web_enrollment:
+        import accounts
+        accounts.enable_enrollment()
+    ensure_portal_account()
+    pin = rt.STATE / 'original-system'
+    if not pin.exists() and installation.get('originalSystem'):
+        run(['nix-store', '--add-root', str(pin), '--indirect', '--realise', installation['originalSystem']])
+    if args.switch and existing and prior.get('status') == 'confirmed' and candidate == Manager().settings() \
+            and rt.digest_source(stage) == prior.get('candidateDigest'):
+        import diagnostics
+        diagnostics.wait_ready(Manager().effective_settings())
+        publish_etc()
+        summarize(Manager().effective_settings(), prior)
+        return
+    if not (rt.STATE / 'tls.key').exists():
+        rt.issue_tls(address, default['hostName'])
+    if args.switch:
+        record = direct.activate(candidate, effective=effective_candidate,
+                                    staged_source=stage if existing else None,
+                                    expected_base_digest=source_digest if existing else None)
+    else:
+        record = wizard.activate(staged_source=stage if existing else None,
+                                 expected_base_digest=source_digest if existing else None)
+    settings = Manager().effective_settings()
+    rt.prepare_state_access()
+    publish_etc()
+    summarize(settings, record)
+    if proposal:
+        for task in proposal['pending']:
+            print('Pending commissioning: ' + task)
+        (rt.STATE / 'installer-intent-draft.json').unlink(missing_ok=True)
+
+
+def report_failure():
+    print('\nINSTALLATION FAILED: installation did not complete; retry or inspect host status.', file=sys.stderr, flush=True)
+    try:
+        report = {'error': 'Installation did not complete', 'time': time.time()}
+        rt.write_json(rt.STATE / 'installation-failure.json', report)
+        print('Failure report: ' + str(rt.STATE / 'installation-failure.json'), file=sys.stderr)
+        print('Retry the same install command; completed work is detected automatically.', file=sys.stderr)
+        print('Diagnostics: sudo nixlab doctor (once host tools are installed).', file=sys.stderr)
+    except OSError:
+        pass
+
+
+if __name__ == '__main__':
+    os.umask(0o077)
+    try:
+        import fcntl
+        from locking import open_lock
+        with open_lock(Path('/run/lock/nixlab-install.lock')) as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise ValueError('Another Nixlab installer is already running')
+            main()
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+        report_failure()
+        sys.exit(1)

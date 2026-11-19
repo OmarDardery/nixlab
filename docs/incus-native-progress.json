@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "sourceRevision": "c12dcd897dff081b1973d5039edea6da9e8ee817",
+  "status": "partial",
+  "completedTranslations": [
+    "README.md",
+    "admin/static/app.js",
+    "admin/static/commands.js",
+    "admin/static/events.js",
+    "admin/static/index.html",
+    "admin/static/projects.js",
+    "tests/test_commands_ui.js",
+    "tests/test_homepage.js",
+    "tests/test_redesign_ui.js",
+    "website/build.py"
+  ],
+  "note": "Bookkeeping only: translated paths may still need integration tests; backend, flake, and installer are not complete."
+}
