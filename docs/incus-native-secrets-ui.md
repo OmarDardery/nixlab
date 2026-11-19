@@ -1,6 +1,6 @@
 # NixLab Secrets UI — SOPS/age and sops-nix contract
 
-**Status:** implementation underway in #146. Encrypted Web UI edits, revisioned SOPS ciphertext, age onboarding, local dotenv import, encrypted recovery kits, and source-only publication exist on the feature branch. **Incus/NixOS secret delivery, multi-recipient rekey, backup coverage and independent full-host restore are not yet qualified.** Tracks [#134](https://github.com/OmarDardery/nixlab/issues/134) and the [Incus-native plan](incus-native-plan.md).
+**Status:** #145 documented the threat model; #146 implements the native SOPS broker/UI. Draft follow-up #153 adds original-source plaintext guards, multi-recipient rekey, scoped runtime-file staging, guest-only sops-nix metadata, and real offline-kit SOPS unlock. **#134 is NOT complete:** real Incus Compose runtime delivery and metadata persistence qualification, NixOS guest activation, and independent host restore with verified systemd restart remain unproven. The Incus runtime owner in #133 is still needed. Tracks [#134](https://github.com/OmarDardery/nixlab/issues/134).
 
 ## Decision
 
@@ -61,6 +61,21 @@ All actual secret mutations require an authenticated admin session, CSRF/origin 
 6. A failed, interrupted or stale operation preserves the previous published ciphertext and service configuration. Audit never contains values. No plaintext secret is copied into Docker build context or Nix store.
 
 The UI itself is not the encryption boundary; the trusted broker/age identity and verified, versioned ciphertext are.
+
+## Follow-up gates: implemented versus qualified
+
+**Implemented but not fully deployed (draft #153):**
+- The isolated Nix evaluator and broker exchange typed ciphertext references, key names, instance ownership, backend, file target and restart intents. They never evaluate secret values.
+- Source publication inspects original byte-exact Dockerfile/Compose content and refuses detected plaintext tokens, credential-bearing URLs, key material and raw .env files with SOPS-import instructions. BuildKit reference-only mounts remain available as source, but the image build plan must reject unsupported features; unsupported Compose build.secrets and build.ssh are refused.
+- Recipient additions/removals are password-reauthenticated and independently approved; host recipient cannot be removed. New SOPS ciphertext uses the revised age recipient list and a recovery journal handles interrupted publication. Revocation of old copies is impossible without retiring previous ciphertext and rotating the actual secret values.
+- Per-workload file staging decrypts after a project/revision/consumer CAS, inside private owner-controlled /run directories with 0400 files, fsync and cleanup on signal/error. The host master age key never enters the guest, Incus environment or builder.
+- A NixOS guest-only sops-nix option fragment references ciphertext and the GUEST's own already-provisioned /var/lib/sops-nix age identity. No host identity is imported; real activation still requires qualification.
+- The passphrase-encrypted offline kit includes manifest-bound age identity, present restic unlock/environment data and remote tunnel credentials. Export is deliberately NOT marked recovered/protected. Verification actually unlocks SOPS ciphertext through a temporary /run identity; if an encrypted project source exists, it must decrypt too.
+
+**Blocking production acceptance:**
+- #133 must provide the reviewed, ETag-protected Incus Compose runtime owner and exact version pin. File staging is not equivalent to deployment, and no real Incus config/history persistence audit has yet passed.
+- Upstream Incus Compose supports env_file and interpolation, but injecting credentials into a service environment can persist them in Incus configuration. Deleting the transient .env afterwards does NOT prove safety. A secret-bearing, unmodified env_file: .env or interpolated secret cannot satisfy both no-plaintext-in-environment and ordinary OCI environment semantics. Use reviewed file-secret consumers or fail closed; do not silently weaken policy. See https://incus-compose.org/environment-variables and https://incus-compose.org/compose-compatibility/services.
+- A clean second-host restore and actual NixOS service restart, wrong-key/revoked-recipient tests, and zero-secret-leak audits of all Incus API/history/config surfaces are required before closing #134.
 
 ## Delivery semantics
 
