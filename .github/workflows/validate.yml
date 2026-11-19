@@ -53,6 +53,8 @@ jobs:
           node tests/test_deployments_ui.js
       - name: Qualify isolated project evaluator without writable store
         run: nix build .#checks.x86_64-linux.project-evaluator --no-link -L
+      - name: Qualify offline rootless OCI builder and artifact handoff in NixOS VM
+        run: nix build .#checks.x86_64-linux.oci-builder --no-link -L
       - name: Boot real Incus containers and verify host integration and restore
         run: nix build .#checks.x86_64-linux.foundation --no-link -L
       - name: Browser workflow checks
