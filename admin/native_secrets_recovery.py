@@ -217,6 +217,7 @@ class RecoveryKit:
         candidate = ns._run(["age-keygen", "-y"], (record["identity"] + "\n").encode()).decode().strip()
         if candidate != record["recipient"]:
             raise ValueError("Recovery key and recipient mismatch")
+        self._prove_unlock(record)  # Actual SOPS decrypt before touching any persistent credential.
         # Preflight ALL backed-up destinations before modifying anything.
         for label, value in credentials.items():
             target = self.files[label]
