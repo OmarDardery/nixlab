@@ -491,8 +491,8 @@ class Secrets:
                   self._policy(previous_recipients), mode=0o644)
         index = self._metadata(project)
         if index.get("revision") == record.get("after"):
-            # Reconstruct metadata from the ciphertext, never expose values.
-            original = self._decode(self._cipher(self._project(project)))
+            # Reconstruct metadata only from the *previous* ciphertext. The
+            # first publication has no prior file; never attempt to decrypt None.
             # This path can be absent after rolling back the first-ever write.
             if base is None:
                 keys = []
