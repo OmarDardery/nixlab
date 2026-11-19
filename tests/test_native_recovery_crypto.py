@@ -22,7 +22,7 @@ except ImportError:
     CRYPTO_OK = False
 
 
-@unittest.skipUnless(CRYPTO_OK and shutil.which("age-keygen"),
+@unittest.skipUnless(CRYPTO_OK and shutil.which("age-keygen") and shutil.which("sops"),
                      "Pinned cryptography and age runtime required")
 class RealRecoveryKit(unittest.TestCase):
     def setUp(self):
@@ -50,7 +50,7 @@ class RealRecoveryKit(unittest.TestCase):
         return recovery.RecoveryKit(self.manager(root), credentials={
             "restic-password": root / "restic" / "restic-password",
             "restic-environment": root / "restic" / "restic-environment",
-        })
+        }, staging=root)
 
     def test_key_and_restic_recovery_can_bootstrap_second_host_without_leaking(self):
         created = self.manager(self.host_a).enroll_identity(
@@ -60,7 +60,8 @@ class RealRecoveryKit(unittest.TestCase):
         restic.write_bytes(b"test-restic-unlock-key-not-a-real-password")
         restic.chmod(0o600)
         exported = self.kit(self.host_a).export("owner", passphrase, include_backup=True)
-        self.assertTrue(exported["verified"])
+        self.assertFalse(exported["verified"])
+        self.assertTrue(exported["requiresOfflineUnlockVerification"])
         envelope = base64.b64decode(exported["encrypted"])
         self.assertNotIn(b"AGE-SECRET-KEY", envelope)
         self.assertNotIn(b"test-restic-unlock", envelope)
@@ -68,6 +69,7 @@ class RealRecoveryKit(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid"):
             self.kit(self.host_b).inspect("owner", exported["encrypted"], "wrong-passphrase-long-enough")
         checked = self.kit(self.host_b).inspect("owner", exported["encrypted"], passphrase)
+        self.assertTrue(checked["verified"])
         self.assertEqual(checked["recipient"], created["recipient"])
         restored = self.kit(self.host_b).restore("owner", exported["encrypted"], passphrase,
                                                 acknowledge=True)
