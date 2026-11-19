@@ -470,6 +470,14 @@ class Secrets:
         if current_hash not in (record.get("before"), record.get("after")):
             raise ValueError("Secret ciphertext changed since interrupted publication")
         base = record.get("before")
+        recipient = self._identity()
+        previous_recipients = self._recipients(
+            record.get("beforeRecipients", [recipient]), recipient)
+        next_recipients = self._recipients(
+            record.get("afterRecipients", [recipient]), recipient)
+        current_recipients = self._check_policy(self._project(project), recipient)
+        if current_recipients not in (previous_recipients, next_recipients):
+            raise ValueError("Recipient policy changed during secret recovery")
         if current_hash == record.get("after"):
             path = self._project(project) / "secrets.enc.yaml"
             if base is None:
@@ -479,6 +487,8 @@ class Secrets:
                 if _hash(previous) != base:
                     raise ValueError("Previous encrypted revision has changed")
                 rt.atomic(path, previous, mode=0o600)
+        rt.atomic(self._project(project) / ".sops.yaml",
+                  self._policy(previous_recipients), mode=0o644)
         index = self._metadata(project)
         if index.get("revision") == record.get("after"):
             # Reconstruct metadata from the ciphertext, never expose values.
@@ -490,7 +500,8 @@ class Secrets:
                 restored = _regular(store / "revisions" / base, MAX_ENCRYPTED, private=True)
                 keys = sorted(self._decode(restored))
             rt.write_json(store / "index.json", {"project": project, "revision": base,
-                          "keys": keys, "recovered": time.time()}, mode=0o600)
+                          "keys": keys, "recipients": previous_recipients,
+                          "recovered": time.time()}, mode=0o600)
         rt.durable_unlink(pending)
         rt.audit("native-secret-publication-recovered", principal=actor, project=project)
         return {"recovered": True, "revision": base,
@@ -508,7 +519,7 @@ class Secrets:
         root = self._private_state()
         recipient = self._identity()
         directory = self._project(project)
-        self._check_policy(directory, recipient)
+        recipients = self._check_policy(directory, recipient)
         cipher = self._cipher(directory)
         if cipher is None:
             raise ValueError("No encrypted project secrets to adopt")
@@ -525,7 +536,7 @@ class Secrets:
                     "revision": digest, "keys": keys}
         rt.write_json(store / "index.json", {
             "project": project, "revision": digest, "keys": keys,
-            "recoveredAt": time.time(),
+            "recipients": recipients, "recoveredAt": time.time(),
         }, mode=0o600)
         rt.audit("native-secrets-ciphertext-reindexed", principal=actor,
                  project=project, revision=digest, count=len(keys))
