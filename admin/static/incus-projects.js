@@ -225,6 +225,7 @@ function nativeProjectPage() {
       (nativeImportState.busy ? '<p role="status">Transferring verified source chunks…</p>' : '') +
       (nativeImportState.error ? '<p role="alert" class="error">' + esc(nativeImportState.error) + '</p>' : '') + upload) +
     card("Review and publish staged source", reviewPanel) +
+    (typeof nativeSecretsPanel === "function" ? nativeSecretsPanel() : "") +
     card("OCI build and Compose compatibility preview", planPanel) +
     card("OCI / Compose deployment",
       '<p>Original Dockerfile/Compose source publication is not application deployment. OCI building, scoped secrets, new Incus resource creation and data restore require #133/#139/#134 and verified recovery tests.</p>' +
@@ -556,6 +557,7 @@ async function nativeProjectTransaction(action) {
 }
 
 function bindNativeProjects() {
+  if (typeof bindNativeSecrets === "function") bindNativeSecrets();
   document.querySelector("#native-workspace-init")?.addEventListener("click", () => void nativeInitializeWorkspace());
   if (!nativeProjectTx.loaded && !nativeProjectTx.loading) void nativeRefreshProjectTransaction();
   document.querySelector("#native-nix-review")?.addEventListener("click", () => void nativeProjectTransaction("review"));

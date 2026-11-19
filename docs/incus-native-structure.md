@@ -37,7 +37,7 @@ On an installed host:
 ## Web UI information architecture
 **Overview** → guests, projects, health, quick actions.
 **Projects** → list/create/import; source tree/upload (byte exact); environment/secret references; build; review; deploy; logs; revisions; rollback; backup/restore.
-**Project Secrets** → masked per-project environment names; SOPS/age encrypted values, recipients, review/rotation and delivery state. [Secrets UI contract](incus-native-secrets-ui.md). No standalone vault server.
+**Project Secrets** → masked project secrets, local dotenv import, reviewed SOPS ciphertext revisions, offline key recovery and declared consumer bindings. Runtime delivery remains gated on Incus/NixOS adapter tests. [Secrets UI contract](incus-native-secrets-ui.md). No standalone vault server.
 **Incus** → instances, OCI/VM lifecycle, storage/volumes, networks, profiles, devices, drift and ownership.
 **Host** → network, storage, services, accounts, security, updates, diagnostics.
 **Recovery** → jobs, failed/partial actions, snapshots, encrypted backup status, host replacement and audit.

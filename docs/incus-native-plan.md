@@ -28,7 +28,7 @@ No phase is complete merely because its source exists: it requires VM/system tes
 - [x] #139 source-intake foundation: direct files plus bounded ZIP/TAR/TAR.GZ import, secure byte-exact private extraction, 128 MiB total quotas, per-file SHA-256, separate Dockerfile-only launch-manifest preview and source-qualified cache identity. Import/preview do not execute source.
 - [ ] #139 isolated OCI builder, executable Compose compatibility preflight, digest-verified Incus import, source-qualified override and reviewed deployment/rollback qualification for multi-service apps. See `docs/oci-source-intake.md`.
 - [ ] SOPS/age secret reference handling and scoped delivery/rollback failure semantics.
-- [ ] **Native Secrets Web UI, no extra server:** [write-only, encrypted and declarative SOPS/age UI contract](incus-native-secrets-ui.md). Existing host integration uses `sops-nix`; Incus OCI uses a separately qualified, scoped runtime-file adapter (never claims to run `sops-nix` inside OCI). Requires one-time age identity, masked per-project keys, reauth/review, immutable encrypted revisions, offline recovery and leak tests. Implements issue #134; design only at this stage.
+- [ ] **Native Secrets Web UI, no extra server:** [SOPS/age interface and delivery contract](incus-native-secrets-ui.md) — #146 implements UI, one-time age identity, encrypted reviewed revisions, local `.env` import, typed metadata-only key/consumer bindings, and an authenticated offline recovery kit. **Still needed:** sops-nix delivery into NixOS guests, scoped file delivery into Incus OCI with real ETag/restart tests, multi-recipient rotation and independent full-host recovery tests. Issue #134 remains open.
 
 ### Independent project transaction scope
 

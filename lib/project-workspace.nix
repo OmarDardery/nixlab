@@ -87,6 +87,39 @@ let
       # Values, passwords and token contents are not Nix options. Only the
       # relative name of the *ciphertext* resource is represented here.
       secrets.file = mkOption { type = types.nullOr types.str; default = null; };
+      secrets.bindings = mkOption {
+        # A binding declares which owned instance receives a secret, and
+        # through which *file* path. Plaintext values never become Nix attrs.
+        type = types.attrsOf (types.submodule ({ name, ... }: {
+          options = {
+            key = mkOption {
+              type = types.strMatching "[A-Za-z_][A-Za-z0-9_]{0,127}";
+              default = name;
+              description = "SOPS YAML key; never its decrypted value.";
+            };
+            instance = mkOption {
+              type = types.strMatching "[a-z][a-z0-9-]{0,62}";
+              description = "Destination instance in this project's Incus namespace.";
+            };
+            backend = mkOption {
+              type = types.enum [ "nixos-sops" "incus-file" ];
+              default = "incus-file";
+            };
+            destination = mkOption {
+              type = types.strMatching "/run/secrets/[A-Za-z_][A-Za-z0-9_/-]*";
+              default = "/run/secrets/${name}";
+              description = "Scoped read-only runtime secret-file path.";
+            };
+            restartUnits = mkOption {
+              type = types.listOf (types.strMatching "[A-Za-z0-9_.@-]+\\.service");
+              default = [];
+              description = "NixOS service restart intent; only applied after a reviewed rollout.";
+            };
+          };
+        }));
+        default = {};
+        description = "Metadata-only per-instance SOPS secret delivery declarations.";
+      };
       backup.enable = mkOption { type = types.bool; default = true; };
       backup.consistency = mkOption {
         type = types.enum [ "stop" "quiesce" "none" ];
@@ -126,6 +159,8 @@ let
       fail "Unsafe project source directory"
     else if !validRelative secret then
       fail "Project ${directoryName} has an unsafe ciphertext reference"
+    else if p.secrets.bindings != {} && secret == null then
+      fail "Project ${directoryName} cannot bind secrets without encrypted SOPS ciphertext"
     else if builtins.length sources > 256 then
       fail "Project ${directoryName} exceeds 256 Nix module files"
     else {

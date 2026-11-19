@@ -28,6 +28,10 @@ jobs:
         run: |
           python3 -m compileall -q admin scripts tests helpers installer
           python3 -m unittest discover -s tests -v
+      - name: Verify real SOPS, age and offline recovery kit crypto
+        run: |
+          nix develop .#secrets-test -c python3 tests/test_native_secrets_crypto.py
+          nix develop .#secrets-test -c python3 tests/test_native_recovery_crypto.py
       - name: Build and verify one-command update entrypoint
         run: |
           nix run .#update -- --help
@@ -37,6 +41,7 @@ jobs:
           node --check admin/static/app.js
           node --check admin/static/projects.js
           node --check admin/static/incus-projects.js
+          node --check admin/static/incus-secrets.js
           node --check admin/static/api.js
           node --check admin/static/events.js
           node --check admin/static/operations.js
@@ -45,6 +50,8 @@ jobs:
           node tests/test_incus_native_ui.js
           node tests/test_incus_native_source_editor.js
           node tests/test_incus_native_source_publication_ui.js
+          node tests/test_native_secrets_ui.js
+          node tests/test_native_recovery_ui.js
           node tests/test_commands_ui.js
           node tests/test_homepage.js
           node tests/test_redesign_ui.js
@@ -86,6 +93,9 @@ jobs:
           assert inventory['projects']['alpha']['backend'] == 'incus-compose'
           assert inventory['projects']['alpha']['resources']['cpus'] == 3
           assert inventory['projects']['alpha']['secrets']['file'] == 'secrets.enc.yaml'
+          assert inventory['projects']['alpha']['secrets']['bindings']['API_TOKEN']['key'] == 'API_TOKEN'
+          assert inventory['projects']['alpha']['secrets']['bindings']['API_TOKEN']['instance'] == 'web'
+          assert inventory['projects']['alpha']['secrets']['bindings']['API_TOKEN']['destination'] == '/run/secrets/API_TOKEN'
           assert inventory['projects']['alpha']['modules'] == ['modules/nested/resources.nix', 'modules/network.nix']
           assert inventory['projects']['beta']['backup']['consistency'] == 'quiesce'
           assert source['projects']['alpha']['modules'] == [

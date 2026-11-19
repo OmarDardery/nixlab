@@ -19,7 +19,7 @@ def inventory(*, claims=None, backend="incus-native", cpus=3):
         "name": "printer", "source": "printer", "enable": True,
         "backend": backend, "incusProject": "printer",
         "resources": {"cpus": cpus, "memory": "2GiB"},
-        "secrets": {"file": "secrets.enc.yaml"},
+        "secrets": {"file": "secrets.enc.yaml", "bindings": {}},
         "backup": {"enable": True, "consistency": "stop"},
         "claims": [] if claims is None else claims,
         "modules": ["modules/instance.nix"]
