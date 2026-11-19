@@ -228,7 +228,7 @@ async function nativeRecipientReview() {
   if (v.busy || !project || v.review) return;
   const input = document.getElementById("native-recipient-list");
   const password = document.getElementById("native-recipient-password");
-  const recipients = (input?.value || "").split(/[\\s,]+/).filter(Boolean);
+  const recipients = (input?.value || "").split(/[\s,]+/).filter(Boolean);
   const current = password?.value || "";
   if (password) password.value = "";
   v.busy = true; v.error = ""; v.message = "";
