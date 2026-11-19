@@ -90,6 +90,8 @@ def produce():
     value = secrets.token_urlsafe(40)
     first = m.review("owner", PROJECT, KEY, "set", value, None)
     m.publish("owner", first["reviewId"], acknowledge=True)
+    audit = (AUDIT / "audit.jsonl").read_bytes()
+    assert value.encode() not in audit and b"\"operation\": \"set\"" in audit
     private_write(FIRST_DIGEST, hashlib.sha256(value.encode()).hexdigest())
     private_write(ROOT / "restic" / "restic-password", secrets.token_bytes(32))
     passphrase = secrets.token_urlsafe(48)
@@ -164,6 +166,7 @@ def rotate():
     updated_value = secrets.token_urlsafe(40)
     review = m.review("owner", PROJECT, KEY, "set", updated_value, previous)
     updated = m.publish("owner", review["reviewId"], acknowledge=True)
+    assert updated_value.encode() not in (AUDIT / "audit.jsonl").read_bytes()
     assert updated["revision"] != previous
     private_write(NEXT_DIGEST, hashlib.sha256(updated_value.encode()).hexdigest())
     print("Replacement NixOS VM: encrypted secret changed and republished")
