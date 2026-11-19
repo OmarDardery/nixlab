@@ -89,6 +89,19 @@ async function main() {
   context.good = {name: "sample/.env.template"};
   assert.equal(read("nativeSourcePath(good)"), "sample/.env.template");
 
+  // A ZIP/TAR stays opaque in the browser; only the private broker extracts
+  // it after reauthentication and before separate source publication.
+  context.archives = [file("application.zip", Buffer.from([0x50, 0x4b, 0x03, 0x04]))];
+  await read("nativePreviewFiles(archives, true)");
+  assert.equal(read("nativeSourcePreflight.archive"), true);
+  assert.equal(read("nativeSourcePreflight.files[0].path"), "application.zip");
+  assert.equal(read("nativeSourcePreflight.files[0].sha256"), digest(Buffer.from([0x50, 0x4b, 0x03, 0x04])));
+  await read("nativeOpenSourceEditor('application.zip')");
+  assert.equal(read("nativeSourceEditor.path"), "", "Archive binary bytes cannot enter text editor");
+  assert.ok(read("nativeProjectPage()").includes("validated and shown with per-file SHA-256"));
+  await read("nativePreviewFiles(sources)");
+  assert.equal(read("nativeSourcePreflight.archive"), false);
+
   // A slower stale selection must never overwrite the newest manifest.
   let release;
   const slow = file("slow.txt", Buffer.from("old"));

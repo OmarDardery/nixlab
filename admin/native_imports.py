@@ -16,9 +16,12 @@ NAME = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
 ID = re.compile(r"[0-9a-f]{32}\Z")
 HEX = re.compile(r"[0-9a-f]{64}\Z")
 PART = re.compile(r"(?:[A-Za-z0-9][A-Za-z0-9_.-]*|\.[A-Za-z0-9][A-Za-z0-9._-]*)\Z")
-MAX_FILES = 64
-MAX_FILE = 8 * 1024 * 1024
-MAX_TOTAL = 32 * 1024 * 1024
+# Frozen OCI build contexts are private, never copied to the Nix store.
+# Hard quotas apply to direct uploads AND to expanded archives.
+MAX_FILES = 256
+MAX_FILE = 64 * 1024 * 1024
+MAX_TOTAL = 128 * 1024 * 1024
+MAX_ARCHIVE = 64 * 1024 * 1024
 MAX_CHUNK = 96 * 1024
 EXPIRY = 3600
 
@@ -42,7 +45,7 @@ def check_path(value):
 
 def check_files(files):
     if not isinstance(files, list) or not 1 <= len(files) <= MAX_FILES:
-        raise ValueError("Select 1–64 source files")
+        raise ValueError("Select 1–256 source files")
     seen, total, result = set(), 0, []
     for item in files:
         if not isinstance(item, dict) or set(item) != {"path", "size", "sha256"}:
@@ -52,13 +55,13 @@ def check_files(files):
         if name in seen:
             raise ValueError("Duplicate import path")
         if type(size) is not int or not 0 <= size <= MAX_FILE:
-            raise ValueError("Source file exceeds 8 MiB")
+            raise ValueError("Source file exceeds 64 MiB")
         if not isinstance(digest, str) or not HEX.fullmatch(digest):
             raise ValueError("Invalid source SHA-256")
         seen.add(name); total += size
         result.append({"path": name, "size": size, "sha256": digest})
     if total > MAX_TOTAL:
-        raise ValueError("Source selection exceeds 32 MiB")
+        raise ValueError("Source selection exceeds 128 MiB")
     return sorted(result, key=lambda x: x["path"])
 
 
@@ -89,12 +92,19 @@ class ImportStaging:
             raise ValueError("Import expired; submit a new review")
         return directory, record
 
-    def prepare(self, actor, project, files):
+    def prepare(self, actor, project, files, *, archive=False):
         if not isinstance(actor, str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", actor):
             raise ValueError("Invalid import actor")
         if not isinstance(project, str) or not NAME.fullmatch(project):
             raise ValueError("Invalid project name")
         entries = check_files(files)
+        if type(archive) is not bool:
+            raise ValueError("Invalid archive import selection")
+        if archive:
+            from oci_archives import is_archive_name
+            if (len(entries) != 1 or not is_archive_name(entries[0]["path"])
+                    or entries[0]["size"] > MAX_ARCHIVE):
+                raise ValueError("Choose one bounded ZIP/TAR archive for extraction")
         identity = secrets.token_hex(16)
         target = self.root / identity
         target.mkdir(mode=0o700)
@@ -109,6 +119,7 @@ class ImportStaging:
         record = {
             "id": identity, "format": 1, "status": "uploading", "actor": actor,
             "project": project, "files": entries, "manifestHash": sha(entries),
+            "archive": archive,
             "created": time.time(), "expires": time.time() + EXPIRY,
         }
         rt.write_json(target / "manifest.json", record)
@@ -180,13 +191,49 @@ class ImportStaging:
                 os.fchmod(fd, 0o400)
             finally:
                 os.close(fd)
+        retained_archive = None
+        if record.get("archive"):
+            from oci_archives import extract_archive
+            if len(record["files"]) != 1:
+                raise ValueError("Archive import manifest changed")
+            filename = record["files"][0]["path"]
+            scratch = Path(tempfile.mkdtemp(prefix=".unpack-", dir=directory))
+            try:
+                entries = check_files(extract_archive(
+                    source / filename, scratch, check_path=check_path,
+                    max_files=MAX_FILES, max_file=MAX_FILE, max_total=MAX_TOTAL))
+                # All archive names, bytes and quotas have been verified before
+                # touching the original sealed upload. An interruption only
+                # strands a PRIVATE, unready staging job; it never publishes.
+                retained_archive = directory / "uploaded-archive"
+                if retained_archive.exists() or retained_archive.is_symlink():
+                    raise ValueError("Unfinished archive extraction requires a fresh import")
+                os.rename(source, retained_archive)
+                try:
+                    os.rename(scratch, source)
+                except OSError:
+                    os.rename(retained_archive, source)
+                    raise
+                _durable_directory(directory)
+                record["archiveSha256"] = record["files"][0]["sha256"]
+                record["archive"] = False
+                record["expandedFromArchive"] = True
+                record["files"] = entries
+                record["manifestHash"] = sha(entries)
+            finally:
+                if scratch.exists():
+                    shutil.rmtree(scratch)
         record["status"] = "ready"
         record["sealedAt"] = time.time()
         rt.write_json(directory / "manifest.json", record)
+        if retained_archive is not None:
+            shutil.rmtree(retained_archive)
         rt.audit("native-source-import-sealed", identity=identity, principal=actor,
                  project=record["project"], sourceHash=record["manifestHash"])
         return {"id": identity, "project": record["project"], "status": "ready",
                 "manifestHash": record["manifestHash"], "files": len(record["files"]),
+                "expandedFromArchive": record.get("expandedFromArchive", False),
+                "entries": record["files"],
                 "note": "Private source staging only: no evaluation, build, publication or Incus deployment"}
 
 
