@@ -82,6 +82,57 @@ class RealRecoveryKit(unittest.TestCase):
             self.kit(self.host_b).restore("owner", exported["encrypted"], passphrase,
                                           acknowledge=True)
 
+    def test_encrypted_source_and_offline_kit_restore_to_separate_host_then_rotate_service(self):
+        from native_secrets_delivery import ScopedSecrets
+        source = self.host_a / "projects" / "web"
+        source.mkdir()
+        (source / "default.nix").write_text("{ ... }: { nixlab.project.name = \"web\"; }\n")
+        manager_a = self.manager(self.host_a)
+        manager_a.enroll_identity("owner", "generate", acknowledge=True)
+        pending = manager_a.review("owner", "web", "API_TOKEN", "set", "original-value", None)
+        first = manager_a.publish("owner", pending["reviewId"], acknowledge=True)
+        encrypted = source / "secrets.enc.yaml"
+        self.assertNotIn(b"original-value", encrypted.read_bytes())
+        self.assertNotIn(b"AGE-SECRET-KEY", encrypted.read_bytes())
+
+        # Only public Nix files and ciphertext travel in the source archive.
+        restored_project = self.host_b / "projects" / "web"
+        restored_project.mkdir()
+        for file in ("default.nix", ".sops.yaml", "secrets.enc.yaml"):
+            shutil.copyfile(source / file, restored_project / file)
+        self.assertFalse(self.manager(self.host_b).identity.exists())
+        kit = self.kit(self.host_a).export("owner", "long-separate-password-host-restore")
+        validated = self.kit(self.host_b).inspect(
+            "owner", kit["encrypted"], "long-separate-password-host-restore")
+        self.assertTrue(validated["verified"])
+        self.assertTrue(self.kit(self.host_b).restore(
+            "owner", kit["encrypted"], "long-separate-password-host-restore",
+            acknowledge=True)["restored"])
+        manager_b = self.manager(self.host_b)
+        indexed = manager_b.reindex("owner", "web", acknowledge=True)
+        self.assertEqual(indexed["revision"], first["revision"])
+
+        inventory = {"name": "web", "incusProject": "web",
+                     "secrets": {"file": "secrets.enc.yaml", "bindings": {
+                         "TOKEN": {"instance": "service", "key": "API_TOKEN",
+                                   "backend": "incus-file",
+                                   "destination": "/run/secrets/TOKEN",
+                                   "restartUnits": []}}}}
+        delivery = ScopedSecrets(manager_b, staging=self.host_b)
+        observed = []
+        def restart_service(revision):
+            with delivery.open("web", revision, inventory, "service") as files:
+                observed.append(files["paths"]["TOKEN"].read_text())
+                self.assertNotIn("original-value", str(files))
+            self.assertEqual(list(self.host_b.glob(".nixlab-scoped-*")), [])
+        restart_service(indexed["revision"])
+        review = manager_b.review("owner", "web", "API_TOKEN", "set",
+                                  "rotated-value", indexed["revision"])
+        updated = manager_b.publish("owner", review["reviewId"], acknowledge=True)
+        restart_service(updated["revision"])
+        self.assertEqual(observed, ["original-value", "rotated-value"])
+        self.assertNotIn(b"rotated-value", (restored_project / "secrets.enc.yaml").read_bytes())
+
     def test_malformed_or_tampered_ciphertext_cannot_change_key(self):
         self.manager(self.host_a).enroll_identity("owner", "generate", acknowledge=True)
         exported = self.kit(self.host_a).export("owner", "another-offline-passphrase-345")
