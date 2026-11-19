@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 
 from native_imports import PublishedSources, check_files
+from native_compose_secret_policy import classify_compose_secrets
 import runtime as rt
 
 COMPOSE = {"compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"}
@@ -51,12 +52,25 @@ def source_plan(project, revision, publisher=None):
     dockerfiles = sorted(path for path in by_path if Path(path).name in DOCKERFILE)
     reasons = []
     generated, image = None, None
+    secret_policy = None
     if len(compose) == 1:
         mode = "compose"
         selected = compose[0]
         # The original Compose and any optional compose.incus.yaml MUST be
         # passed to the isolated, pinned incus-compose validator later.
         reasons.append("sandboxed-incus-compose-compatibility-check-required")
+        # Attested source is *read* only, never interpolated or rewritten.
+        # This classification identifies unsafe Incus persistence surfaces;
+        # it cannot greenlight deployment without the real #133 adapter.
+        try:
+            secret_policy = classify_compose_secrets((folder / "source" / selected).read_bytes())
+        except ValueError:
+            reasons.append("compose-secret-preflight-failed")
+        else:
+            reasons.extend(secret_policy["blocking"])
+            if secret_policy["fileRoutes"]:
+                reasons.append("compose-secret-binding-review-required")
+
     elif len(compose) > 1:
         mode, selected = "ambiguous-compose", None
         reasons.append("multiple-compose-files-require-explicit-selection")
@@ -91,6 +105,7 @@ def source_plan(project, revision, publisher=None):
         "entrypoint": selected,
         "generatedCompose": generated,
         "proposedImage": image,
+        "composeSecretPolicy": secret_policy,
         "buildContextHash": revision,
         "buildIdentity": hashlib.sha256((project + "\0" + revision).encode()).hexdigest(),
         "canBuild": False,

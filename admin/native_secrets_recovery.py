@@ -11,6 +11,7 @@ from pathlib import Path
 import secrets
 import stat
 import time
+import tempfile
 
 import native_secrets as ns
 import runtime as rt
@@ -20,6 +21,7 @@ MAX_KIT = 256 * 1024
 FILES = {
     "restic-password": Path("/var/lib/nixlab-secrets/restic-password"),
     "restic-environment": Path("/var/lib/nixlab-secrets/restic-environment"),
+    "remote-access": Path("/var/lib/nixlab-secrets/cloudflared.json"),
 }
 
 
@@ -66,7 +68,7 @@ def _decode(blob, passphrase):
             raise ValueError
         plain = _aes()(_derive(passphrase, salt)).decrypt(nonce, cipher, MAGIC)
         record = json.loads(plain)
-        if not isinstance(record, dict) or set(record) != {"version", "recipient", "identity", "credentials"}:
+        if not isinstance(record, dict) or set(record) != {"version", "recipient", "identity", "credentials", "manifest"}:
             raise ValueError
         if record["version"] != 1 or not ns.RECIPIENT.fullmatch(record["recipient"]):
             raise ValueError
@@ -76,6 +78,13 @@ def _decode(blob, passphrase):
             raise ValueError
         credentials = {key: _un64(value) for key, value in record["credentials"].items()}
         if any(len(data) > 32768 for data in credentials.values()):
+            raise ValueError
+        expected_manifest = {
+            "recipient": record["recipient"],
+            "credentials": {key: {"sha256": hashlib.sha256(data).hexdigest(),
+                                  "bytes": len(data)} for key, data in sorted(credentials.items())},
+        }
+        if record["manifest"] != expected_manifest:
             raise ValueError
         return record, credentials
     except (ValueError, TypeError, KeyError, OverflowError, MemoryError):
@@ -87,9 +96,63 @@ def _decode(blob, passphrase):
 
 
 class RecoveryKit:
-    def __init__(self, manager, credentials=None):
+    def __init__(self, manager, credentials=None, staging=None):
         self.manager = manager
-        self.files = credentials or FILES
+        self.files = credentials if credentials is not None else FILES
+        self.staging = Path(staging or "/run")
+
+    def _prove_unlock(self, record):
+        """Verify actual SOPS encrypt/decrypt with the kit's recovered identity.
+
+        Temporary identity and all decrypted data exist only in a broker-owned
+        0700 directory on /run (tmpfs on NixOS). No plaintext crosses argv,
+        Nix evaluation, Incus or public API boundaries.
+        """
+        ns._dir(self.staging)
+        with tempfile.TemporaryDirectory(dir=self.staging, prefix=".nixlab-recovery-") as work:
+            private = Path(work) / "identity"
+            fd = os.open(private, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o400)
+            try:
+                os.fchmod(fd, 0o400)
+                material = (record["identity"].strip() + "\n").encode("ascii")
+                os.write(fd, material)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            probe = b'{"RECOVERY_PROBE":"offline-unlock-check"}'
+            encrypted = ns._run([
+                "sops", "encrypt", "--age", record["recipient"],
+                "--filename-override", "secrets.enc.yaml",
+                "--input-type", "json", "--output-type", "yaml", "/dev/stdin",
+            ], probe)
+            output = ns._run([
+                "sops", "decrypt", "--input-type", "yaml",
+                "--output-type", "json", "/dev/stdin",
+            ], encrypted, key_path=private)
+            try:
+                if json.loads(output) != json.loads(probe):
+                    raise ValueError
+            except (ValueError, TypeError):
+                raise ValueError("Recovery kit could not unlock verified SOPS ciphertext") from None
+            # Restore source may be installed BEFORE identity activation. If it
+            # exists, prove its actual project ciphertext unlocks as well.
+            if self.manager.projects.exists() and not self.manager.projects.is_symlink():
+                ns._dir(self.manager.projects)
+                for project in sorted(self.manager.projects.iterdir()):
+                    if not ns.NAME.fullmatch(project.name) or not (project / "default.nix").is_file():
+                        continue
+                    project = self.manager._project(project.name)
+                    ciphertext = self.manager._cipher(project)
+                    if ciphertext is not None:
+                        decrypted = ns._run([
+                            "sops", "decrypt", "--input-type", "yaml",
+                            "--output-type", "json", "/dev/stdin",
+                        ], ciphertext, key_path=private)
+                        document = json.loads(decrypted)
+                        if (not isinstance(document, dict)
+                                or any(not ns.KEY.fullmatch(key) for key in document)):
+                            raise ValueError("Recovery source ciphertext cannot be validated")
+
 
     def export(self, actor, passphrase, *, include_backup=False):
         recipient = self.manager._identity()
@@ -102,8 +165,13 @@ class RecoveryKit:
                 if path.exists() or path.is_symlink():
                     ns._dir(path.parent, private=True)
                     saved[label] = _b64(ns._regular(path, 32768, private=True))
+        manifest = {"recipient": recipient, "credentials": {
+            label: {"sha256": hashlib.sha256(_un64(value)).hexdigest(),
+                    "bytes": len(_un64(value))}
+            for label, value in sorted(saved.items())}}
         payload = json.dumps({"version": 1, "recipient": recipient,
-                              "identity": private, "credentials": saved},
+                              "identity": private, "credentials": saved,
+                              "manifest": manifest},
                              sort_keys=True, separators=(",", ":")).encode()
         salt, nonce = secrets.token_bytes(16), secrets.token_bytes(12)
         cipher = _aes()(_derive(passphrase, salt)).encrypt(nonce, payload, MAGIC)
@@ -120,7 +188,8 @@ class RecoveryKit:
                  backupCredentials=sorted(saved), encrypted=True)
         return {"format": "nixlab-recovery-kit-v1", "encrypted": _b64(serial),
                 "sha256": hashlib.sha256(serial).hexdigest(),
-                "verified": True, "recipient": recipient,
+                "verified": False, "requiresOfflineUnlockVerification": True,
+                "recipient": recipient,
                 "credentialNames": sorted(saved),
                 "note": "Store offline, separate from encrypted project sources; never share the passphrase"}
 
@@ -133,8 +202,10 @@ class RecoveryKit:
         candidate = ns._run(["age-keygen", "-y"], (record["identity"] + "\n").encode()).decode().strip()
         if candidate != record["recipient"]:
             raise ValueError("Recovery identity did not match its recipient")
+        self._prove_unlock(record)
         rt.audit("native-recovery-kit-verified", principal=actor)
-        return {"valid": True, "recipient": record["recipient"],
+        return {"valid": True, "verified": True,
+                "recipient": record["recipient"],
                 "credentialNames": sorted(credentials),
                 "note": "Recovery kit verified in memory; no host files modified"}
 
@@ -146,6 +217,7 @@ class RecoveryKit:
         candidate = ns._run(["age-keygen", "-y"], (record["identity"] + "\n").encode()).decode().strip()
         if candidate != record["recipient"]:
             raise ValueError("Recovery key and recipient mismatch")
+        self._prove_unlock(record)  # Actual SOPS decrypt before touching any persistent credential.
         # Preflight ALL backed-up destinations before modifying anything.
         for label, value in credentials.items():
             target = self.files[label]

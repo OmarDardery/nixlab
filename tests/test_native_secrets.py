@@ -182,6 +182,30 @@ class SecretsTests(unittest.TestCase):
         self.assertEqual(self.store.inventory()["projects"][0]["keys"], ["K"])
         self.assertFalse((self.store.state / "projects" / "example" / "pending.json").exists())
 
+    def test_first_publication_interruption_after_index_is_recoverable(self):
+        self.enrolled()
+        review = self.store.review("admin", "example", "API_TOKEN", "set",
+                                   "must-not-recover-plaintext", None)
+        original = secrets.rt.durable_unlink
+        def crash_after_index(path):
+            if Path(path).name == "pending.json":
+                raise OSError("simulated power loss after ciphertext/index publication")
+            return original(path)
+        with patch.object(secrets.rt, "durable_unlink", side_effect=crash_after_index):
+            with self.assertRaisesRegex(OSError, "simulated power loss"):
+                self.store.publish("admin", review["reviewId"], acknowledge=True)
+        self.assertTrue((self.project / "secrets.enc.yaml").exists())
+        self.assertTrue((self.store.state / "projects" / "example" / "pending.json").exists())
+        restored = self.store.recover("admin", "example")
+        self.assertTrue(restored["recovered"])
+        self.assertIsNone(restored["revision"])
+        self.assertFalse((self.project / "secrets.enc.yaml").exists())
+        inventory = self.store.inventory()["projects"][0]
+        self.assertEqual(inventory["keys"], [])
+        self.assertIsNone(inventory["revision"])
+        self.assertTrue(inventory["indexed"])
+        self.assertNotIn("must-not-recover-plaintext", json.dumps(inventory))
+
     def test_review_token_expiry_is_enforced(self):
         self.enrolled()
         review = self.store.review("admin", "example", "A", "set", "v", None)
@@ -217,6 +241,59 @@ class SecretsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Invalid imported"):
             self.store.review("admin", "example", None, "import",
                               {"INVALID/NAME": "secret"}, result["revision"])
+
+
+
+    def test_recipient_add_remove_and_exact_ciphertext_policy(self):
+        self.enrolled()
+        first_review = self.store.review("admin", "example", "TOKEN", "set", "value", None)
+        first = self.store.publish("admin", first_review["reviewId"], acknowledge=True)
+        new_recipient = "age1" + "p" * 58
+        review = self.store.review("admin", "example", None, "recipients",
+                                   [new_recipient, self.recipient], first["revision"])
+        self.assertEqual(review["recipients"], sorted([new_recipient, self.recipient]))
+        changed = self.store.publish("admin", review["reviewId"], acknowledge=True)
+        self.assertEqual(self.store.inventory()["projects"][0]["recipients"],
+                         sorted([new_recipient, self.recipient]))
+        self.assertIn(new_recipient, (self.project / ".sops.yaml").read_text())
+        self.assertNotEqual(first["revision"], changed["revision"])
+        remove = self.store.review("admin", "example", None, "recipients",
+                                   [self.recipient], changed["revision"])
+        self.store.publish("admin", remove["reviewId"], acknowledge=True)
+        self.assertNotIn(new_recipient, (self.project / ".sops.yaml").read_text())
+        self.assertEqual(self.store.inventory()["projects"][0]["recipients"], [self.recipient])
+        self.assertNotIn("value", (self.project / "secrets.enc.yaml").read_text())
+
+    def test_recipient_rotation_rejects_revoking_host_and_duplicates(self):
+        self.enrolled()
+        first = self.store.review("admin", "example", "A", "set", "v", None)
+        current = self.store.publish("admin", first["reviewId"], acknowledge=True)
+        for recipients in ([], ["age1" + "p" * 58],
+                           [self.recipient, self.recipient], ["not-an-age-recipient"],
+                           "recipient-string"):
+            with self.subTest(recipients=recipients), self.assertRaises(ValueError):
+                self.store.review("admin", "example", None, "recipients",
+                                  recipients, current["revision"])
+
+    def test_recipient_write_interruption_rolls_back_policy_and_ciphertext(self):
+        self.enrolled()
+        first = self.store.review("admin", "example", "A", "set", "initial", None)
+        old = self.store.publish("admin", first["reviewId"], acknowledge=True)
+        candidate = self.store.review("admin", "example", None, "recipients",
+                                      [self.recipient, "age1" + "p" * 58], old["revision"])
+        atom = secrets.rt.atomic
+        def inject(path, data, **kw):
+            if Path(path).name == "secrets.enc.yaml":
+                raise OSError("simulated crash before encrypted data replaced")
+            return atom(path, data, **kw)
+        with patch.object(secrets.rt, "atomic", side_effect=inject):
+            with self.assertRaisesRegex(OSError, "simulated crash"):
+                self.store.publish("admin", candidate["reviewId"], acknowledge=True)
+        self.assertIn("age1" + "p" * 58, (self.project / ".sops.yaml").read_text())
+        result = self.store.recover("admin", "example")
+        self.assertTrue(result["recovered"])
+        self.assertEqual(self.store.inventory()["projects"][0]["revision"], old["revision"])
+        self.assertEqual(self.store.inventory()["projects"][0]["recipients"], [self.recipient])
 
 
 

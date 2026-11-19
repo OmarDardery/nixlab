@@ -211,16 +211,37 @@ class Secrets:
             return None
         return _regular(path, MAX_ENCRYPTED)
 
-    def _policy(self, recipient):
+    def _recipients(self, recipients, host):
+        if (not isinstance(recipients, list) or not 1 <= len(recipients) <= 16
+                or any(not isinstance(value, str) or not RECIPIENT.fullmatch(value)
+                       for value in recipients)
+                or len(recipients) != len(set(recipients)) or host not in recipients):
+            raise ValueError("Age policy must retain the host and use 1–16 unique recipients")
+        return sorted(recipients)
+
+    def _policy(self, recipients):
+        if isinstance(recipients, str):
+            recipients = [recipients]
         return ("creation_rules:\n"
                 "  - path_regex: secrets\\.enc\\.yaml$\n"
-                "    age: " + recipient + "\n").encode()
+                "    age: " + ",".join(sorted(recipients)) + "\n").encode()
 
     def _check_policy(self, project_path, recipient):
         path = project_path / ".sops.yaml"
-        if path.exists() or path.is_symlink():
-            if _regular(path, 8192) != self._policy(recipient):
-                raise ValueError("Recipient policy conflicts with managed project secrets")
+        if not path.exists() and not path.is_symlink():
+            return [recipient]
+        raw = _regular(path, 8192)
+        prefix = b"creation_rules:\n  - path_regex: secrets\\.enc\\.yaml$\n    age: "
+        if not raw.startswith(prefix) or not raw.endswith(b"\n"):
+            raise ValueError("Unrecognized SOPS recipient policy")
+        try:
+            recipients = raw[len(prefix):-1].decode("ascii").split(",")
+        except UnicodeError:
+            raise ValueError("Invalid recipient policy") from None
+        valid = self._recipients(recipients, recipient)
+        if raw != self._policy(valid):
+            raise ValueError("Recipient policy conflicts with managed project secrets")
+        return valid
 
     def _decode(self, ciphertext):
         if ciphertext is None:
@@ -271,7 +292,9 @@ class Secrets:
             digest = _hash(actual) if actual is not None else None
             listed.append({"project": candidate.name, "keys": record["keys"],
                            "revision": digest, "indexed": digest == record.get("revision"),
-                           "secretCount": len(record["keys"])})
+                           "secretCount": len(record["keys"]),
+                           "recipients": self._check_policy(project, status["recipient"])
+                           if status["healthy"] else []})
             if len(listed) > 128:
                 raise ValueError("Too many secret projects")
         return {"identity": status, "projects": listed,
@@ -281,9 +304,16 @@ class Secrets:
         root = self._private_state()
         public = self._identity()
         project_dir = self._project(project)
-        self._check_policy(project_dir, public)
-        if action not in ("set", "delete", "import"):
+        current_recipients = self._check_policy(project_dir, public)
+        if action not in ("set", "delete", "import", "recipients"):
             raise ValueError("Unsupported secret mutation")
+        new_recipients = current_recipients
+        if action == "recipients":
+            if key is not None:
+                raise ValueError("Recipient changes cannot select a secret key")
+            new_recipients = self._recipients(value, public)
+            if new_recipients == current_recipients:
+                raise ValueError("Recipient policy is already current")
         if action == "import":
             if key is not None or not isinstance(value, dict) or not 1 <= len(value) <= 64:
                 raise ValueError("Import requires 1–64 named secrets")
@@ -293,7 +323,7 @@ class Secrets:
                     or "\x00" in text for name, text in value.items())
                     or sum(len(text.encode("utf-8")) for text in value.values()) > MAX_PLAINTEXT):
                 raise ValueError("Invalid imported environment names or values")
-        else:
+        elif action != "recipients":
             if not isinstance(key, str) or not KEY.fullmatch(key):
                 raise ValueError("Invalid secret variable name")
             if action == "set":
@@ -310,6 +340,8 @@ class Secrets:
         index = self._metadata(project)
         if index.get("revision") != base:
             raise ValueError("Secret metadata/source revision drift; recover before editing")
+        if action == "recipients" and existing is None:
+            raise ValueError("Create a project secret before changing recipients")
         values = self._decode(existing)
         if action == "delete":
             if key not in values:
@@ -317,12 +349,12 @@ class Secrets:
             del values[key]
         elif action == "import":
             values.update(value)
-        else:
+        elif action == "set":
             values[key] = value
-        changed_keys = sorted(value) if action == "import" else [key]
+        changed_keys = sorted(value) if action == "import" else ([] if action == "recipients" else [key])
         if len(values) > 128:
             raise ValueError("Too many project secrets")
-        cipher = self._encode(values, public)
+        cipher = self._encode(values, ",".join(new_recipients))
         # Verify the exact ciphertext can be read by the installed identity.
         if self._decode(cipher) != values:
             raise ValueError("SOPS ciphertext verification failed")
@@ -334,17 +366,18 @@ class Secrets:
         rt.write_json(target / "review.json", {
             "id": token, "actor": actor, "project": project, "key": key, "action": action,
             "base": base, "revision": _hash(cipher), "recipient": public,
+            "recipients": new_recipients, "beforeRecipients": current_recipients,
             "keys": sorted(values), "changedKeys": changed_keys,
             "created": time.time(), "expires": time.time() + REVIEW_TTL,
         }, mode=0o600)
         _fsync(target)
         _fsync(drafts)
         rt.audit("native-secret-change-reviewed", principal=actor, project=project,
-                 key=key, action=action, revision=_hash(cipher))
+                 key=key, operation=action, revision=_hash(cipher))
         return {"reviewId": token, "project": project, "key": key, "action": action,
                 "changedKeys": changed_keys,
                 "baseRevision": base, "revision": _hash(cipher), "keys": sorted(values),
-                "requiresApply": True, "note": "Ciphertext review only; no secret delivery or guest restart"}
+                "recipients": new_recipients, "requiresApply": True, "note": "Ciphertext review only; no secret delivery or guest restart"}
 
     def _review(self, actor, token):
         if not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{32}", token):
@@ -370,13 +403,17 @@ class Secrets:
         if public != record.get("recipient"):
             raise ValueError("Age identity changed after review")
         project_dir = self._project(record["project"])
-        self._check_policy(project_dir, public)
+        current_recipients = self._check_policy(project_dir, public)
+        if current_recipients != record.get("beforeRecipients", [public]):
+            raise ValueError("Recipient policy changed after review")
+        new_recipients = self._recipients(record.get("recipients", [public]), public)
         source = self._cipher(project_dir)
         base = _hash(source) if source is not None else None
         if base != record.get("base") or self._metadata(record["project"]).get("revision") != base:
             raise ValueError("Secret ciphertext revision changed; review again")
         self._decode(cipher)  # verify installed identity still decrypts
         index = {"project": record["project"], "keys": record["keys"],
+                 "recipients": new_recipients,
                  "revision": record["revision"], "previous": base,
                  "changedKey": record["key"], "updated": time.time()}
         project_state = _dir(self.state / "projects", private=True, create=True)
@@ -394,11 +431,12 @@ class Secrets:
         if pending.exists() or pending.is_symlink():
             raise ValueError("Unrecovered secret publication; restore before retrying")
         rt.write_json(pending, {"project": record["project"], "before": base,
-                                "after": record["revision"], "reviewId": token}, mode=0o600)
+                                "after": record["revision"], "reviewId": token,
+                                "beforeRecipients": current_recipients,
+                                "afterRecipients": new_recipients}, mode=0o600)
         try:
             policy = project_dir / ".sops.yaml"
-            if not policy.exists() and not policy.is_symlink():
-                rt.atomic(policy, self._policy(public), mode=0o644)
+            rt.atomic(policy, self._policy(new_recipients), mode=0o644)
             rt.atomic(project_dir / "secrets.enc.yaml", cipher, mode=0o600)
             rt.write_json(store / "index.json", index, mode=0o600)
             rt.durable_unlink(pending)
@@ -407,7 +445,7 @@ class Secrets:
             raise
         rt.audit("native-secret-ciphertext-published", principal=actor,
                  project=record["project"], key=record["key"],
-                 action=record["action"], revision=record["revision"])
+                 operation=record["action"], revision=record["revision"])
         return {"project": record["project"], "revision": record["revision"],
                 "previous": base, "published": True, "requiresApply": True,
                 "note": "Ciphertext published; no Incus secret delivery occurred"}
@@ -432,6 +470,14 @@ class Secrets:
         if current_hash not in (record.get("before"), record.get("after")):
             raise ValueError("Secret ciphertext changed since interrupted publication")
         base = record.get("before")
+        recipient = self._identity()
+        previous_recipients = self._recipients(
+            record.get("beforeRecipients", [recipient]), recipient)
+        next_recipients = self._recipients(
+            record.get("afterRecipients", [recipient]), recipient)
+        current_recipients = self._check_policy(self._project(project), recipient)
+        if current_recipients not in (previous_recipients, next_recipients):
+            raise ValueError("Recipient policy changed during secret recovery")
         if current_hash == record.get("after"):
             path = self._project(project) / "secrets.enc.yaml"
             if base is None:
@@ -441,10 +487,12 @@ class Secrets:
                 if _hash(previous) != base:
                     raise ValueError("Previous encrypted revision has changed")
                 rt.atomic(path, previous, mode=0o600)
+        rt.atomic(self._project(project) / ".sops.yaml",
+                  self._policy(previous_recipients), mode=0o644)
         index = self._metadata(project)
         if index.get("revision") == record.get("after"):
-            # Reconstruct metadata from the ciphertext, never expose values.
-            original = self._decode(self._cipher(self._project(project)))
+            # Reconstruct metadata only from the *previous* ciphertext. The
+            # first publication has no prior file; never attempt to decrypt None.
             # This path can be absent after rolling back the first-ever write.
             if base is None:
                 keys = []
@@ -452,7 +500,8 @@ class Secrets:
                 restored = _regular(store / "revisions" / base, MAX_ENCRYPTED, private=True)
                 keys = sorted(self._decode(restored))
             rt.write_json(store / "index.json", {"project": project, "revision": base,
-                          "keys": keys, "recovered": time.time()}, mode=0o600)
+                          "keys": keys, "recipients": previous_recipients,
+                          "recovered": time.time()}, mode=0o600)
         rt.durable_unlink(pending)
         rt.audit("native-secret-publication-recovered", principal=actor, project=project)
         return {"recovered": True, "revision": base,
@@ -470,7 +519,7 @@ class Secrets:
         root = self._private_state()
         recipient = self._identity()
         directory = self._project(project)
-        self._check_policy(directory, recipient)
+        recipients = self._check_policy(directory, recipient)
         cipher = self._cipher(directory)
         if cipher is None:
             raise ValueError("No encrypted project secrets to adopt")
@@ -487,7 +536,7 @@ class Secrets:
                     "revision": digest, "keys": keys}
         rt.write_json(store / "index.json", {
             "project": project, "revision": digest, "keys": keys,
-            "recoveredAt": time.time(),
+            "recipients": recipients, "recoveredAt": time.time(),
         }, mode=0o600)
         rt.audit("native-secrets-ciphertext-reindexed", principal=actor,
                  project=project, revision=digest, count=len(keys))

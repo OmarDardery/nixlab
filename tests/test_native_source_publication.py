@@ -11,6 +11,7 @@ from unittest.mock import patch
 BASE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE / "admin"))
 import native_imports as native
+from oci_source_plan import source_plan
 
 
 def manifest(path, value):
@@ -176,6 +177,28 @@ class SourcePublicationTests(unittest.TestCase):
         meta.symlink_to(self.root / "private-state")
         with self.assertRaises(ValueError):
             self.publisher.inventory()
+
+
+    def test_compose_secret_leak_risks_visible_without_mutating_original(self):
+        original = (
+            b"services:\n"
+            b"  api:\n    image: alpine\n    env_file: .env\n"
+            b"    environment:\n      API_TOKEN: $" + b"{API_TOKEN}\n"
+            b"    secrets: [API_TOKEN]\n"
+            b"secrets:\n  API_TOKEN:\n    file: ./runtime/token\n"
+        )
+        ready = self.stage({"compose.yaml": original})
+        published = self.publish(ready, self.review(ready))
+        plan = source_plan("sample", published["revision"], publisher=self.publisher)
+        self.assertEqual(plan["mode"], "compose")
+        self.assertFalse(plan["canDeploy"])
+        self.assertIn("compose-env-file-may-persist-in-incus-config", plan["blocking"])
+        self.assertIn("compose-secret-environment-may-persist-in-incus-config", plan["blocking"])
+        self.assertIn("compose-secret-grant-not-bound-to-service", plan["blocking"])
+        self.assertNotIn("literal-private-value", str(plan))
+        frozen = (self.publisher.root / "sample" / "revisions" / published["revision"]
+                  / "source" / "compose.yaml")
+        self.assertEqual(frozen.read_bytes(), original)
 
 
 if __name__ == "__main__":

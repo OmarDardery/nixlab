@@ -42,6 +42,48 @@
       # No system, Incus instance or host service is changed by this export.
       lib.evalProjects = import ./lib/project-workspace.nix { lib = nixpkgs.lib; };
       nixlabProjectChecks = self.lib.evalProjects { root = ./tests/project-workspace; };
+      nixlabGuestSecretsChecks = let
+        fragment = import ./lib/project-guest-secrets.nix { lib = nixpkgs.lib; };
+        sample = fragment {
+          project = "alpha";
+          instance = "web";
+          sopsFile = "/srv/nixlab/projects/alpha/secrets.enc.yaml";
+          guestAgeKeyFile = "/var/lib/sops-nix/guest.agekey";
+          bindings = {
+            TOKEN = {
+              instance = "web"; key = "API_TOKEN"; backend = "nixos-sops";
+              destination = "/run/secrets/TOKEN"; restartUnits = [ "web.service" ];
+            };
+            DB = {
+              instance = "database"; key = "DB_PASSWORD"; backend = "nixos-sops";
+              destination = "/run/secrets/DB"; restartUnits = [];
+            };
+          };
+        };
+        rejects = arg: !(builtins.tryEval (builtins.deepSeq (fragment arg) true)).success;
+        args = {
+          project = "alpha"; instance = "web";
+          sopsFile = "/srv/nixlab/projects/alpha/secrets.enc.yaml";
+          guestAgeKeyFile = "/var/lib/sops-nix/guest.agekey";
+          bindings.TOKEN = {
+            instance = "web"; key = "API_TOKEN"; backend = "nixos-sops";
+            destination = "/run/secrets/TOKEN"; restartUnits = [ "web.service" ];
+          };
+        };
+      in {
+        onlyScopedConsumer = builtins.attrNames sample.sops.secrets == [ "TOKEN" ];
+        guestIdentityNotHostMaster = sample.sops.age.keyFile == "/var/lib/sops-nix/guest.agekey";
+        fileOnlyCredentials = sample.sops.secrets.TOKEN.mode == "0400";
+        runtimeCiphertextNoStoreImport = sample.sops.validateSopsFiles == false;
+        explicitGuestKeyOnly = sample.sops.age.generateKey == false
+          && sample.sops.age.sshKeyPaths == []
+          && sample.sops.gnupg.sshKeyPaths == [];
+        guestSecretsUseSystemdActivation = sample.sops.useSystemdActivation == true;
+        declaredRestartOnly = sample.sops.secrets.TOKEN.restartUnits == [ "web.service" ];
+        hostMasterKeyRejected = rejects (args // { guestAgeKeyFile = "/var/lib/nixlab/keys/projects.agekey"; });
+        missingGuestBindingRejected = rejects (args // { instance = "unlisted"; });
+        plaintextSourceRejected = rejects (args // { sopsFile = "/srv/nixlab/alpha/.env"; });
+      };
       nixlabProjectValidationChecks = let
         rejected = root: !(builtins.tryEval
           (builtins.deepSeq (self.lib.evalProjects { inherit root; }) true)).success;
@@ -219,6 +261,8 @@
         management = import ./tests/management-vm.nix { inherit pkgs; };
         clock-readiness = import ./tests/clock-readiness-vm.nix { inherit pkgs; };
         project-evaluator = import ./tests/project-evaluator-vm.nix { inherit pkgs; };
+        secrets-recovery = import ./tests/native-secrets-recovery-vm.nix { inherit pkgs; };
+        guest-sops-activation = import ./tests/native-guest-sops-vm.nix { inherit pkgs sops-nix; };
         installer-runtime = self.packages.x86_64-linux.installer.tests.recovery-guard;
         portal = import ./tests/portal-vm.nix { inherit pkgs; };
         bootstrap-transaction = import ./tests/bootstrap-transaction-vm.nix { inherit pkgs; };

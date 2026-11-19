@@ -11,6 +11,7 @@ import stat
 import time
 
 import runtime as rt
+from native_source_guard import check_source
 
 NAME = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
 ID = re.compile(r"[0-9a-f]{32}\Z")
@@ -375,6 +376,7 @@ class PublishedSources:
                 manifest.get("sourceHash") != revision or sha(files) != revision):
             raise ValueError("Published source manifest differs from reviewed bytes")
         _verified_source(folder / "source", files)
+        check_source(folder / "source", files)
         return {"revision": revision, "fileCount": len(files),
                 "bytes": sum(item["size"] for item in files)}
 
@@ -403,6 +405,7 @@ class PublishedSources:
         if sha(files) != manifest_hash:
             raise ValueError("Source manifest changed after staging")
         _verified_source(directory / "source", files)
+        check_source(directory / "source", files)
         current = self._current(record["project"])
         base = current["revision"] if current else None
         old = {}
@@ -459,6 +462,7 @@ class PublishedSources:
         if sha(files) != revision:
             raise ValueError("Source manifest changed after review")
         _verified_source(directory / "source", files)
+        check_source(directory / "source", files)
         existing = self._current(record["project"])
         base = existing["revision"] if existing else None
         if base != review.get("baseRevision"):
@@ -472,6 +476,7 @@ class PublishedSources:
                     or check_files(metadata.get("files")) != files):
                 raise ValueError("Existing published source revision is untrusted")
             _verified_source(target / "source", files)
+            check_source(target / "source", files)
         else:
             temporary = Path(tempfile.mkdtemp(prefix=".pending-", dir=revisions))
             try:

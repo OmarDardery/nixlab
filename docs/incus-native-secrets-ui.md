@@ -1,6 +1,6 @@
 # NixLab Secrets UI — SOPS/age and sops-nix contract
 
-**Status:** implementation underway in #146. Encrypted Web UI edits, revisioned SOPS ciphertext, age onboarding, local dotenv import, encrypted recovery kits, and source-only publication exist on the feature branch. **Incus/NixOS secret delivery, multi-recipient rekey, backup coverage and independent full-host restore are not yet qualified.** Tracks [#134](https://github.com/OmarDardery/nixlab/issues/134) and the [Incus-native plan](incus-native-plan.md).
+**Status:** #145 documented the threat model; #146 implements the native SOPS broker/UI. Draft follow-up #153 adds original-source plaintext guards, multi-recipient rekey, scoped runtime-file staging, guest-only sops-nix metadata, and real offline-kit SOPS unlock. **#134 is NOT complete:** real Incus Compose runtime delivery and metadata persistence qualification, NixOS guest activation, remain unproven. A new two-NixOS-VM CI test demonstrates independent encrypted-kit restore, a changed SOPS value and a **real systemd consumer restart**; that test is not guest-owned sops-nix activation, Incus Compose runtime qualification, or a physical off-host backup drill. The Incus runtime owner in #133 is still needed. Tracks [#134](https://github.com/OmarDardery/nixlab/issues/134).
 
 ## Decision
 
@@ -34,7 +34,7 @@ Project directories can be Git-synced using **ciphertext only**. `.sops.yaml` co
 - Typed project declarations: explicit `secrets.bindings` with key names, owned instance names, `nixos-sops` versus `incus-file` target type and restricted `/run/secrets/*` destinations; **no values** in evaluation.
 - Source-only operations never restart guests or claim that ciphertext publication is a successful secret rollout.
 
-**Remaining release gates:** NixOS guest-owned key/recipient provisioning and `sops-nix` activation; Incus OCI file-secret delivery through a verified ownership/ETag-aware adapter; multi-recipient rotation; complete encrypted off-host recovery; full-host VM test including a changed variable and confirmed service restart. Keep #134 open until demonstrated. No host private age identity may enter an Incus guest.
+**Remaining release gates:** NixOS guest-owned key/recipient provisioning and actual `sops-nix` activation; Incus OCI file-secret delivery through a verified ownership/ETag-aware adapter; physical/off-host backup and service recovery qualification. Multi-recipient rotation, encrypted kit unlock, and an automated **two-NixOS-VM** source/key restore with changed SOPS variable and a real systemd restart are implemented, but do not qualify Incus runtime delivery. Keep #134 open until demonstrated. No host private age identity may enter an Incus guest.
 
 ## Single Web UI information architecture
 
@@ -62,12 +62,58 @@ All actual secret mutations require an authenticated admin session, CSRF/origin 
 
 The UI itself is not the encryption boundary; the trusted broker/age identity and verified, versioned ciphertext are.
 
+## Follow-up gates: implemented versus qualified
+
+**Implemented but not fully deployed (draft #153):**
+- The isolated Nix evaluator and broker exchange typed ciphertext references, key names, instance ownership, backend, file target and restart intents. They never evaluate secret values.
+- Source publication inspects original byte-exact Dockerfile/Compose content and refuses detected plaintext tokens, credential-bearing URLs, key material and raw .env files with SOPS-import instructions. BuildKit reference-only mounts remain available as source, but the image build plan must reject unsupported features; unsupported Compose build.secrets and build.ssh are refused.
+- Recipient additions/removals are password-reauthenticated and independently approved; host recipient cannot be removed. New SOPS ciphertext uses the revised age recipient list and a recovery journal handles interrupted publication. Revocation of old copies is impossible without retiring previous ciphertext and rotating the actual secret values.
+- Per-workload file staging decrypts after a project/revision/consumer CAS, inside private owner-controlled /run directories with 0400 files, fsync and cleanup on signal/error. The host master age key never enters the guest, Incus environment or builder.
+- A NixOS guest-only sops-nix option fragment references ciphertext and the GUEST's own already-provisioned /var/lib/sops-nix age identity. No host identity is imported; real sops-nix guest activation still requires qualification.
+- The passphrase-encrypted offline kit includes manifest-bound age identity, present restic unlock/environment data and remote tunnel credentials. Export is deliberately NOT marked recovered/protected. Verification actually unlocks SOPS ciphertext through a temporary /run identity; if an encrypted project source exists, it must decrypt too.
+- Source-only OCI previews now classify Compose environment interpolation, env_file and file-secret persistence risks without rewriting original YAML. A temporary broker-owned Compose workspace preserves byte-exact sources and scoped 0400 SOPS files under /run; it never activates Incus or claims runtime qualification.
+- CI boots **two independent NixOS virtual machines**, generating runtime-only credentials on the source VM and verifying encrypted kit restoration on the replacement VM. A real systemd unit consumes a secret before and after its SOPS rotation, with SHA-256-only observations and no secret in the test source or Nix store. The runtime integration is a scoped-file consumer, not an activated sops-nix guest module.
+
+**Blocking production acceptance:**
+- #133 must provide the reviewed, ETag-protected Incus Compose runtime owner and exact version pin. File staging is not equivalent to deployment, and no real Incus config/history persistence audit has yet passed.
+- Upstream Incus Compose supports env_file and interpolation, but injecting credentials into a service environment can persist them in Incus configuration. Deleting the transient .env afterwards does NOT prove safety. A secret-bearing, unmodified env_file: .env or interpolated secret cannot satisfy both no-plaintext-in-environment and ordinary OCI environment semantics. Use reviewed file-secret consumers or fail closed; do not silently weaken policy. See https://incus-compose.org/environment-variables and https://incus-compose.org/compose-compatibility/services.
+- The separate source/replacement NixOS VM recovery test now restores ciphertext and an encrypted offline age/restic kit, rejects a wrong passphrase, changes the SOPS value, starts and restarts a real systemd unit, and checks the unit consumes the changed value without logging it. Guest-local `sops-nix` activation (rather than direct scoped-file reads), wider wrong-key/revocation integration, independent production backup/recovery, and zero-secret-leak audits of all Incus API/history/config surfaces are still required to close #134.
+
 ## Delivery semantics
 
 - **NixOS host and NixOS guests:** use the existing `sops-nix` integration, `sops.age.keyFile`, `sops.secrets.<name>.sopsFile`, secret `key`/runtime `path`, owner/mode and `restartUnits` / `reloadUnits` where appropriate. Secret values never appear in Nix option strings. Guest private keys, if any, have an explicit guest-owned provenance; **never copy the host master key into a guest**.
 - **Incus OCI / Incus Compose:** `sops-nix` does **not** run inside generic OCI images. The NixLab broker decrypts only the approved referenced values for a scoped delivery adapter, into tmpfs/protected files and appropriate guest-owned paths after a verified Incus ownership/identity check. No age private key in the guest. No values in Incus `environment.*`, `user.*`, profiles, device metadata, logs or `incus config show`. Avoid assuming plain environment variables are secret; prefer explicit file-secret consumers. Recheck actual Incus persistence, visibility and cleanup in an integration test before shipping.
 - **Original Compose/Dockerfiles:** preserve byte-exact source and relative paths. An original `env_file: .env` or `${VAR}` reference is mapped, where supported, to a generated *runtime-only* protected file; it must never silently rewrite the original Compose source. Fail closed on unsupported `build.secrets`/`build.ssh` and any case that would expose values in image layers, build args or an Incus-visible environment setting.
 - **Rotation/restart:** updating ciphertext is not the same as applying it. Show intended service restarts, preserve last healthy deployed revision, and require explicit approval. An independent host restore must include SOPS ciphertext **and** the separately retained age identity.
+
+## Pinned Incus Compose secret-persistence preflight (draft #153)
+
+The source-only OCI preview now returns `composeSecretPolicy` with **name/path
+metadata only**, and explicit blockers for `env_file`, secret-bearing service
+`environment`, key interpolation, unbound service-secret grants, unsafe
+relative secret-file paths, and potential persistent guest copies. The upload
+and published YAML remain byte-for-byte unchanged. A static preview is never
+an authorization to deploy.
+
+The upstream [incus-compose secret/config implementation](https://incus-compose.org/compose-compatibility/secrets-and-configs)
+does **not** provide ephemeral Docker-style file mounts: it writes secret
+files into the Incus guest root filesystem **before** the instance starts.
+For some versions, a container's `/run` tmpfs can also hide the file.
+[Incus Compose environment interpolation](https://incus-compose.org/environment-variables)
+can place secret values in an instance's effective configuration. Therefore
+no file-secret route is marked production-qualified merely because the host
+stages it under `/run`. Deleting a source file after `up` also cannot
+remove a copy already stored inside a guest.
+
+**Required future #133/#134 runtime test:** pinned upstream binary and Incus
+version; one workload at a time; exact ETag/owned-instance checks; inspect
+`incus config show --expanded`, API instance/profile/project config, history,
+guest rootfs and mounts, image snapshot/build layers, systemd units and logs
+both before and after apply/restart/rollback. Prove no persisted plaintext,
+verify actual credentials under the declared guest path, and test reboot and
+interrupted apply cleanup. Environment-only images using raw `.env` secrets
+must remain blocked if these guarantees cannot be met without changing their
+original semantics; no silent Compose rewrite or claimed security equivalence.
 
 ## Acceptance tests before enabling secret writes
 
