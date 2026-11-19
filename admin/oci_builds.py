@@ -225,6 +225,13 @@ class OCIBuilds:
         if not identity:
             return {"id": None, "status": "not-started"}
         record = self._record(identity)
+        if record.get("status") in ("queued", "building") and (
+                time.time() - record.get("updatedAt", record["createdAt"]) > 45
+        ):
+            if not rt.worker_active("nixlab-oci-build-" + identity):
+                record.update(status="interrupted", errorCode="worker-interrupted",
+                              updatedAt=time.time())
+                rt.write_json(self._job(identity) / "job.json", record)
         return {k: record.get(k) for k in (
             "id", "project", "revision", "status", "planHash", "createdAt",
             "expires", "intentHash", "services", "artifacts", "errorCode")}
@@ -281,7 +288,7 @@ class OCIBuilds:
             if not resume and time.time() >= record["expires"]:
                 raise ValueError("OCI build review expired; review the source again")
             self.publisher.attest(record["project"], record["revision"])
-            record["status"] = "queued"
+            record.update(status="queued", updatedAt=time.time())
             rt.write_json(self._job(identity) / "job.json", record)
             rt.write_json(self.state / "oci-build-active.json", {"id": identity})
             try:
@@ -313,7 +320,7 @@ class OCIBuilds:
             record = self._record(identity)
             if record["status"] != "queued":
                 raise ValueError("Unapproved OCI build job")
-            record["status"] = "building"
+            record.update(status="building", updatedAt=time.time())
             rt.write_json(self._job(identity) / "job.json", record)
             scratch = None
             try:

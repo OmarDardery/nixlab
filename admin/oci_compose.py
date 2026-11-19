@@ -78,8 +78,8 @@ def _environments(environment):
     for key, value in environment.items():
         if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,79}", key):
             raise ValueError("Invalid environment variable name")
-        if SENSITIVE.search(key) and value is not None:
-            raise ValueError("Potential plaintext secret requires #134 SOPS delivery")
+        if SENSITIVE.search(key):
+            raise ValueError("Secret-like environment variable requires scoped #134 SOPS delivery")
         if value is not None and not isinstance(value, (str, int, float, bool)):
             raise ValueError("Unsupported Compose environment value")
 
@@ -96,6 +96,22 @@ def validate_model(model, *, project, revision, compose_path, files):
         raise ValueError("Invalid source revision")
     if not isinstance(model, dict) or BANNED_TOP.intersection(model):
         raise ValueError("Compose demands unsupported privileged or secret resources")
+    # No external networks, top-level volume driver/host path or arbitrary
+    # Compose extensions may be sent to the privileged Incus adapter.
+    volumes = model.get("volumes") or {}
+    if not isinstance(volumes, dict) or any(
+        not isinstance(name, str) or not NAME.fullmatch(name) or
+        props not in ({}, None)
+        for name, props in volumes.items()
+    ):
+        raise ValueError("Custom storage drivers, external volumes and unsafe volume options are forbidden")
+    networks = model.get("networks") or {}
+    if not isinstance(networks, dict) or any(
+        not isinstance(name, str) or not NAME.fullmatch(name) or
+        props not in ({}, None)
+        for name, props in networks.items()
+    ):
+        raise ValueError("External or customized Compose networks require #133")
     services = model.get("services")
     if not isinstance(services, dict) or not 1 <= len(services) <= MAX_SERVICES:
         raise ValueError("Compose requires 1–16 services")
@@ -108,6 +124,10 @@ def validate_model(model, *, project, revision, compose_path, files):
         if set(data) & BANNED_SERVICE or any(k.startswith("x-") for k in data):
             raise ValueError("Compose service requires forbidden host privileges or runtime secrets")
         _environments(data.get("environment"))
+        ports = data.get("ports") or []
+        if (not isinstance(ports, list) or len(ports) > 32 or
+                any(not isinstance(port, (str, int, dict)) for port in ports)):
+            raise ValueError("Invalid Compose host port exposure")
         named = _volumes(data.get("volumes"))
         if any(not isinstance(v, str) or not NAME.fullmatch(v) for v in named):
             raise ValueError("Unsupported named storage volume")

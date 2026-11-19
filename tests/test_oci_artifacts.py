@@ -55,7 +55,7 @@ def archive(*, bad_layer=False, special=False, corrupted=False):
             item.linkname = "/etc/shadow"
             tar.addfile(item)
     data = buffer.getvalue()
-    return data[:-1024] if corrupted else data
+    return data[:2048] if corrupted else data
 
 
 class OCIArtifactTests(unittest.TestCase):
