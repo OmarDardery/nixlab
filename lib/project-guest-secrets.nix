@@ -34,7 +34,17 @@ else if !isString sopsFile || match ".*secrets\\.enc\\.yaml" sopsFile == null th
 else if !(lib.all (alias: validBinding alias chosen.${alias}) (builtins.attrNames chosen)) then
   throw "Unsafe NixLab guest SOPS consumer"
 else {
+  # Guest ciphertext and the guest-owned identity are provisioned at runtime.
+  # An evaluated Nix path must never import a live secret, or force a
+  # nonexistent first-boot file into the Nix store. The broker owns delivery.
+  sops.validateSopsFiles = false;
+  sops.useSystemdActivation = true;
   sops.age.keyFile = guestAgeKeyFile;
+  sops.age.generateKey = false;
+  # Disable implicit SSH-key fallback: only the reviewed guest identity may
+  # decrypt this project's ciphertext. Never use the host master identity.
+  sops.age.sshKeyPaths = [];
+  sops.gnupg.sshKeyPaths = [];
   sops.secrets = lib.mapAttrs (_: binding: {
     inherit sopsFile;
     key = binding.key;
