@@ -89,3 +89,7 @@ The UI itself is not the encryption boundary; the trusted broker/age identity an
 6. Test off-host restore, rekey and leak prevention; only then mark the #134 gate complete and permit native project deployment requiring secrets.
 
 Useful upstream references: [sops-nix README](https://github.com/Mic92/sops-nix/blob/master/README.md), [SOPS reference](https://getsops.io/docs/reference/), and [age](https://age-encryption.org/).
+
+## Source publication credential guard (incremental)
+
+The source-only importer now rejects Dockerfile `ENV`/`ARG` declarations with credential-bearing names and Compose `environment`/build `args` entries with credential-bearing names during both review and publish. These are **fail-closed guardrails**, not a complete secret scanner. Credentials in arbitrary `RUN` scripts, unusual filenames or dynamically generated content remain unsafe until the isolated OCI builder and full deployment preflight are qualified. No source is rewritten: owners must remove credential-bearing declarations and use the native SOPS UI with explicit scoped runtime-file bindings. Plain `.env` uploads remain blocked. Source-only publication still never deploys or injects a secret.

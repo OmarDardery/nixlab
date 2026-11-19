@@ -403,6 +403,8 @@ class PublishedSources:
         if sha(files) != manifest_hash:
             raise ValueError("Source manifest changed after staging")
         _verified_source(directory / "source", files)
+        import native_source_secrets_guard
+        native_source_secrets_guard.inspect_source(directory / "source", files)
         current = self._current(record["project"])
         base = current["revision"] if current else None
         old = {}
@@ -459,6 +461,8 @@ class PublishedSources:
         if sha(files) != revision:
             raise ValueError("Source manifest changed after review")
         _verified_source(directory / "source", files)
+        import native_source_secrets_guard
+        native_source_secrets_guard.inspect_source(directory / "source", files)
         existing = self._current(record["project"])
         base = existing["revision"] if existing else None
         if base != review.get("baseRevision"):
