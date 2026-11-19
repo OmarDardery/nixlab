@@ -32,6 +32,8 @@ jobs:
         run: |
           nix develop .#secrets-test -c python3 tests/test_native_secrets_crypto.py
           nix develop .#secrets-test -c python3 tests/test_native_recovery_crypto.py
+      - name: Restore offline SOPS kit on separate NixOS VM and restart real service
+        run: nix build .#checks.x86_64-linux.secrets-recovery --no-link -L
       - name: Build and verify one-command update entrypoint
         run: |
           nix run .#update -- --help
