@@ -84,6 +84,35 @@ The UI itself is not the encryption boundary; the trusted broker/age identity an
 - **Original Compose/Dockerfiles:** preserve byte-exact source and relative paths. An original `env_file: .env` or `${VAR}` reference is mapped, where supported, to a generated *runtime-only* protected file; it must never silently rewrite the original Compose source. Fail closed on unsupported `build.secrets`/`build.ssh` and any case that would expose values in image layers, build args or an Incus-visible environment setting.
 - **Rotation/restart:** updating ciphertext is not the same as applying it. Show intended service restarts, preserve last healthy deployed revision, and require explicit approval. An independent host restore must include SOPS ciphertext **and** the separately retained age identity.
 
+## Pinned Incus Compose secret-persistence preflight (draft #153)
+
+The source-only OCI preview now returns `composeSecretPolicy` with **name/path
+metadata only**, and explicit blockers for `env_file`, secret-bearing service
+`environment`, key interpolation, unbound service-secret grants, unsafe
+relative secret-file paths, and potential persistent guest copies. The upload
+and published YAML remain byte-for-byte unchanged. A static preview is never
+an authorization to deploy.
+
+The upstream [incus-compose secret/config implementation](https://incus-compose.org/compose-compatibility/secrets-and-configs)
+does **not** provide ephemeral Docker-style file mounts: it writes secret
+files into the Incus guest root filesystem **before** the instance starts.
+For some versions, a container's `/run` tmpfs can also hide the file.
+[Incus Compose environment interpolation](https://incus-compose.org/environment-variables)
+can place secret values in an instance's effective configuration. Therefore
+no file-secret route is marked production-qualified merely because the host
+stages it under `/run`. Deleting a source file after `up` also cannot
+remove a copy already stored inside a guest.
+
+**Required future #133/#134 runtime test:** pinned upstream binary and Incus
+version; one workload at a time; exact ETag/owned-instance checks; inspect
+`incus config show --expanded`, API instance/profile/project config, history,
+guest rootfs and mounts, image snapshot/build layers, systemd units and logs
+both before and after apply/restart/rollback. Prove no persisted plaintext,
+verify actual credentials under the declared guest path, and test reboot and
+interrupted apply cleanup. Environment-only images using raw `.env` secrets
+must remain blocked if these guarantees cannot be met without changing their
+original semantics; no silent Compose rewrite or claimed security equivalence.
+
 ## Acceptance tests before enabling secret writes
 
 - No plaintext in tracked source, package derivations, Nix store, HTTP GET, browser page/DOM after input clearing, API errors, traces, stdout/stderr, audit, or backup-source snapshots.
