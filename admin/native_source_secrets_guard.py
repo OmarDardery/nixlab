@@ -50,7 +50,7 @@ def _dockerfile(path, raw):
             if CREDENTIAL.search(key):
                 # ARG PASSWORD (without default) is still forbidden: it could
                 # enter the build process and image history at build time.
-                if directive == "ARG" or _literal(value):
+                if directive in ("ARG", "ENV"):
                     raise ValueError(
                         f"Credential-bearing Dockerfile {directive} in {path}; "
                         "use the NixLab SOPS secrets UI and runtime file bindings")
@@ -61,7 +61,7 @@ def _dockerfile(path, raw):
         # Legacy ENV KEY VALUE syntax, where values are not assignment tokens.
         if directive == "ENV" and "=" not in rest:
             parts = rest.split(None, 1)
-            if len(parts) == 2 and CREDENTIAL.search(parts[0]) and _literal(parts[1]):
+            if len(parts) == 2 and CREDENTIAL.search(parts[0]):
                 raise ValueError(
                     f"Credential-bearing Dockerfile ENV in {path}; use SOPS")
 
@@ -86,14 +86,14 @@ def _compose(path, raw):
                 section, indent = key, level
                 continue
             if section is not None and level > indent and CREDENTIAL.search(key):
-                if section == "args" or _literal(value):
+                if section in ("args", "environment"):
                     raise ValueError(
                         f"Credential-bearing Compose {section} in {path}; "
                         "import values into SOPS and use scoped runtime files")
         if section is not None and len(line) - len(line.lstrip()) > indent:
             item = LIST_ITEM.match(line)
             if item and CREDENTIAL.search(item.group(1)):
-                if section == "args" or _literal(item.group(2)):
+                if section in ("args", "environment"):
                     raise ValueError(
                         f"Credential-bearing Compose {section} in {path}; "
                         "use the NixLab SOPS secrets UI")
