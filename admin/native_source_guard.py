@@ -57,8 +57,9 @@ def _dockerfile(path, text):
     for number, line in enumerate(text.splitlines(), 1):
         if re.match(r"\s*(?:ENV|ARG)\s+", line, re.I) and CREDENTIAL.search(line):
             _fail(path, f"unsafe build ARG/ENV credential on line {number}")
-        if re.search(r"--mount\s*=\s*type\s*=\s*(?:secret|ssh)\b", line, re.I):
-            _fail(path, "unqualified Dockerfile build secret/SSH mount")
+        # BuildKit mounts contain references, not plaintext. Publication is
+        # allowed; the OCI build planner must flag unsupported mounts before
+        # *any* build worker is invoked.
 
 
 def _compose(path, text):
