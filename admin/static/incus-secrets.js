@@ -115,7 +115,7 @@ function nativeSecretsPanel() {
     (identity.healthy
       ? '<label class="field"><span>Recovery passphrase (16+ characters)</span><input id="native-recovery-export-passphrase" type="password" autocomplete="new-password"></label>' +
         '<label class="field"><span>Repeat passphrase</span><input id="native-recovery-export-confirm" type="password" autocomplete="new-password"></label>' +
-        '<label><input type="checkbox" id="native-recovery-backup"> Include present restic unlock/remote credential files</label>' +
+        '<label><input type="checkbox" id="native-recovery-backup" checked> Include present restic unlock/remote credential files (recommended for independent restore)</label>' +
         '<label class="field"><span>Administrator password</span><input id="native-recovery-export-admin" type="password" autocomplete="current-password"></label>' +
         '<button type="button" id="native-recovery-export"' + (v.busy ? " disabled" : "") +
         '>Download encrypted recovery kit</button>'
