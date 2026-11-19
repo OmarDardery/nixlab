@@ -178,8 +178,13 @@ def main(argv):
 if __name__ == "__main__":
     try:
         main(sys.argv[1:])
-    except Exception:
-        # Do not expose potentially secret Dockerfile/Compose values in logs.
-        print("Isolated OCI operation refused; inspect the reviewed source and policy",
-              file=sys.stderr)
+    except Exception as exc:
+        # VM fixtures contain no user data or secrets. Production never prints
+        # parser exception details or untrusted Compose/Dockerfile contents.
+        if os.environ.get("NIXLAB_OCI_VM_TEST") == "1":
+            print("OCI-VM-CHILD-FAILURE: " + type(exc).__name__ + ": " + str(exc),
+                  file=sys.stderr)
+        else:
+            print("Isolated OCI operation refused; inspect the reviewed source and policy",
+                  file=sys.stderr)
         sys.exit(1)

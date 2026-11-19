@@ -179,6 +179,7 @@ def _sandbox_command(workspace, mode):
         "--setenv", "NIXLAB_OCI_PATH", os.environ.get("NIXLAB_OCI_PATH", ""),
         "--setenv", "NIXLAB_OCI_COMPOSE_BIN", compose,
         "--setenv", "NIXLAB_OCI_BUILDAH_BIN", buildah,
+        *(["--setenv", "NIXLAB_OCI_VM_TEST", "1"] if os.environ.get("NIXLAB_OCI_VM_TEST") == "1" else []),
         pins["python"], pins["worker"], mode,
         "/work/intent.json",
     ]
