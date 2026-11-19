@@ -183,7 +183,7 @@ class SourcePublicationTests(unittest.TestCase):
         original = (
             b"services:\n"
             b"  api:\n    image: alpine\n    env_file: .env\n"
-            b"    environment:\n      API_TOKEN: \u0024{API_TOKEN}\n"
+            b"    environment:\n      API_TOKEN: $" + b"{API_TOKEN}\n"
             b"    secrets: [API_TOKEN]\n"
             b"secrets:\n  API_TOKEN:\n    file: ./runtime/token\n"
         )
