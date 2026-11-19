@@ -155,11 +155,32 @@ def validate_inventory(raw):
             type(res["cpus"]) is not int or not 1 <= res["cpus"] <= 128 or
             not isinstance(res["memory"], str) or not MEMORY.fullmatch(res["memory"])):
             raise ValueError("Invalid bounded project resources")
-        if (not isinstance(p["secrets"], dict) or set(p["secrets"]) != {"file"} or
-            (p["secrets"]["file"] is not None and (
-                not isinstance(p["secrets"]["file"], str) or
-                any(part in ("", ".", "..") for part in p["secrets"]["file"].split("/"))))):
+        secret = p["secrets"]
+        if (not isinstance(secret, dict) or set(secret) != {"file", "bindings"}
+                or (secret["file"] is not None and (
+                    not isinstance(secret["file"], str) or
+                    any(part in ("", ".", "..") for part in secret["file"].split("/"))))
+                or not isinstance(secret["bindings"], dict) or len(secret["bindings"]) > 128
+                or (secret["bindings"] and secret["file"] is None)):
             raise ValueError("Invalid encrypted secret reference")
+        for binding_name, binding in secret["bindings"].items():
+            if (not isinstance(binding_name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", binding_name)
+                    or not isinstance(binding, dict)
+                    or set(binding) != {"key", "instance", "backend", "destination", "restartUnits"}
+                    or not isinstance(binding["key"], str)
+                    or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", binding["key"])
+                    or not isinstance(binding["instance"], str)
+                    or not NAME.fullmatch(binding["instance"])
+                    or binding["backend"] not in ("nixos-sops", "incus-file")
+                    or not isinstance(binding["destination"], str)
+                    or not re.fullmatch(r"/run/secrets/[A-Za-z_][A-Za-z0-9_/-]*", binding["destination"])
+                    or ".." in binding["destination"].split("/")
+                    or not isinstance(binding["restartUnits"], list)
+                    or len(binding["restartUnits"]) > 64
+                    or any(not isinstance(unit, str) or
+                           not re.fullmatch(r"[A-Za-z0-9_.@-]+\\.service", unit)
+                           for unit in binding["restartUnits"])):
+                raise ValueError("Invalid typed secret consumer reference")
         if (not isinstance(p["backup"], dict) or set(p["backup"]) != {"enable", "consistency"} or
             type(p["backup"]["enable"]) is not bool or p["backup"]["consistency"] not in ("stop", "quiesce", "none")):
             raise ValueError("Invalid project backup policy")
