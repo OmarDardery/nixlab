@@ -15,6 +15,7 @@ import native_imports
 import runtime as rt
 import oci_builds
 
+os.environ["NIXLAB_OCI_VM_TEST"] = "1"
 Path(os.environ["NIXLAB_STATE"]).mkdir(mode=0o700, exist_ok=True)
 stage = native_imports.ImportStaging()
 published = native_imports.PublishedSources()

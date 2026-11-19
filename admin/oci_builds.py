@@ -201,9 +201,10 @@ def _run_sandbox(workspace, mode, identity):
         "--property=PrivateDevices=yes",
         "--property=ProtectHome=yes",
         "--property=ProtectSystem=strict",
-        "--property=ProtectKernelTunables=yes",
-        "--property=ProtectKernelModules=yes",
-        "--property=ProtectKernelLogs=yes",
+        # Do not mask/overmount files inside the outer /proc: doing so makes
+        # the unprivileged inner user namespace's fresh proc mount fail with
+        # VFS "Mount too revealing". Inner bwrap installs its own fresh /proc
+        # and the builder never sees a host /proc or real UID privileges.
         "--property=ProtectControlGroups=yes",
         "--property=RestrictSUIDSGID=yes",
         "--property=LockPersonality=yes",
@@ -219,6 +220,11 @@ def _run_sandbox(workspace, mode, identity):
     ] + cmd
     result = subprocess.run(sandbox, capture_output=True, timeout=130 if mode == "inspect" else 1830)
     if result.returncode:
+        if os.environ.get("NIXLAB_OCI_VM_TEST") == "1":
+            # VM fixture has no user-uploaded content or secrets. This switch
+            # must never be enabled in the production root broker.
+            print("OCI-VM-SANDBOX-STDERR:", result.stderr[-1400:].decode(errors="replace"),
+                  file=sys.stderr)
         raise ValueError("Isolated OCI validation/build failed; source was not deployed")
 
 
