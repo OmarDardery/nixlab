@@ -211,16 +211,37 @@ class Secrets:
             return None
         return _regular(path, MAX_ENCRYPTED)
 
-    def _policy(self, recipient):
+    def _recipients(self, recipients, host):
+        if (not isinstance(recipients, list) or not 1 <= len(recipients) <= 16
+                or any(not isinstance(value, str) or not RECIPIENT.fullmatch(value)
+                       for value in recipients)
+                or len(recipients) != len(set(recipients)) or host not in recipients):
+            raise ValueError("Age policy must retain the host and use 1–16 unique recipients")
+        return sorted(recipients)
+
+    def _policy(self, recipients):
+        if isinstance(recipients, str):
+            recipients = [recipients]
         return ("creation_rules:\n"
                 "  - path_regex: secrets\\.enc\\.yaml$\n"
-                "    age: " + recipient + "\n").encode()
+                "    age: " + ",".join(sorted(recipients)) + "\n").encode()
 
     def _check_policy(self, project_path, recipient):
         path = project_path / ".sops.yaml"
-        if path.exists() or path.is_symlink():
-            if _regular(path, 8192) != self._policy(recipient):
-                raise ValueError("Recipient policy conflicts with managed project secrets")
+        if not path.exists() and not path.is_symlink():
+            return [recipient]
+        raw = _regular(path, 8192)
+        prefix = b"creation_rules:\n  - path_regex: secrets\\.enc\\.yaml$\n    age: "
+        if not raw.startswith(prefix) or not raw.endswith(b"\n"):
+            raise ValueError("Unrecognized SOPS recipient policy")
+        try:
+            recipients = raw[len(prefix):-1].decode("ascii").split(",")
+        except UnicodeError:
+            raise ValueError("Invalid recipient policy") from None
+        valid = self._recipients(recipients, recipient)
+        if raw != self._policy(valid):
+            raise ValueError("Recipient policy conflicts with managed project secrets")
+        return valid
 
     def _decode(self, ciphertext):
         if ciphertext is None:
