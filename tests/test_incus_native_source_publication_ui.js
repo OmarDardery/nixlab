@@ -8,10 +8,21 @@ const code = fs.readFileSync(path.join(__dirname, "../admin/static/incus-project
 const fields = {
   "native-publish-password": {value: "current-admin-password"},
   "native-publish-ack": {checked: false},
+  "native-nix-path": {value: "alpha/default.nix"},
+  "native-nix-editor": {value: "{ ... }: { nixlab.project.resources.cpus = 3; }"},
+  "native-nix-password": {value: "admin-password"},
+  "native-nix-ack": {checked: false},
+  "native-nix-linked-source": {value: "alpha"},
+  "native-nix-linked-revision": {value: "f".repeat(64)},
+  "native-workspace-flake": {value: "{ outputs = { self }: {}; }"},
+  "native-workspace-lock": {value: '{"version":7,"root":"root","nodes":{"root":{}}}'},
+  "native-workspace-password": {value: "admin-password"},
+  "native-workspace-ack": {checked: false},
 };
 const calls = [];
 const context = vm.createContext({
-  document: {getElementById: id => fields[id] || null},
+  document: {getElementById: id => fields[id] || null, querySelector: selector => fields[selector.slice(1)] || null},
+  TextEncoder,
   console,
 });
 vm.runInContext(code, context);
@@ -32,6 +43,14 @@ context.api = async (route, payload) => {
   if (route === "project-import/publish") {
     return {project: "hello-world", status: "published", revision: "b".repeat(64),
       previous: null, noChange: false};
+  }
+  if (route === "project-import/plan") {
+    return {project: "hello-world", revision: "b".repeat(64), mode: "dockerfile",
+      entrypoint: "Dockerfile", buildContextHash: "b".repeat(64),
+      buildIdentity: "a".repeat(64), canBuild: false, canDeploy: false,
+      blocking: ["isolated-oci-builder-not-qualified"],
+      generatedCompose: 'services:\\n  app:\\n    image: "localhost/nixlab-hello-world:bbbb"\\n',
+      sourceFiles: [{path: "Dockerfile", sha256: "c".repeat(64)}]};
   }
   throw Error("Unexpected API operation: " + route);
 };
@@ -79,6 +98,90 @@ async function main() {
   assert.match(html, /No build or Incus change occurred/);
   assert.ok(!calls.some(call => /deploy|build|incus/.test(call.route)),
     "Source-only actions must not call deployment or an OCI builder");
-  console.log("Native source publication UI checks passed: review, reauth, explicit acknowledgment, inert source");
+  await evaluate("nativeInspectOCIPlan()");
+  const inspected = calls.at(-1);
+  assert.equal(inspected.route, "project-import/plan");
+  assert.equal(inspected.payload.revision, "b".repeat(64));
+  const preview = evaluate("nativeProjectPage()");
+  assert.match(preview, /Generated launch manifest/);
+  assert.match(preview, /isolated-oci-builder-not-qualified/);
+  assert.ok(!calls.some(call => /deploy|build|incus/.test(call.route)),
+    "Plan inspection is still inert: no builder or Incus invocation");
+
+  // Independent Nix changes use the same authenticated API, but a DIFFERENT
+  // transaction than raw Dockerfile/Compose source publication.
+  context.api = async (route, payload) => {
+    calls.push({route, payload});
+    if (route === "project/status") return {
+      id: "d".repeat(32), planHash: "e".repeat(64), status: "ready", changes: [],
+      candidateHash: "f".repeat(64), runtimeActions: []
+    };
+    if (route === "project/review") return {
+      id: "d".repeat(32), planHash: "e".repeat(64), status: "ready", changes: [
+        {path: "alpha/default.nix", operation: "update"}
+      ], candidateHash: "f".repeat(64), runtimeActions: []
+    };
+    if (route === "project/publish") return {
+      id: payload.id, planHash: payload.planHash, status: "published-source",
+      changes: [], candidateHash: "f".repeat(64), sourceOnly: true, runtimeActions: []
+    };
+    if (route === "project/deploy") return {
+      id: payload.id, planHash: payload.planHash, status: "published-source",
+      deployment: "queued", changes: [], candidateHash: "f".repeat(64),
+      sourceOnly: true, runtimeActions: []
+    };
+    throw Error("Unexpected project transaction request: " + route);
+  };
+  evaluate("nativePersistedSource.loaded = true; nativePersistedSource.value = {available: true, projects: [{name:'alpha'}]}");
+  await evaluate('nativeProjectTransaction("review")');
+  assert.equal(calls.filter(x => x.route === "project/review").length, 0,
+    "Review must require explicit acknowledgment");
+  fields["native-nix-ack"].checked = true;
+  fields["native-nix-password"].value = "admin-password";
+  await evaluate('nativeProjectTransaction("review")');
+  const reviewed = calls.at(-1);
+  assert.equal(reviewed.route, "project/review");
+  assert.equal(reviewed.payload.current, "admin-password");
+  assert.equal(reviewed.payload.acknowledgePrivilegedNix, true);
+  assert.equal(reviewed.payload.changes["alpha/default.nix"],
+    "{ ... }: { nixlab.project.resources.cpus = 3; }");
+  assert.equal(reviewed.payload.sourceRevisions.alpha, "f".repeat(64),
+    "Exact private OCI revision digest must enter the approved project review");
+  html = evaluate("nativeProjectPage()");
+  assert.match(html, /Publish reviewed source/);
+  fields["native-nix-password"].value = "admin-password";
+  await evaluate('nativeProjectTransaction("publish")');
+  assert.equal(calls.at(-1).route, "project/publish");
+  assert.equal(calls.at(-1).payload.planHash, "e".repeat(64));
+  fields["native-nix-password"].value = "admin-password";
+  await evaluate('nativeProjectTransaction("deploy")');
+  assert.equal(calls.at(-1).route, "project/deploy");
+  assert.equal(calls.at(-1).payload.id, "d".repeat(32));
+  await evaluate("nativeRefreshProjectTransaction()");
+  assert.equal(evaluate("nativeProjectTx.record.status"), "ready",
+    "Refresh must keep the active transaction instead of discarding it");
+
+
+  // First-run initialization is a separate, reauthenticated operation; no
+  // project Nix or uploaded Dockerfile executes when staging/restoring source.
+  evaluate("nativePersistedSource.loaded = true; nativePersistedSource.value = {available:false,reason:'not-configured'}");
+  assert.match(evaluate("nativeProjectPage()"), /Initialize project workspace/);
+  await evaluate("nativeInitializeWorkspace()");
+  assert.equal(calls.some(call => call.route === "project/initialize"), false,
+    "No workspace mutation without explicit approval");
+  fields["native-workspace-ack"].checked = true;
+  context.api = async (route, payload) => {
+    calls.push({route, payload});
+    if (route === "project/initialize") return {available: true, sourceHash: "a".repeat(64)};
+    throw Error("Unexpected endpoint: " + route);
+  };
+  await evaluate("nativeInitializeWorkspace()");
+  const initialized = calls.at(-1);
+  assert.equal(initialized.route, "project/initialize");
+  assert.equal(initialized.payload.current, "admin-password");
+  assert.equal(initialized.payload.acknowledgePrivilegedNix, true);
+  assert.equal(evaluate("nativePersistedSource.loaded"), false,
+    "Successful initialization must refresh the persisted inventory");
+    console.log("Native source and Nix transaction UI: explicit review, reauth, source/data separation, publish/deploy and refresh passed");
 }
 main().catch(error => {console.error(error); process.exitCode = 1;});

@@ -27,6 +27,7 @@ STATUSES = {'passed', 'failed', 'skipped', 'unsupported', 'unknown'}
 SCOPES = {'physical-host', 'virtual-machine', 'container', 'unknown'}
 TYPES = {'automated-probe', 'manual-attestation'}
 CHECKS = {
+    'clock': 'Plausible synchronized host clock at evidence collection',
     'management': 'Local management endpoints and service health',
     'kvm': 'Usable KVM API',
     'container': 'Running unprivileged Incus container',
@@ -39,7 +40,7 @@ CHECKS = {
     'offhost-restore': 'Independent off-host restore with verified application data',
     'hardware-reconnect': 'Configured physical device disconnect/reconnect',
 }
-AUTOMATIC = {'management', 'kvm', 'container', 'apps-vm', 'apps-auth'}
+AUTOMATIC = {'clock', 'management', 'kvm', 'container', 'apps-vm', 'apps-auth'}
 MANUAL = set(CHECKS) - AUTOMATIC
 CONTEXT_FIELDS = {'revision', 'version', 'sourceDigest', 'inputsDigest', 'settingsDigest',
                   'system', 'kernel', 'incus', 'hardwareDigest', 'scope', 'architecture',
@@ -181,6 +182,17 @@ def collect(report, ctx, settings):
         if ctx['apps']: units.append('nixlab-apps-onboarding.service')
         return command(['systemctl', 'is-active', *units]).splitlines() == ['active'] * len(units)
 
+    def clock():
+        # The existing doctor/portal check warns during ordinary operation.
+        # Release evidence, however, must never be qualified by an untrusted
+        # local timestamp. Do not block guests or invalidate browser sessions.
+        state = diagnostics.clock_status()['state']
+        if state == 'synchronized':
+            return True
+        if state == 'invalid-clock':
+            return False
+        raise ValueError('Clock synchronization is not confirmed')
+
     def kvm():
         with open('/dev/kvm', 'r+b', buffering=0) as device:
             return fcntl.ioctl(device, 0xAE00, 0) == 12
@@ -202,7 +214,7 @@ def collect(report, ctx, settings):
         # Use existing credentials only; never reset/enroll anything during collection.
         return arcane.authentication_ready(settings)
 
-    probes = {'management': management, 'kvm': kvm, 'container': container,
+    probes = {'clock': clock, 'management': management, 'kvm': kvm, 'container': container,
               'apps-vm': apps_vm, 'apps-auth': apps_auth}
     for check, probe in probes.items():
         if check.startswith('apps-') and not ctx['apps']:

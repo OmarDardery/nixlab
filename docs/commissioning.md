@@ -6,6 +6,17 @@ mode, CPU, NICs, disks, exact source revision, results and relevant redacted log
 
 ## Record evidence
 
+**Clock qualification:** `sudo nixlab doctor` and the portal's Operations
+health panel distinguish `synchronized`, `plausible-but-unsynchronized` and
+`invalid-clock`. A new `clock` automated commissioning check passes only
+when the host reports a plausible, synchronized clock. Missing or outdated clock
+evidence prevents a `ready-for-review` result, including for older reports that
+lack the check. Re-run `collect` after fixing time synchronization; never
+manually attest a clock probe. Losing NTP briefly does not stop guests or
+invalidate existing logins, but does make new qualification timestamps
+unreliable. Check host time, `timedatectl`, NTP, DNS and network reachability.
+
+
 Routine collection runs fixed, bounded read-only probes; it never installs an app,
 reboots, stops a guest, exports data or runs a disruptive test. It checks local
 management, the KVM ioctl, a running unprivileged container and (when enabled) the

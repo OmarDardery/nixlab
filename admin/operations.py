@@ -83,6 +83,8 @@ def check_config_idle(state):
     job = rt.read_job_record(state / 'jobs' / active.get('id', '-') / 'job.json', {})
     if rt.read_json(state / 'pending.json') or job.get('status') in ('building', 'applying', 'awaiting-confirmation', 'rolling-back'):
         raise ValueError('Finish the configuration transaction before changing guest state')
+    if rt.read_json(state / 'project-deploy-active.json', {}).get('id'):
+        raise ValueError('Finish or recover the project deployment before changing guest state')
 
 
 class Operations:

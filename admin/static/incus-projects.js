@@ -2,17 +2,22 @@
 
 // Phase-1 Incus-native project view. Local source previews do NOT upload,
 // execute, or deploy files. All privileged operations require a later broker.
-const nativeSourcePreflight = {files: [], error: "", scanning: false};
+const nativeSourcePreflight = {files: [], error: "", scanning: false, archive: false};
 let nativeSelectedFiles = [];
 let nativePreviewSerial = 0;
 const nativeSourceEditor = {path: "", text: "", error: ""};
 const NATIVE_MAX_EDIT_BYTES = 1024 * 1024;
 const nativeImportState = {busy: false, result: null, review: null, published: null, error: ""};
 const nativePublishedInventory = {loaded: false, loading: false, projects: [], error: ""};
+const nativeOCIPlan = {busy: false, record: null, error: ""};
 const nativePersistedSource = {loaded: false, loading: false, value: null};
-const NATIVE_MAX_FILES = 64;
-const NATIVE_MAX_BYTES = 32 * 1024 * 1024;
-const NATIVE_MAX_FILE_BYTES = 8 * 1024 * 1024;
+const nativeProjectTx = {loaded: false, loading: false, busy: false, record: null, error: "",
+                         path: "", source: "", linkedSource: "", linkedRevision: ""};
+const nativeWorkspaceInit = {busy: false, error: "", initialized: false};
+const NATIVE_MAX_FILES = 256;
+const NATIVE_MAX_BYTES = 128 * 1024 * 1024;
+const NATIVE_MAX_FILE_BYTES = 64 * 1024 * 1024;
+const NATIVE_MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
 
 function nativeSourcePath(file) {
   const name = file.webkitRelativePath || file.name;
@@ -74,6 +79,23 @@ function nativeProjectPage() {
       '</code> (manifest <code>' + esc(nativeImportState.result.manifestHash) +
       '</code>). No OCI build or Incus deployment has run.</p>'
     : '<p class="note">Select files and reauthenticate to stage a private import without running code.</p>';
+  const oci = nativeOCIPlan.record;
+  const planPanel = nativeImportState.published
+    ? '<p>The original files remain immutable. Inspect the source-qualified build intent before any OCI work is approved.</p>' +
+      '<button type="button" id="native-oci-plan"' + (nativeOCIPlan.busy ? ' disabled' : '') + '>Inspect immutable OCI build plan</button>' +
+      (nativeOCIPlan.error ? '<p role="alert" class="error">' + esc(nativeOCIPlan.error) + '</p>' : '') +
+      (oci ? '<p>Mode: <code>' + esc(oci.mode) + '</code> · context digest <code>' + esc(oci.buildContextHash) +
+        '</code> · image identity <code>' + esc(oci.buildIdentity) + '</code></p>' +
+        '<p>Entrypoint: <code>' + esc(oci.entrypoint || 'not selected') + '</code></p>' +
+        (oci.generatedCompose ? '<p>Generated launch manifest (separate from original source; read-only)</p><pre>' +
+          esc(oci.generatedCompose) + '</pre>' : '') +
+        '<p>Build/deploy blocked until:</p><ul>' +
+        (oci.blocking || []).map(reason => '<li>' + esc(reason) + '</li>').join('') + '</ul>' +
+        '<div class="table-wrap"><table><thead><tr><th>Source file</th><th>SHA-256</th></tr></thead><tbody>' +
+        (oci.sourceFiles || []).map(file => '<tr><td><code>' + esc(file.path) +
+          '</code></td><td><code>' + esc(file.sha256) + '</code></td></tr>').join('') +
+        '</tbody></table></div>' : '')
+    : '<p>Publish a reviewed source revision to inspect a build plan. No build or Incus change occurs.</p>';
   const published = nativePublishedInventory.loading
     ? '<p>Loading published source revisions…</p>'
     : nativePublishedInventory.error
@@ -106,14 +128,21 @@ function nativeProjectPage() {
         ? '<button type="button" id="native-review-source"' + (nativeImportState.busy ? ' disabled' : '') +
           '>Review source publication</button>'
         : '<p class="note">Stage files first, then review the immutable revision before publication.</p>';
-  const manifest = nativeSourcePreflight.files.length
+  const reviewedFiles = nativeImportState.result?.entries || nativeSourcePreflight.files;
+  const manifest = reviewedFiles.length
     ? '<div class="table-wrap"><table><thead><tr><th>Original path</th><th>Bytes</th><th>SHA-256</th><th>Optional edit</th></tr></thead><tbody>' +
-      nativeSourcePreflight.files.map(f => '<tr><td><code>' + esc(f.path) + '</code></td><td>' +
+      reviewedFiles.map(f => '<tr><td><code>' + esc(f.path) + '</code></td><td>' +
         esc(f.size) + '</td><td><code>' + esc(f.sha256) + '</code></td><td>' +
         '<button type="button" data-native-edit="' + esc(f.path) + '"' +
-        (nativeImportState.busy || nativeSourcePreflight.scanning || f.size > NATIVE_MAX_EDIT_BYTES ? ' disabled' : '') +
+        (nativeImportState.busy || nativeImportState.result || nativeSourcePreflight.scanning || nativeSourcePreflight.archive || f.size > NATIVE_MAX_EDIT_BYTES ? ' disabled' : '') +
         '>Edit text</button></td></tr>').join("") +
-      '</tbody></table></div><p class="note">Original file bytes are preserved unless you explicitly save a text edit. Files are local to this browser until staging.</p>'
+      '</tbody></table></div><p class="note">' +
+      (nativeImportState.result?.expandedFromArchive
+        ? 'Archive entries were verified by the root broker. Source files are now frozen for reviewed publication.'
+        : nativeSourcePreflight.archive
+        ? 'Archive members are validated and shown with per-file SHA-256 hashes after private server-side extraction; archive entries cannot be edited here.'
+        : 'Original file bytes are preserved unless you explicitly save a text edit. Files are local to this browser until staging.') +
+      '</p>'
     : '<p class="note">Selection stays in your browser. No file contents are sent to NixLab.</p>';
   const editor = nativeSourceEditor.path
     ? '<section><h3>Optional text edit: <code>' + esc(nativeSourceEditor.path) + '</code></h3>' +
@@ -125,17 +154,67 @@ function nativeProjectPage() {
     : '';
   const editorError = nativeSourceEditor.error
     ? '<p role="alert" class="error">' + esc(nativeSourceEditor.error) + '</p>' : '';
-  return title("INCUS WORKSPACE", "Projects", "Observe Incus resources and inspect source before a future reviewed import.") +
+  const transaction = nativeProjectTx.record || {};
+  const isReviewed = transaction.status === "ready";
+  const isPublished = transaction.status === "published-source";
+  const hasTransaction = !!transaction.id;
+  const scope = (transaction.runtimeActions || []).map(item =>
+    '<p><code>' + esc(item.project + '/' + item.name) + '</code>: ' +
+    esc(item.action) + ' · ' + esc(JSON.stringify(item.before)) + ' → ' +
+    esc(JSON.stringify(item.after)) + (item.potentialDisruption ? ' (possible interruption)' : '') +
+    '</p>').join("");
+  const initPanel = nativePersistedSource.loaded && !persisted?.available
+    ? '<p>Restore a pinned flake.nix and flake.lock from your Git backup to initialize this machine. Their bytes are verified as private NixLab workspace source; no uploaded Nix code is evaluated during initialization.</p>' +
+      '<label class="field"><span>Restored flake.nix</span><textarea id="native-workspace-flake" rows="6" spellcheck="false" placeholder="Paste exact backed-up flake.nix"></textarea></label>' +
+      '<label class="field"><span>Restored flake.lock (JSON)</span><textarea id="native-workspace-lock" rows="5" spellcheck="false" placeholder="Paste exact pinned flake.lock"></textarea></label>' +
+      '<label class="field"><span>Current administrator password</span><input type="password" id="native-workspace-password" autocomplete="current-password"></label>' +
+      '<label><input type="checkbox" id="native-workspace-ack"> Initialize the root-owned workspace from these pinned source files</label>' +
+      '<button type="button" id="native-workspace-init"' + (nativeWorkspaceInit.busy ? ' disabled' : '') + '>Initialize project workspace</button>' +
+      (nativeWorkspaceInit.error ? '<p role="alert" class="error">' + esc(nativeWorkspaceInit.error) + '</p>' : '')
+    : '';
+  const txPanel =
+    '<p>Review a full Nix module as an independent project revision. Source changes never rebuild NixOS. Deployment only supports already-owned native Incus guest CPU/memory limits until full reconciliation is implemented.</p>' +
+    '<label class="field"><span>Relative workspace Nix file (for example: alpha/default.nix)</span><input id="native-nix-path" type="text" spellcheck="false" value="' +
+    esc(nativeProjectTx.path) + '" placeholder="alpha/default.nix"></label>' +
+    '<label class="field"><span>Complete Nix file content</span><textarea id="native-nix-editor" rows="9" spellcheck="false">' +
+    esc(nativeProjectTx.source) + '</textarea></label>' +
+    '<label class="field"><span>Linked published source project (optional)</span><input id="native-nix-linked-source" type="text" placeholder="app-name" value="' +
+    esc(nativeProjectTx.linkedSource) + '"></label>' +
+    '<label class="field"><span>Exact published source revision SHA-256 (optional; original bytes stay private)</span><input id="native-nix-linked-revision" type="text" maxlength="64" value="' +
+    esc(nativeProjectTx.linkedRevision) + '"></label>' +
+    '<label class="field"><span>Current administrator password (required separately for every operation)</span><input id="native-nix-password" type="password" autocomplete="current-password"></label>' +
+    '<label><input id="native-nix-ack" type="checkbox"> I approve the reviewed privileged project Nix change and possible service impact</label>' +
+    '<button type="button" id="native-nix-review"' + (nativeProjectTx.busy ? ' disabled' : '') + '>Review exact project revision</button> ' +
+    '<button type="button" id="native-nix-refresh">Refresh transaction</button>' +
+    (nativeProjectTx.error ? '<p role="alert" class="error">' + esc(nativeProjectTx.error) + '</p>' : '') +
+    (hasTransaction ? '<section aria-live="polite"><h3>Transaction: ' + esc(transaction.status) + '</h3>' +
+      '<p>ID <code>' + esc(transaction.id) + '</code> · SHA-256 candidate <code>' + esc(transaction.candidateHash) +
+      '</code> · plan <code>' + esc(transaction.planHash) + '</code></p>' +
+      '<p>Source only: ' + (transaction.sourceOnly ? 'yes' : 'no') +
+      ' · Deployment: ' + esc(transaction.deployment || 'not-started') + '</p>' +
+      (transaction.changes || []).map(item =>
+        '<p>' + esc(item.operation) + ': <code>' + esc(item.path) + '</code></p>').join("") + scope +
+      (isReviewed ? '<button type="button" data-native-nix-action="publish">Publish reviewed source</button> ' +
+        '<button type="button" data-native-nix-action="cancel">Cancel review</button>' : '') +
+      (isPublished ? '<button type="button" data-native-nix-action="deploy">Deploy exact reviewed revision</button> ' +
+        '<button type="button" data-native-nix-action="rollback">Rollback source only</button>' : '') +
+      (transaction.recoveryRequired ? '<button type="button" data-native-nix-action="recover">Recover interrupted source</button> ' +
+        '<button type="button" data-native-nix-action="resume">Resume interrupted deployment</button>' : '') +
+      '</section>' : '<p>No active reviewed project revision.</p>');
+  return title("INCUS WORKSPACE", "Projects", "Manage project source and reviewed native Incus revisions.") +
     card("Observed Incus projects",
       '<button type="button" id="native-project-refresh">Refresh inventory</button>' +
       message + (rows ? '<div class="table-wrap"><table><thead><tr><th>Project</th><th>Guests</th><th>Observed state</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '') +
       '<p><a href="/docs/incus-native-architecture.md">Runtime and ownership contract</a></p>') +
     card("Published declarative source (read-only)", workspace) +
+    (initPanel ? card("Initialize or restore project workspace", initPanel) : '') +
+    (persisted?.available ? card("Review, publish and deploy declarative Nix", txPanel) : '') +
     card("Published application source revisions (not deployed)", published) +
     card("Preview original application files locally",
       '<p>Preview Dockerfiles, Compose YAML and related build-context files without executing them. Relative paths and exact SHA-256 digests remain visible.</p>' +
       '<label class="field"><span>Choose files</span><input id="native-source-files" type="file" multiple' + (nativeImportState.busy ? ' disabled' : '') + '></label>' +
       '<label class="field"><span>Choose directory</span><input id="native-source-folder" type="file" webkitdirectory directory multiple' + (nativeImportState.busy ? ' disabled' : '') + '></label>' +
+      '<label class="field"><span>Or import ZIP/TAR archive</span><input id="native-source-archive" type="file" accept=".zip,.tar,.tar.gz,.tgz"' + (nativeImportState.busy ? ' disabled' : '') + '></label>' +
       (nativeSourcePreflight.scanning ? '<p role="status">Computing checksums in the browser…</p>' : '') +
       (nativeSourcePreflight.error ? '<p role="alert" class="error">' + esc(nativeSourcePreflight.error) + '</p>' : '') + manifest + editorError + editor) +
     card("Stage source in private review storage",
@@ -146,17 +225,19 @@ function nativeProjectPage() {
       (nativeImportState.busy ? '<p role="status">Transferring verified source chunks…</p>' : '') +
       (nativeImportState.error ? '<p role="alert" class="error">' + esc(nativeImportState.error) + '</p>' : '') + upload) +
     card("Review and publish staged source", reviewPanel) +
-    card("Declarative deployment",
-      '<p>Versioned source publication does not deploy anything. OCI building, secrets, approved Incus apply, rollback and data backups require the privileged deployment adapter and recovery tests.</p>' +
+    card("OCI build and Compose compatibility preview", planPanel) +
+    card("OCI / Compose deployment",
+      '<p>Original Dockerfile/Compose source publication is not application deployment. OCI building, scoped secrets, new Incus resource creation and data restore require #133/#139/#134 and verified recovery tests.</p>' +
       '<p><a href="/docs/incus-native-plan.md">Implementation phases</a></p>');
 }
-async function nativePreviewFiles(files) {
+async function nativePreviewFiles(files, archive = false) {
   if (nativeImportState.busy) return;
   const serial = ++nativePreviewSerial;
   nativeSourceEditor.path = "";
   nativeSourceEditor.text = "";
   nativeSourceEditor.error = "";
   nativeSourcePreflight.files = [];
+  nativeSourcePreflight.archive = false;
   nativeSelectedFiles = [];
   nativeImportState.result = null;
   nativeImportState.review = null;
@@ -167,7 +248,10 @@ async function nativePreviewFiles(files) {
   if (state.page === "projects") shell();
   try {
     const list = [...files];
-    if (!list.length || list.length > NATIVE_MAX_FILES) throw Error("Choose between 1 and 64 files.");
+    if (!list.length || list.length > NATIVE_MAX_FILES || (archive && list.length !== 1))
+      throw Error(archive ? "Choose exactly one archive." : "Choose 1–256 source files.");
+    if (archive && !/\.(?:zip|tar|tar\.gz|tgz)$/i.test(list[0].name))
+      throw Error("Choose a ZIP, TAR, TAR.GZ or TGZ archive.");
     if (!globalThis.crypto?.subtle) throw Error("SHA-256 unavailable in this browser.");
     let total = 0;
     const paths = new Set();
@@ -176,15 +260,17 @@ async function nativePreviewFiles(files) {
       const path = nativeSourcePath(file);
       if (paths.has(path)) throw Error("Duplicate source path: " + path);
       paths.add(path);
-      if (file.size > NATIVE_MAX_FILE_BYTES) throw Error("Preview limit is 8 MiB per file.");
+      if (file.size > (archive ? NATIVE_MAX_ARCHIVE_BYTES : NATIVE_MAX_FILE_BYTES))
+        throw Error("Source file exceeds the 64 MiB upload limit.");
       total += file.size;
-      if (total > NATIVE_MAX_BYTES) throw Error("Preview limit is 32 MiB per selection.");
+      if (total > NATIVE_MAX_BYTES) throw Error("Source selection exceeds 128 MiB.");
       const hash = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
       const sha256 = [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
       items.push({path, size: file.size, sha256});
     }
     if (serial !== nativePreviewSerial) return;
     nativeSourcePreflight.files = items.sort((a, b) => a.path.localeCompare(b.path));
+    nativeSourcePreflight.archive = archive;
     nativeSelectedFiles = list;
   } catch (error) {
     if (serial !== nativePreviewSerial) return;
@@ -201,7 +287,8 @@ async function nativePreviewFiles(files) {
 
 // Saving a text file is opt-in. Never re-encode an untouched binary context.
 async function nativeOpenSourceEditor(path) {
-  if (nativeImportState.busy || nativeSourcePreflight.scanning) return;
+  if (nativeImportState.busy || nativeSourcePreflight.scanning || nativeSourcePreflight.archive ||
+      nativeImportState.result) return;
   const serial = nativePreviewSerial;
   nativeSourceEditor.error = "";
   nativeSourceEditor.path = "";
@@ -231,10 +318,10 @@ async function nativeSaveSourceEditor() {
     const index = nativeSelectedFiles.findIndex(item => nativeSourcePath(item) === path);
     if (index < 0) throw Error("Source selection changed; reopen the editor.");
     const bytes = new TextEncoder().encode(text);
-    if (bytes.length > NATIVE_MAX_FILE_BYTES) throw Error("Edited file exceeds 8 MiB.");
+    if (bytes.length > NATIVE_MAX_FILE_BYTES) throw Error("Edited file exceeds 64 MiB.");
     const total = nativeSelectedFiles.reduce((sum, file) => sum + file.size, 0) -
       nativeSelectedFiles[index].size + bytes.length;
-    if (total > NATIVE_MAX_BYTES) throw Error("Edited selection exceeds 32 MiB.");
+    if (total > NATIVE_MAX_BYTES) throw Error("Edited selection exceeds 128 MiB.");
     const old = nativeSelectedFiles[index];
     const blob = new Blob([bytes], {type: "text/plain"});
     // webkitRelativePath on a real File is read-only. Preserve it on the
@@ -277,7 +364,9 @@ async function nativeStageSource() {
     if (!current) throw Error("Enter your administrator password.");
     const files = nativeSourcePreflight.files;
     const original = new Map(nativeSelectedFiles.map(file => [nativeSourcePath(file), file]));
-    const candidate = await api("project-import/prepare", {project, files, current});
+    const candidate = await api("project-import/prepare", {
+      project, files, archive: nativeSourcePreflight.archive, current
+    });
     for (const item of files) {
       const file = original.get(item.path);
       if (!file || file.size !== item.size) throw Error("Selected source changed before upload.");
@@ -336,6 +425,8 @@ async function nativePublishSource() {
       id: staged.id, reviewId: review.reviewId, acknowledge, current,
     });
     nativeImportState.review = null;
+    nativeOCIPlan.record = null;
+    nativeOCIPlan.error = "";
     nativePublishedInventory.loaded = false;
   } catch (error) {
     nativeImportState.error = error.message || "Publication rejected; the previous revision is unchanged.";
@@ -347,7 +438,131 @@ async function nativePublishSource() {
   }
 }
 
+
+async function nativeInspectOCIPlan() {
+  if (nativeOCIPlan.busy || !nativeImportState.published) return;
+  nativeOCIPlan.busy = true;
+  nativeOCIPlan.error = "";
+  try {
+    nativeOCIPlan.record = await api("project-import/plan", {
+      project: nativeImportState.published.project,
+      revision: nativeImportState.published.revision
+    });
+  } catch (error) {
+    nativeOCIPlan.error = error.message || "Build plan inspection was refused.";
+    nativeOCIPlan.record = null;
+  } finally {
+    nativeOCIPlan.busy = false;
+    if (state.page === "projects") shell();
+  }
+}
+
+async function nativeInitializeWorkspace() {
+  if (nativeWorkspaceInit.busy) return;
+  const flake = document.querySelector("#native-workspace-flake")?.value || "";
+  const lock = document.querySelector("#native-workspace-lock")?.value || "";
+  const current = document.querySelector("#native-workspace-password")?.value || "";
+  const acknowledgePrivilegedNix = document.querySelector("#native-workspace-ack")?.checked === true;
+  if (!flake || !lock || !current || !acknowledgePrivilegedNix ||
+      new TextEncoder().encode(flake).length > 32768 ||
+      new TextEncoder().encode(lock).length > 131072) {
+    nativeWorkspaceInit.error = "Supply bounded pinned flake and lock files, your current password, and explicit approval.";
+    if (state.page === "projects") shell();
+    return;
+  }
+  nativeWorkspaceInit.busy = true;
+  nativeWorkspaceInit.error = "";
+  try {
+    await api("project/initialize", {flake, lock, current, acknowledgePrivilegedNix});
+    nativePersistedSource.loaded = false;
+    nativePersistedSource.value = null;
+    nativeWorkspaceInit.initialized = true;
+  } catch (error) {
+    nativeWorkspaceInit.error = error.message || "Workspace initialization was refused.";
+  } finally {
+    nativeWorkspaceInit.busy = false;
+    if (state.page === "projects") shell();
+  }
+}
+
+async function nativeRefreshProjectTransaction() {
+  if (nativeProjectTx.loading || nativeProjectTx.busy) return;
+  nativeProjectTx.loading = true;
+  try {
+    const response = await api("project/status");
+    nativeProjectTx.record = response?.id ? response : null;
+    nativeProjectTx.error = "";
+  } catch {
+    nativeProjectTx.error = "Project transaction status is unavailable.";
+  } finally {
+    nativeProjectTx.loaded = true;
+    nativeProjectTx.loading = false;
+    if (state.page === "projects") shell();
+  }
+}
+
+async function nativeProjectTransaction(action) {
+  if (nativeProjectTx.busy) return;
+  const password = document.querySelector("#native-nix-password")?.value || "";
+  const acknowledged = document.querySelector("#native-nix-ack")?.checked === true;
+  const path = document.querySelector("#native-nix-path")?.value?.trim() || "";
+  const source = document.querySelector("#native-nix-editor")?.value ?? "";
+  const linkedSource = document.querySelector("#native-nix-linked-source")?.value?.trim() || "";
+  const linkedRevision = document.querySelector("#native-nix-linked-revision")?.value?.trim() || "";
+  nativeProjectTx.path = path;
+  nativeProjectTx.source = source;
+  nativeProjectTx.linkedSource = linkedSource;
+  nativeProjectTx.linkedRevision = linkedRevision;
+  if (!password || !acknowledged) {
+    nativeProjectTx.error = "Current administrator password and explicit approval are required.";
+    if (state.page === "projects") shell();
+    return;
+  }
+  if (action === "review" &&
+      ((linkedSource && !/^[a-z][a-z0-9-]{0,62}$/.test(linkedSource)) ||
+       (linkedRevision && !/^[0-9a-f]{64}$/.test(linkedRevision)) ||
+       (!!linkedSource !== !!linkedRevision))) {
+    nativeProjectTx.error = "Select a valid published source project and its complete revision SHA-256 together.";
+    if (state.page === "projects") shell();
+    return;
+  }
+  if (action === "review" && (!path || !source || new TextEncoder().encode(source).length > 65536)) {
+    nativeProjectTx.error = "Choose a relative Nix module path with no more than 64 KiB of text.";
+    if (state.page === "projects") shell();
+    return;
+  }
+  nativeProjectTx.busy = true;
+  nativeProjectTx.error = "";
+  try {
+    const record = nativeProjectTx.record;
+    const request = action === "review" ? {
+      changes: {[path]: source},
+      sourceRevisions: linkedSource ? {[linkedSource]: linkedRevision} : {}
+    } : {
+      id: record?.id, planHash: record?.planHash
+    };
+    const endpoint = action === "resume" ? "deploy" : action;
+    if (action === "resume") request.resume = true;
+    nativeProjectTx.record = await api("project/" + endpoint, {
+      ...request, current: password, acknowledgePrivilegedNix: true
+    });
+  } catch (error) {
+    nativeProjectTx.error = error.message || "The project operation was not committed.";
+  } finally {
+    nativeProjectTx.loaded = true;
+    nativeProjectTx.busy = false;
+    if (state.page === "projects") shell();
+  }
+}
+
 function bindNativeProjects() {
+  document.querySelector("#native-workspace-init")?.addEventListener("click", () => void nativeInitializeWorkspace());
+  if (!nativeProjectTx.loaded && !nativeProjectTx.loading) void nativeRefreshProjectTransaction();
+  document.querySelector("#native-nix-review")?.addEventListener("click", () => void nativeProjectTransaction("review"));
+  document.querySelector("#native-nix-refresh")?.addEventListener("click", () => void nativeRefreshProjectTransaction());
+  for (const button of document.querySelectorAll("[data-native-nix-action]")) {
+    button.addEventListener("click", () => void nativeProjectTransaction(button.dataset.nativeNixAction));
+  }
   if (!nativePersistedSource.loaded && !nativePersistedSource.loading) {
     nativePersistedSource.loading = true;
     void api("project-sources").then(value => {
@@ -373,6 +588,7 @@ function bindNativeProjects() {
       if (state.page === "projects") shell();
     });
   }
+  document.querySelector("#native-oci-plan")?.addEventListener("click", () => void nativeInspectOCIPlan());
   document.querySelector("#native-import-stage")?.addEventListener("click", () => {
     void nativeStageSource();
   });
@@ -400,10 +616,10 @@ function bindNativeProjects() {
     }
     if (state.page === "projects") shell();
   });
-  for (const id of ["native-source-files", "native-source-folder"]) {
+  for (const id of ["native-source-files", "native-source-folder", "native-source-archive"]) {
     document.getElementById(id)?.addEventListener("change", event => {
       const files = [...(event.currentTarget.files || [])];
-      void nativePreviewFiles(files);
+      void nativePreviewFiles(files, id === "native-source-archive");
     });
   }
 }

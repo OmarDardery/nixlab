@@ -213,6 +213,8 @@
         '';
         startup = import ./tests/startup-vm.nix { inherit pkgs; };
         management = import ./tests/management-vm.nix { inherit pkgs; };
+        clock-readiness = import ./tests/clock-readiness-vm.nix { inherit pkgs; };
+        project-evaluator = import ./tests/project-evaluator-vm.nix { inherit pkgs; };
         installer-runtime = self.packages.x86_64-linux.installer.tests.recovery-guard;
         portal = import ./tests/portal-vm.nix { inherit pkgs; };
         bootstrap-transaction = import ./tests/bootstrap-transaction-vm.nix { inherit pkgs; };

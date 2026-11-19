@@ -52,7 +52,9 @@ in pkgs.testers.runNixOSTest {
     services.openssh = { enable = true; openFirewall = false; };
     # This fixture exercises real containers; it makes no KVM/VM-guest claim.
     systemd.services.nixlab-kvm-check = { serviceConfig.Type = "oneshot"; script = "true"; };
-    environment.systemPackages = [ pkgs.python3 pkgs.incus-lts.client pkgs.util-linux pkgs.git pkgs.networkmanager pkgs.openssl ];
+    environment.systemPackages = [ pkgs.python3 pkgs.nix pkgs.incus-lts.client pkgs.util-linux pkgs.git pkgs.networkmanager pkgs.openssl ];
+    environment.variables.NIXLAB_PROJECT_EVAL_LIB = "${../lib/project-workspace.nix}";
+    environment.variables.NIXLAB_PROJECT_NIXPKGS_LIB = "${pkgs.path}/lib";
     # Only this isolated Ethernet fixture belongs to NetworkManager.
     networking.networkmanager = {
       enable = true;
@@ -141,6 +143,17 @@ in pkgs.testers.runNixOSTest {
     host.succeed("incus init fixture impact-peer --project lab --profile base")
     host.succeed("PYTHONPATH=${../admin}:${../scripts} python3 ${./impact-integration.py}")
     host.succeed("incus delete impact-peer --project lab")
+    # Real, isolated project source transaction integration: only the worker
+    # dispatcher is mocked to place a deterministic crash after an Incus PUT.
+    # Source verification, Nix sandbox, observed ETags and every Incus call
+    # are real against the disposable alpha project/guest.
+    host.succeed("incus project create alpha --config features.images=false --config features.profiles=false")
+    host.succeed("incus init fixture printer --project alpha --no-profiles --storage guests --config limits.cpu=2 --config limits.memory=2GiB")
+    host.succeed("PYTHONPATH=${../admin}:${../scripts} python3 ${./project-transaction-integration.py}", timeout=300)
+    host.succeed("incus stop printer --project alpha --timeout 120", timeout=180)
+    host.succeed("incus delete printer --project alpha")
+    host.succeed("incus project delete alpha")
+
 
     # Synthetic mknod does not produce a USB uevent. Exercise explicit Incus
     # attachment/removal across restarts; physical hotplug is a hardware trial.

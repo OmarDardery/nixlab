@@ -83,8 +83,14 @@ class NativeImportTests(unittest.TestCase):
         self.assertEqual(imp.check_path("config/.env.template"), "config/.env.template")
         with self.assertRaisesRegex(ValueError, "Duplicate"):
             imp.check_files([descriptor("Dockerfile", b"1"), descriptor("Dockerfile", b"2")])
-        with self.assertRaisesRegex(ValueError, "8 MiB"):
-            imp.check_files([{"path": "x", "size": 9 * 1024 * 1024, "sha256": "0" * 64}])
+        with self.assertRaisesRegex(ValueError, "64 MiB"):
+            imp.check_files([{"path": "x", "size": 65 * 1024 * 1024, "sha256": "0" * 64}])
+        with self.assertRaisesRegex(ValueError, "128 MiB"):
+            imp.check_files([
+                {"path": "a", "size": 64 * 1024 * 1024, "sha256": "0" * 64},
+                {"path": "b", "size": 64 * 1024 * 1024, "sha256": "0" * 64},
+                {"path": "c", "size": 1, "sha256": "0" * 64}
+            ])
 
     def test_unreviewed_file_is_not_accepted(self):
         data = b"hello"
