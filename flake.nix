@@ -74,6 +74,11 @@
         onlyScopedConsumer = builtins.attrNames sample.sops.secrets == [ "TOKEN" ];
         guestIdentityNotHostMaster = sample.sops.age.keyFile == "/var/lib/sops-nix/guest.agekey";
         fileOnlyCredentials = sample.sops.secrets.TOKEN.mode == "0400";
+        runtimeCiphertextNoStoreImport = sample.sops.validateSopsFiles == false;
+        explicitGuestKeyOnly = sample.sops.age.generateKey == false
+          && sample.sops.age.sshKeyPaths == []
+          && sample.sops.gnupg.sshKeyPaths == [];
+        guestSecretsUseSystemdActivation = sample.sops.useSystemdActivation == true;
         declaredRestartOnly = sample.sops.secrets.TOKEN.restartUnits == [ "web.service" ];
         hostMasterKeyRejected = rejects (args // { guestAgeKeyFile = "/var/lib/nixlab/keys/projects.agekey"; });
         missingGuestBindingRejected = rejects (args // { instance = "unlisted"; });
@@ -257,6 +262,7 @@
         clock-readiness = import ./tests/clock-readiness-vm.nix { inherit pkgs; };
         project-evaluator = import ./tests/project-evaluator-vm.nix { inherit pkgs; };
         secrets-recovery = import ./tests/native-secrets-recovery-vm.nix { inherit pkgs; };
+        guest-sops-activation = import ./tests/native-guest-sops-vm.nix { inherit pkgs sops-nix; };
         installer-runtime = self.packages.x86_64-linux.installer.tests.recovery-guard;
         portal = import ./tests/portal-vm.nix { inherit pkgs; };
         bootstrap-transaction = import ./tests/bootstrap-transaction-vm.nix { inherit pkgs; };
