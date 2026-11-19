@@ -76,6 +76,18 @@ function nativeSecretsPanel() {
       '>Prepare encrypted review</button>' +
       '<p class="note">SOPS encrypts the value through the root broker before any review artifact is written. No plaintext .env or build-time secret is published.</p></fieldset>'
     : "";
+  const recipientsPanel = identity.healthy && project && project.revision && !v.review
+    ? '<fieldset><legend>Rotate SOPS/age recipients</legend>' +
+      '<p>Current public recipients: <code>' +
+      esc((project.recipients || [identity.recipient]).join(", ")) + '</code></p>' +
+      '<label class="field"><span>Complete recipient list, one age1 public key per line</span>' +
+      '<textarea id="native-recipient-list" rows="3" spellcheck="false" autocomplete="off">' +
+      esc((project.recipients || [identity.recipient]).join("\n")) + '</textarea></label>' +
+      '<p class="note">The host key must remain. Removed recipients cannot decrypt *new* ciphertext; old revisions and backups remain decryptable until retired. Rotate actual values when revoking access.</p>' +
+      '<label class="field"><span>Administrator password</span><input type="password" id="native-recipient-password" autocomplete="current-password"></label>' +
+      '<button type="button" id="native-recipient-review"' + (v.busy || !project.indexed ? ' disabled' : '') +
+      '>Review recipient rekey</button></fieldset>'
+    : "";
   const importPanel = identity.healthy && project && !v.review
     ? '<fieldset><legend>Import .env values directly into SOPS</legend>' +
       '<p class="note">The selected .env file is parsed locally. Only validated secret variables are sent to the authenticated encrypted-review endpoint. Raw .env files are never published.</p>' +
@@ -87,7 +99,8 @@ function nativeSecretsPanel() {
   const review = v.review
     ? '<fieldset><legend>Approve ciphertext-only publication</legend>' +
       '<p>Project: <code>' + esc(v.review.project) + '</code> · ' +
-      esc(v.review.action) + ' <code>' + esc((v.review.changedKeys || [v.review.key]).join(", ")) + '</code></p>' +
+      esc(v.review.action) + ' <code>' + esc(v.review.action === "recipients" ? (v.review.recipients || []).join(", ") :
+         (v.review.changedKeys || [v.review.key]).join(", ")) + '</code></p>' +
       '<p>From: <code>' + esc(v.review.baseRevision || "none") +
       '</code> → <code>' + esc(v.review.revision) + '</code></p>' +
       '<p class="note">New ciphertext is verified, but publishing it does not automatically deploy or restart a guest.</p>' +
@@ -127,7 +140,7 @@ function nativeSecretsPanel() {
                  (v.message ? '<p role="status">' + esc(v.message) + '</p>' : '');
   return card("Environment & secrets · SOPS/age",
     '<p>Encrypted, declarative variables managed in this Web UI. Only key names and ciphertext hashes are returned; plaintext is never readable through this interface.</p>' +
-    status + setup + choose + summary + form + importPanel + review + reindexPanel + recoveryPanel + errors +
+    status + setup + choose + summary + form + importPanel + recipientsPanel + review + reindexPanel + recoveryPanel + errors +
     '<p><a href="/docs/incus-native-secrets-ui.md">Secret management, delivery and recovery boundaries</a></p>');
 }
 
@@ -204,6 +217,36 @@ async function nativeSecretReview() {
     v.message = "Encrypted review prepared. No running workload changed.";
   } catch (error) {
     v.error = error.message || "Encrypted review failed.";
+  } finally {
+    v.busy = false;
+    if (state.page === "projects") shell();
+  }
+}
+
+async function nativeRecipientReview() {
+  const v = nativeSecretsView, project = nativeSecretProject();
+  if (v.busy || !project || v.review) return;
+  const input = document.getElementById("native-recipient-list");
+  const password = document.getElementById("native-recipient-password");
+  const recipients = (input?.value || "").split(/[\\s,]+/).filter(Boolean);
+  const current = password?.value || "";
+  if (password) password.value = "";
+  v.busy = true; v.error = ""; v.message = "";
+  try {
+    if (!current) throw Error("Administrator password required.");
+    if (!recipients.length || recipients.length > 16 || new Set(recipients).size !== recipients.length)
+      throw Error("Specify 1–16 unique age recipients.");
+    if (!recipients.includes(v.data?.identity?.recipient))
+      throw Error("Host age recipient must remain.");
+    if (recipients.some(value => !/^age1[ac-hj-np-z02-9]{58}$/.test(value)))
+      throw Error("Malformed age public recipient.");
+    v.review = await api("project-secrets/review", {
+      project: project.project, key: null, action: "recipients",
+      value: recipients, expectedRevision: project.revision, current,
+    });
+    v.message = "Encrypted recipient rekey reviewed. No workload changed.";
+  } catch (error) {
+    v.error = error.message || "Recipient rekey rejected.";
   } finally {
     v.busy = false;
     if (state.page === "projects") shell();
@@ -418,6 +461,9 @@ function bindNativeSecrets() {
   }
   document.querySelector("#native-secret-review")?.addEventListener("click", () => {
     void nativeSecretReview();
+  });
+  document.querySelector("#native-recipient-review")?.addEventListener("click", () => {
+    void nativeRecipientReview();
   });
   document.querySelector("#native-secret-publish")?.addEventListener("click", () => {
     void nativeSecretPublish();
