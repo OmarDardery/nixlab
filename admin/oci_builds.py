@@ -32,6 +32,31 @@ ROOT = Path(os.environ.get("NIXLAB_OCI_ROOT", "/var/lib/nixlab-oci"))
 REVIEW_LIFETIME = 15 * 60
 BUILDER_USER = "nixlab-oci"
 MAX_SERVICE_ARTIFACTS = 16
+MAX_WORKER_RECORD = 1024 * 1024
+
+
+def _worker_json(path):
+    """Read untrusted worker output by O_NOFOLLOW and exact builder ownership.
+
+    The worker can write the per-job out directory; it must never convince the
+    privileged parent to follow a symlink or read an arbitrary host file.
+    """
+    uid, _ = _account()
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        info = os.fstat(descriptor)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != uid
+                or info.st_nlink != 1 or info.st_size > MAX_WORKER_RECORD):
+            raise ValueError("Untrusted OCI worker record metadata")
+        raw = os.read(descriptor, MAX_WORKER_RECORD + 1)
+        if len(raw) != info.st_size:
+            raise ValueError("Untrusted OCI worker output changed")
+        value = json.loads(raw)
+        if not isinstance(value, dict):
+            raise ValueError("Untrusted OCI worker record is not an object")
+        return value
+    finally:
+        os.close(descriptor)
 
 
 def _digest(record):
@@ -245,7 +270,7 @@ class OCIBuilds:
             try:
                 scratch, plan = _snapshot(project, revision, identity, self.publisher)
                 _run_sandbox(scratch, "inspect", identity)
-                parsed = rt.read_json(scratch / "out" / "intent.json")
+                parsed = _worker_json(scratch / "out" / "intent.json")
                 if (parsed.get("sourceHash") != revision or
                         parsed.get("project") != project or
                         parsed.get("format") != 1):
@@ -332,7 +357,7 @@ class OCIBuilds:
                 os.chown(scratch / "work" / "intent.json", uid, gid)
                 os.chmod(scratch / "work" / "intent.json", 0o400)
                 _run_sandbox(scratch, "build", identity)
-                response = rt.read_json(scratch / "out" / "build-result.json")
+                response = _worker_json(scratch / "out" / "build-result.json")
                 if (response.get("format") != 1 or response.get("project") != record["project"] or
                         response.get("revision") != record["revision"] or
                         response.get("intentHash") != record["intentHash"] or
@@ -375,4 +400,4 @@ class OCIBuilds:
                     shutil.rmtree(scratch)
                 rt.write_json(self._job(identity) / "job.json", record)
                 rt.durable_unlink(self.state / "oci-build-active.json")
-                return self.status(identity)
+            return self.status(identity)
