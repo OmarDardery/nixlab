@@ -4,7 +4,7 @@
 let
   python = pkgs.python3;
   fixture = ./native-guest-sops-vm-fixture.py;
-  run = phase: "PYTHONPATH=${../admin} ${python}/bin/python3 ${fixture} ${phase}";
+  run = phase: "PYTHONPATH=${../admin}:${../scripts} ${python}/bin/python3 ${fixture} ${phase}";
   fragment = import ../lib/project-guest-secrets.nix { lib = pkgs.lib; };
 in
 pkgs.testers.runNixOSTest {
