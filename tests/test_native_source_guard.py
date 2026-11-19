@@ -32,6 +32,8 @@ class SourceGuardTests(unittest.TestCase):
             b"    environment:\n      API_TOKEN: ${API_TOKEN}\n"
         ), True)
         self.assert_result("nested/Dockerfile.worker", b"FROM alpine\n", True)
+        self.assert_result("nested/Containerfile.worker", b"FROM alpine\n", True)
+        self.assert_result("Containerfile", b"ARG DATABASE_PASSWORD\n", False, "unsafe build ARG/ENV")
 
     def test_plaintext_dockerfile_credentials_blocked(self):
         self.assert_result("Dockerfile", b"FROM alpine\nENV API_TOKEN=literal-private-value\n",
