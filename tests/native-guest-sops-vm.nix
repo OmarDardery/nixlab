@@ -43,7 +43,7 @@ pkgs.testers.runNixOSTest {
       unitConfig.DefaultDependencies = "no";
       path = [ pkgs.age pkgs.sops ];
       serviceConfig = { Type = "oneshot"; RemainAfterExit = true; UMask = "0077"; };
-      script = "exec ${run "provision"}";
+      script = "${run "provision"}";
     };
     systemd.services.nixlab-guest-sops-consumer = {
       description = "Real guest SOPS secret consumer with automatic restart";
@@ -51,7 +51,7 @@ pkgs.testers.runNixOSTest {
       requires = [ "sops-install-secrets.service" ];
       after = [ "sops-install-secrets.service" ];
       serviceConfig = { Type = "oneshot"; RemainAfterExit = true; UMask = "0077"; };
-      script = "exec ${run "consume"}";
+      script = "${run "consume"}";
     };
     environment.systemPackages = [ python pkgs.age pkgs.sops ];
   };
