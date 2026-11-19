@@ -353,7 +353,8 @@ async function nativeRecoveryExport() {
     if (passphrase.length < 16 || passphrase !== repeat || !current)
       throw Error("Enter and confirm a 16+ character recovery passphrase and reauthenticate.");
     const result = await api("project-secrets/recovery-export", {passphrase, includeBackup, current});
-    if (!result.verified) throw Error("Server did not verify the recovery encryption.");
+    if (result.verified !== false || result.requiresOfflineUnlockVerification !== true)
+      throw Error("Recovery kit must require independent SOPS unlock verification.");
     const bytes = Uint8Array.from(atob(result.encrypted), c => c.charCodeAt(0));
     download("nixlab-project-secrets-recovery.json", bytes, "application/json");
     v.message = "Encrypted recovery kit downloaded; store it offline and verify it before trusting backups.";
