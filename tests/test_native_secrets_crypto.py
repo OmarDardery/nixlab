@@ -63,5 +63,53 @@ class RealSecretsCrypto(unittest.TestCase):
         self.assertTrue(restore_root.is_file())
 
 
+    def test_real_multi_recipient_rekey_revokes_new_ciphertext_only(self):
+        import os
+        self.store.enroll_identity("owner", "generate", acknowledge=True)
+        start = self.store.review("owner", "sample", "ACCESS_TOKEN", "set", "canary-secret", None)
+        before = self.store.publish("owner", start["reviewId"], acknowledge=True)
+        old_ciphertext = (self.project / "secrets.enc.yaml").read_bytes()
+
+        external_key = self.project.parent / "external.agekey"
+        subprocess.run(["age-keygen", "-o", str(external_key)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       check=True, timeout=10)
+        external_key.chmod(0o400)
+        public = subprocess.run(["age-keygen", "-y"], input=external_key.read_bytes(),
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                check=True, timeout=10).stdout.decode().strip()
+        host = self.store.identity_status()["recipient"]
+        add = self.store.review("owner", "sample", None, "recipients",
+                                [host, public], before["revision"])
+        joint = self.store.publish("owner", add["reviewId"], acknowledge=True)
+        cipher_both = (self.project / "secrets.enc.yaml").read_bytes()
+        cmd = ["sops", "decrypt", "--input-type", "yaml", "--output-type", "json", "/dev/stdin"]
+        decrypted = subprocess.run(cmd, input=cipher_both,
+                                   env={**os.environ, "SOPS_AGE_KEY_FILE": str(external_key)},
+                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                   check=True, timeout=20)
+        self.assertEqual(json.loads(decrypted.stdout)["ACCESS_TOKEN"], "canary-secret")
+
+        revoke = self.store.review("owner", "sample", None, "recipients",
+                                   [host], joint["revision"])
+        self.store.publish("owner", revoke["reviewId"], acknowledge=True)
+        new_ciphertext = (self.project / "secrets.enc.yaml").read_bytes()
+        blocked = subprocess.run(cmd, input=new_ciphertext,
+                                 env={**os.environ, "SOPS_AGE_KEY_FILE": str(external_key)},
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                 timeout=20)
+        self.assertNotEqual(blocked.returncode, 0, "Revoked recipient still decrypts new ciphertext")
+        self.assertNotIn(b"canary-secret", new_ciphertext)
+        self.assertNotIn(public, (self.project / ".sops.yaml").read_text())
+        # Security limitation: recipient deletion cannot undo ciphertext copies
+        # from historical revisions. Only rotating actual secret values can.
+        old_permitted = subprocess.run(cmd, input=cipher_both,
+                                       env={**os.environ, "SOPS_AGE_KEY_FILE": str(external_key)},
+                                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                       check=True, timeout=20)
+        self.assertIn(b"canary-secret", old_permitted.stdout)
+        self.assertNotIn(b"canary-secret", old_ciphertext)
+
+
 if __name__ == "__main__":
     unittest.main()
