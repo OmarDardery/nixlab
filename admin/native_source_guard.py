@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 
 MAX_INSPECT = 2 * 1024 * 1024
-DOCKERFILE = re.compile(r"(?i)^dockerfile(?:[._-][a-z0-9._-]+)?$")
+DOCKERFILE = re.compile(r"(?i)^(?:dockerfile|containerfile)(?:[._-][a-z0-9._-]+)?$")
 COMPOSE = re.compile(r"(?i)^(?:docker-)?compose(?:[._-][a-z0-9_-]+)?\.ya?ml$")
 CREDENTIAL = re.compile(r"(?i)(?:password|passwd|passphrase|secret|token|api[_-]?key|private[_-]?key|access[_-]?key|authorization|auth[_-]?token)")
 CREDENTIAL_ASSIGNMENT = re.compile(
