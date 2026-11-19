@@ -154,9 +154,14 @@ def _sandbox_command(workspace, mode):
     bwrap = os.environ.get("NIXLAB_OCI_BWRAP_BIN")
     compose = os.environ.get("NIXLAB_OCI_COMPOSE_BIN")
     buildah = os.environ.get("NIXLAB_OCI_BUILDAH_BIN")
-    paths = (bwrap, compose, buildah, sys.executable, str(rt.SOURCE / "oci_builder_child.py"))
-    if (any(not isinstance(path, str) or not path.startswith("/nix/store/") for path in paths)):
-        raise ValueError("Pinned OCI build runtime is unavailable")
+    # Python may have been launched via /run/current-system/sw/bin/python3;
+    # its resolved executable is still a pinned, immutable Nix store path.
+    pins = {"bwrap": bwrap, "compose": compose, "buildah": buildah,
+            "python": os.path.realpath(sys.executable),
+            "worker": os.path.realpath(rt.SOURCE / "oci_builder_child.py")}
+    for label, path in pins.items():
+        if not isinstance(path, str) or not path.startswith("/nix/store/"):
+            raise ValueError("Pinned OCI build runtime is unavailable: " + label)
     work = workspace / "work"
     return [
         bwrap, "--unshare-all", "--die-with-parent", "--new-session",
@@ -174,7 +179,7 @@ def _sandbox_command(workspace, mode):
         "--setenv", "NIXLAB_OCI_PATH", os.environ.get("NIXLAB_OCI_PATH", ""),
         "--setenv", "NIXLAB_OCI_COMPOSE_BIN", compose,
         "--setenv", "NIXLAB_OCI_BUILDAH_BIN", buildah,
-        sys.executable, str(rt.SOURCE / "oci_builder_child.py"), mode,
+        pins["python"], pins["worker"], mode,
         "/work/intent.json",
     ]
 
