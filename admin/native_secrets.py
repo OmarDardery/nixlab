@@ -349,7 +349,7 @@ class Secrets:
             del values[key]
         elif action == "import":
             values.update(value)
-        else:
+        elif action == "set":
             values[key] = value
         changed_keys = sorted(value) if action == "import" else ([] if action == "recipients" else [key])
         if len(values) > 128:
