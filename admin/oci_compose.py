@@ -36,6 +36,12 @@ def _safe_relative(value, *, allow_dot=False):
 
 
 def _source_path(base, path, *, allow_dot=False):
+    # compose-go canonicalizes relative build paths to absolute paths.
+    # Accept ONLY the isolated, pinned /context mount, never arbitrary host
+    # paths, /work, /tmp, or a symlink into another bind mount.
+    if isinstance(path, str) and (path == "/context" or path.startswith("/context/")):
+        relative = path[len("/context"):].lstrip("/")
+        return _safe_relative(relative, allow_dot=allow_dot) if relative else "."
     parts = list(PurePosixPath(base).parts) if base != "." else []
     leaf = _safe_relative(path, allow_dot=allow_dot)
     if leaf != ".":

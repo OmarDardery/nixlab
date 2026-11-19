@@ -28,7 +28,7 @@ def _generated_compose(project, revision, dockerfile):
     """Generate a separate preview, never modify original uploaded bytes."""
     parent = Path(dockerfile).parent.as_posix()
     context = "." if parent == "." else "./" + parent
-    image = "localhost/nixlab-" + project[:32] + ":" + revision[:32]
+    image = "localhost/nixlab-" + project[:24] + "-app:" + revision[:32]
     # JSON strings are valid YAML scalar syntax and escape arbitrary paths.
     manifest = (
         "services:\n  app:\n"

@@ -55,8 +55,18 @@ def _compose_json(spec, *, extra=None):
     else:
         flags = []
     if spec["generatedCompose"]:
+        # This file is separate from the exact uploaded Dockerfile. Since it
+        # lives in /work, explicitly pin its build context to /context instead
+        # of accidentally selecting the worker's scratch directory.
+        original_context = Path(spec["entrypoint"]).parent.as_posix()
+        relative_context = "." if original_context == "." else "./" + original_context
+        absolute_context = "/context" + ("" if original_context == "." else "/" + original_context)
+        expected = "context: " + json.dumps(relative_context)
+        if spec["generatedCompose"].count(expected) != 1:
+            raise ValueError("Reviewed Dockerfile context differs from generated launch manifest")
+        text = spec["generatedCompose"].replace(expected, "context: " + json.dumps(absolute_context))
         generated = WORK / "generated.yaml"
-        generated.write_text(spec["generatedCompose"])
+        generated.write_text(text)
         flags = ["-f", str(generated)]
     if extra:
         flags += ["-f", str(extra)]

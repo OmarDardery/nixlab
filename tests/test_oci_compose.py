@@ -54,6 +54,16 @@ class ComposePolicyTests(unittest.TestCase):
         self.assertNotEqual(newer["intentHash"], before["intentHash"])
         self.assertNotEqual(newer["separateOverride"], before["separateOverride"])
 
+    def test_compose_normalized_absolute_paths_are_only_allowed_under_frozen_context(self):
+        m = model()
+        m["services"]["frontend"]["build"]["context"] = "/context/apps/frontend"
+        self.assertEqual(self.validate(m)["services"][1]["dockerfile"],
+                         "apps/frontend/Dockerfile")
+        for path in ("/etc", "/var/lib/incus", "/work", "/tmp/../../etc", "/context/../etc"):
+            m["services"]["frontend"]["build"]["context"] = path
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                self.validate(m)
+
     def test_absent_dockerfile_path_and_escaping_context_fail_closed(self):
         for build in ({"context": "../../etc"}, {"context": "./missing"},
                       {"context": "./frontend", "dockerfile": "../escape"},
