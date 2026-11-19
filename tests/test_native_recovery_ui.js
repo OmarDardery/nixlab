@@ -35,7 +35,8 @@ ctx.download = (name, data, type) => downloads.push({name, data: Buffer.from(dat
 ctx.api = async (route, body) => {
   calls.push({route, body});
   if (route === "project-secrets/recovery-export")
-    return {encrypted: encrypted.toString("base64"), verified: true, recipient: "age1" + "q".repeat(58)};
+    return {encrypted: encrypted.toString("base64"), verified: false,
+            requiresOfflineUnlockVerification: true, recipient: "age1" + "q".repeat(58)};
   if (route === "project-secrets/recovery-verify")
     return {valid: true, recipient: "age1" + "q".repeat(58)};
   if (route === "project-secrets/reindex")
