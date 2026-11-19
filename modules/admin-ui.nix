@@ -20,6 +20,15 @@ in {
     };
     users.groups.nixlab-ui = { };
     users.users.nixlab-ui = { isSystemUser = true; group = "nixlab-ui"; };
+    # No shell, host keys, Incus group membership or host-root execution.
+    # The OCI runner wraps every Dockerfile in an offline filesystem namespace.
+    users.groups.nixlab-oci = { };
+    users.users.nixlab-oci = {
+      isSystemUser = true;
+      group = "nixlab-oci";
+      home = "/var/empty";
+      createHome = false;
+    };
     environment.systemPackages = [ tool ];
     systemd.services.nixlab-management-identity = {
       description = "Refresh management TLS identity from the assigned address";
@@ -37,6 +46,8 @@ in {
       # Restorable declarative projects are intentionally outside /etc/nixos
       # and the world-readable Nix store. Only the root broker may write them.
       "d /srv/nixlab 0700 root root -"
+      "d /var/lib/nixlab-oci 0711 root root -"
+      "d /var/lib/nixlab-oci/jobs 0711 root root -"
       "d /var/lib/nixlab-admin 0710 root nixlab-ui -"
       "d /var/lib/nixlab-admin/jobs 0700 root root -"
       "d /run/nixlab-admin 0750 root nixlab-ui -"

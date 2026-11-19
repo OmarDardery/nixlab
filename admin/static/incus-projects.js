@@ -10,6 +10,7 @@ const NATIVE_MAX_EDIT_BYTES = 1024 * 1024;
 const nativeImportState = {busy: false, result: null, review: null, published: null, error: ""};
 const nativePublishedInventory = {loaded: false, loading: false, projects: [], error: ""};
 const nativeOCIPlan = {busy: false, record: null, error: ""};
+const nativeOCIBuild = {busy: false, loaded: false, record: null, error: ""};
 const nativePersistedSource = {loaded: false, loading: false, value: null};
 const nativeProjectTx = {loaded: false, loading: false, busy: false, record: null, error: "",
                          path: "", source: "", linkedSource: "", linkedRevision: ""};
@@ -96,6 +97,34 @@ function nativeProjectPage() {
           '</code></td><td><code>' + esc(file.sha256) + '</code></td></tr>').join('') +
         '</tbody></table></div>' : '')
     : '<p>Publish a reviewed source revision to inspect a build plan. No build or Incus change occurs.</p>';
+  const build = nativeOCIBuild.record;
+  const buildPanel = nativeImportState.published
+    ? '<p>Offline, restricted OCI builds are a separate approval from source publication. No Incus resources change and registry/network access is disabled.</p>' +
+      '<label class="field"><span>Current administrator password (required for each build action)</span><input type="password" id="native-oci-password" autocomplete="current-password"></label>' +
+      '<label><input type="checkbox" id="native-oci-ack"> I approve running these exact Dockerfile instructions inside a CPU/memory-limited, non-root offline sandbox</label>' +
+      '<button type="button" id="native-oci-review"' + (nativeOCIBuild.busy ? ' disabled' : '') + '>Review exact isolated OCI build</button> ' +
+      '<button type="button" id="native-oci-refresh">Refresh build status</button>' +
+      (nativeOCIBuild.error ? '<p class="error" role="alert">' + esc(nativeOCIBuild.error) + '</p>' : '') +
+      (build ? '<p role="status">Review ID: <code>' + esc(build.id) +
+        '</code> · status: ' + esc(build.status) +
+        ' · plan SHA-256: <code>' + esc(build.planHash) + '</code></p>' +
+        (build.services || []).map(svc => '<p><code>' + esc(svc.service) +
+          '</code>: ' + esc(svc.image) + ' · ' +
+          esc(svc.built ? 'offline build' : 'pinned image only') +
+          (svc.namedVolumes?.length ? ' · named volumes: ' + esc(svc.namedVolumes.join(', ')) : '') +
+          '</p>').join('') +
+        (build.status === 'ready'
+          ? '<button type="button" id="native-oci-start">Approve and queue isolated OCI build</button>'
+          : build.status === 'failed' || build.status === 'interrupted'
+            ? '<button type="button" id="native-oci-start">Retry failed offline OCI build</button>'
+            : '') +
+        (build.artifacts || []).map(item => '<p>Verified OCI archive: <code>' +
+          esc(item.image) + '</code> · SHA-256 <code>' + esc(item.sha256) + '</code></p>').join('') +
+        (build.status === 'verified-artifact'
+          ? '<p>Image artifact verified. It is not imported or running in Incus.</p>' : '') +
+        (build.errorCode ? '<p role="alert">Build status: ' + esc(build.errorCode) + '</p>' : '')
+        : '')
+    : '<p>Publish source to review an isolated OCI build.</p>';
   const published = nativePublishedInventory.loading
     ? '<p>Loading published source revisions…</p>'
     : nativePublishedInventory.error
@@ -226,6 +255,7 @@ function nativeProjectPage() {
       (nativeImportState.error ? '<p role="alert" class="error">' + esc(nativeImportState.error) + '</p>' : '') + upload) +
     card("Review and publish staged source", reviewPanel) +
     card("OCI build and Compose compatibility preview", planPanel) +
+    card("Review and build offline OCI artifact", buildPanel) +
     card("OCI / Compose deployment",
       '<p>Original Dockerfile/Compose source publication is not application deployment. OCI building, scoped secrets, new Incus resource creation and data restore require #133/#139/#134 and verified recovery tests.</p>' +
       '<p><a href="/docs/incus-native-plan.md">Implementation phases</a></p>');
@@ -427,6 +457,8 @@ async function nativePublishSource() {
     nativeImportState.review = null;
     nativeOCIPlan.record = null;
     nativeOCIPlan.error = "";
+    nativeOCIBuild.record = null;
+    nativeOCIBuild.error = "";
     nativePublishedInventory.loaded = false;
   } catch (error) {
     nativeImportState.error = error.message || "Publication rejected; the previous revision is unchanged.";
@@ -453,6 +485,55 @@ async function nativeInspectOCIPlan() {
     nativeOCIPlan.record = null;
   } finally {
     nativeOCIPlan.busy = false;
+    if (state.page === "projects") shell();
+  }
+}
+
+async function nativeRefreshOCIBuild() {
+  if (nativeOCIBuild.busy) return;
+  nativeOCIBuild.busy = true;
+  try {
+    const result = await api("oci/status");
+    nativeOCIBuild.record = result?.id ? result : null;
+    nativeOCIBuild.error = "";
+  } catch {
+    nativeOCIBuild.error = "Cannot obtain isolated OCI build status.";
+  } finally {
+    nativeOCIBuild.busy = false;
+    nativeOCIBuild.loaded = true;
+    if (state.page === "projects") shell();
+  }
+}
+
+async function nativeOCIBuildAction(action) {
+  if (nativeOCIBuild.busy || !nativeImportState.published) return;
+  const credential = document.querySelector("#native-oci-password");
+  const current = credential?.value || "";
+  if (credential) credential.value = "";
+  const acknowledge = document.querySelector("#native-oci-ack")?.checked === true;
+  if (!current || !acknowledge) {
+    nativeOCIBuild.error = "Reauthenticate and explicitly approve this offline OCI build action.";
+    if (state.page === "projects") shell();
+    return;
+  }
+  nativeOCIBuild.busy = true;
+  nativeOCIBuild.error = "";
+  try {
+    const request = action === "review" ? {
+      project: nativeImportState.published.project,
+      revision: nativeImportState.published.revision
+    } : {
+      id: nativeOCIBuild.record?.id,
+      planHash: nativeOCIBuild.record?.planHash,
+      resume: ["failed", "interrupted"].includes(nativeOCIBuild.record?.status)
+    };
+    nativeOCIBuild.record = await api("oci/" + (action === "review" ? "review" : "build"), {
+      ...request, acknowledge, current
+    });
+  } catch (error) {
+    nativeOCIBuild.error = error.message || "Offline OCI review or build failed without touching Incus.";
+  } finally {
+    nativeOCIBuild.busy = false;
     if (state.page === "projects") shell();
   }
 }
@@ -558,6 +639,7 @@ async function nativeProjectTransaction(action) {
 function bindNativeProjects() {
   document.querySelector("#native-workspace-init")?.addEventListener("click", () => void nativeInitializeWorkspace());
   if (!nativeProjectTx.loaded && !nativeProjectTx.loading) void nativeRefreshProjectTransaction();
+  if (!nativeOCIBuild.loaded && !nativeOCIBuild.busy) void nativeRefreshOCIBuild();
   document.querySelector("#native-nix-review")?.addEventListener("click", () => void nativeProjectTransaction("review"));
   document.querySelector("#native-nix-refresh")?.addEventListener("click", () => void nativeRefreshProjectTransaction());
   for (const button of document.querySelectorAll("[data-native-nix-action]")) {
@@ -589,6 +671,9 @@ function bindNativeProjects() {
     });
   }
   document.querySelector("#native-oci-plan")?.addEventListener("click", () => void nativeInspectOCIPlan());
+  document.querySelector("#native-oci-review")?.addEventListener("click", () => void nativeOCIBuildAction("review"));
+  document.querySelector("#native-oci-start")?.addEventListener("click", () => void nativeOCIBuildAction("build"));
+  document.querySelector("#native-oci-refresh")?.addEventListener("click", () => void nativeRefreshOCIBuild());
   document.querySelector("#native-import-stage")?.addEventListener("click", () => {
     void nativeStageSource();
   });
