@@ -42,7 +42,7 @@ class ComposePolicyTests(unittest.TestCase):
         self.assertEqual([i["service"] for i in result["services"]], ["backend", "frontend"])
         self.assertEqual(result["services"][0]["dockerfile"], "apps/backend/docker/Containerfile")
         self.assertEqual(result["services"][1]["dockerfile"], "apps/frontend/Dockerfile")
-        self.assertIn("build: null", result["separateOverride"])
+        self.assertIn("build: !reset null", result["separateOverride"])
         self.assertIn(REVISION[:32], result["separateOverride"])
         self.assertEqual(json.dumps(model(), sort_keys=True), original, "Never mutate Compose JSON/YAML source")
         self.assertTrue(result["requiresBuilder"])
