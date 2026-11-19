@@ -64,14 +64,18 @@ def verify_archive(path, expected_sha256, expected_bytes):
     blobs, small, visited = {}, {}, set()
     with tarfile.open(path, mode="r:") as archive:
         for entry in archive:
-            if len(visited) >= MAX_ENTRIES or not entry.isfile():
-                raise ValueError("OCI archive contains links, devices or excessive members")
-            name = entry.name
-            if name.startswith("./"):
-                name = name[2:]
+            if len(visited) >= MAX_ENTRIES:
+                raise ValueError("OCI archive contains excessive members")
+            name = entry.name.removeprefix("./")
             if name in visited:
                 raise ValueError("Duplicate OCI archive entry")
             visited.add(name)
+            if entry.isdir():
+                if name.rstrip("/") not in {"blobs", "blobs/sha256"}:
+                    raise ValueError("Unexpected OCI directory metadata")
+                continue
+            if not entry.isfile():
+                raise ValueError("OCI archive contains symbolic/hard links or special files")
             if name not in ("oci-layout", "index.json") and not (
                     name.startswith("blobs/sha256/") and
                     HEX.fullmatch(name[len("blobs/sha256/"):])):
@@ -129,7 +133,7 @@ def verify_archive(path, expected_sha256, expected_bytes):
                 content[name.split("/")[-1]] = stream.read(MAX_JSON + 1)
     manifest = _bounded_json(content[manifest_id])
     if (manifest.get("schemaVersion") != 2 or
-            not isinstance(manifest.get("layers"), list) or not manifest["layers"]
+            not isinstance(manifest.get("layers"), list)
             or len(manifest["layers"]) > 128):
         raise ValueError("Unsupported OCI image manifest")
     refs = [manifest.get("config"), *manifest["layers"]]
