@@ -34,6 +34,9 @@ in {
       };
     };
     systemd.tmpfiles.rules = [
+      # Restorable declarative projects are intentionally outside /etc/nixos
+      # and the world-readable Nix store. Only the root broker may write them.
+      "d /srv/nixlab 0700 root root -"
       "d /var/lib/nixlab-admin 0710 root nixlab-ui -"
       "d /var/lib/nixlab-admin/jobs 0700 root root -"
       "d /run/nixlab-admin 0750 root nixlab-ui -"
@@ -79,6 +82,9 @@ in {
         User = "nixlab-ui"; Group = "nixlab-ui";
         LoadCredential = [ "tls.crt:/var/lib/nixlab-admin/tls.crt" "tls.key:/var/lib/nixlab-admin/tls.key" ];
         Restart = "on-failure"; RestartSec = "3s";
+        # The HTTPS process is deliberately finite even if every trusted-LAN
+        # connection stalls. Root broker jobs run in the separate service.
+        TasksMax = 96; LimitNOFILE = 1024; MemoryMax = "512M";
         NoNewPrivileges = true; PrivateTmp = true; ProtectHome = true;
         ProtectSystem = "strict"; ProtectKernelTunables = true; ProtectKernelModules = true;
         ProtectControlGroups = true; RestrictSUIDSGID = true;

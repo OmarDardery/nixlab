@@ -40,6 +40,36 @@ class CommissioningTests(unittest.TestCase):
         self.assertEqual(value['qualification'], 'unqualified')
         self.assertTrue(all(r['status'] != 'passed' for r in value['checks']))
 
+    def test_clock_evidence_is_required_and_latest_unknown_downgrades(self):
+        result = report(True)
+        result['evidence'] = [e for e in result['evidence'] if e['check'] != 'clock']
+        summary = self.summary(result)
+        self.assertEqual(summary['qualification'], 'unqualified')
+        self.assertEqual(next(r for r in summary['checks'] if r['check'] == 'clock')['status'], 'unknown')
+        c.record(result, result['context'], 'clock', 'passed', 'automated-probe', NOW)
+        self.assertEqual(self.summary(result)['qualification'], 'ready-for-review')
+        c.record(result, result['context'], 'clock', 'unknown', 'automated-probe', NOW)
+        self.assertEqual(self.summary(result)['qualification'], 'unqualified')
+
+    def test_clock_collection_fails_closed_but_keeps_other_probes(self):
+        ctx = dict(context(), apps=False)
+        for state, expected in [('synchronized', 'passed'),
+                                ('plausible-but-unsynchronized', 'unknown'),
+                                ('invalid-clock', 'failed')]:
+            with self.subTest(state=state):
+                result = report()
+                with patch('diagnostics.probe', return_value={'ok': False}), \
+                     patch('diagnostics.clock_status', return_value={'state': state}) as observed, \
+                     patch.object(c, 'command', return_value='[]'), \
+                     patch('builtins.open', side_effect=FileNotFoundError):
+                    c.collect(result, ctx, {'apps': {'enable': False}})
+                observed.assert_called_once_with()
+                outcomes = {e['check']: e['status'] for e in result['evidence']}
+                self.assertEqual(outcomes['clock'], expected)
+                self.assertEqual(outcomes['apps-vm'], 'skipped')
+                self.assertEqual(outcomes['apps-auth'], 'skipped')
+                self.assertEqual(outcomes['kvm'], 'unsupported')
+
     def test_complete_physical_attestations_require_review_not_certification(self):
         self.assertEqual(self.summary(report(True))['qualification'], 'ready-for-review')
         self.assertEqual(self.summary(report(True), revision='0' * 40)['qualification'], 'unqualified')

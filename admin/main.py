@@ -23,6 +23,73 @@ import accounts as access_accounts
 SOCKET = Path(os.environ.get('NIXLAB_SOCKET', '/run/nixlab-admin/backend.sock'))
 MAX_BODY = 262144
 MAX_HEADERS = 16384
+MAX_REQUEST_LINE = 4096
+MAX_HEADER_SECONDS = 15
+MAX_BODY_SECONDS = 30
+MAX_ACTIVE_CLIENTS = 32
+
+
+def checked_length(method, headers):
+    """Reject ambiguous HTTP framing on ALL routes, including read-only ones."""
+    if headers.get_all('Transfer-Encoding'):
+        raise rt.PublicError('Transfer encoding is not accepted')
+    lengths = headers.get_all('Content-Length', [])
+    if method != 'POST':
+        if lengths:
+            raise rt.PublicError('Request body is not accepted for this method')
+        return None
+    if len(lengths) != 1 or not re.fullmatch(r'[0-9]+', lengths[0].strip()):
+        raise rt.PublicError('Exactly one valid request length is required')
+    length = int(lengths[0].strip())
+    if not 0 < length <= MAX_BODY:
+        raise rt.PublicError('Request body is missing or too large')
+    return length
+
+
+class ReadDeadline:
+    """A wall-clock read budget, not an idle timeout that trickle traffic resets."""
+    def __init__(self, connection, seconds):
+        self.connection = connection
+        self.seconds = seconds
+        self.lock = threading.Lock()
+        self.active = False
+        self.timer = None
+
+    def __enter__(self):
+        with self.lock:
+            self.active = True
+        self.timer = threading.Timer(self.seconds, self.expire)
+        self.timer.daemon = True
+        self.timer.start()
+        return self
+
+    def expire(self):
+        with self.lock:
+            if self.active:
+                try:
+                    self.connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                self.active = False
+
+    def close(self):
+        with self.lock:
+            self.active = False
+        if self.timer is not None:
+            self.timer.cancel()
+
+    def __exit__(self, *_):
+        self.close()
+
+
+def body_read_deadline(handler):
+    # Broker requests arrive over a private Unix socket; its caller already
+    # enforces a timeout. Only the externally reachable HTTPS reader needs this.
+    if getattr(type(handler), 'enforce_body_deadline', False):
+        return ReadDeadline(handler.connection, MAX_BODY_SECONDS)
+    from contextlib import nullcontext
+    return nullcontext()
+
 
 
 class HeaderReader:
@@ -42,30 +109,26 @@ class HeaderReader:
 
 def json_body(handler):
     try:
-        if handler.headers.get_all('Transfer-Encoding'):
-            raise rt.PublicError('Transfer encoding is not accepted')
-        lengths = handler.headers.get_all('Content-Length', [])
-        if len(lengths) != 1 or not re.fullmatch(r'[0-9]+', lengths[0].strip()):
-            raise rt.PublicError('Exactly one valid request length is required')
-        length = int(lengths[0].strip())
-        if not 0 < length <= MAX_BODY:
-            raise rt.PublicError('Request body is missing or too large')
-        raw = handler.rfile.read(length)
+        length = checked_length('POST', handler.headers)
+        with body_read_deadline(handler):
+            raw = handler.rfile.read(length)
         if len(raw) != length:
             raise rt.PublicError('Incomplete request body')
         try:
             body = json.loads(raw)
         except (ValueError, UnicodeError):
             raise rt.PublicError('Invalid JSON request body') from None
-        if not isinstance(body, dict): raise rt.PublicError('Request body must be an object')
+        if not isinstance(body, dict):
+            raise rt.PublicError('Request body must be an object')
         return body
     except OSError:
         handler.close_connection = True
         raise rt.PublicError('Request body could not be read') from None
     except ValueError:
-        # Never parse leftover bytes from a rejected body as the next request.
+        # A rejected body must never become a second, smuggled request.
         handler.close_connection = True
         raise
+
 
 
 def reply(handler, status, data, content_type='application/json', extra=None):
@@ -133,6 +196,9 @@ def backend():
                               'backupVerification': backup_verification.status(settings['backup']['enable'], repository=settings['backup']['repository'])}
                 elif self.path == '/guests':
                     result = {'guests': guests() if manager.settings()['ready'] else []}
+                elif self.path == '/project/status':
+                    from project_transactions import ProjectTransactions
+                    result = ProjectTransactions().status()
                 elif self.path == '/project-sources':
                     import native_projects
                     result = native_projects.overview()
@@ -197,17 +263,21 @@ def backend():
                     import accounts
                     result = accounts.claim_enrollment(body.get('code'), body.get('password'))
                 elif self.path in ('/project-import/prepare', '/project-import/chunk', '/project-import/finish',
-                                   '/project-import/review', '/project-import/publish'):
+                                   '/project-import/review', '/project-import/publish', '/project-import/plan'):
                     import native_imports
                     with rt.locked(blocking=False):
                         staging = native_imports.ImportStaging()
                         if self.path == '/project-import/prepare':
-                            result = staging.prepare(actor, body.get('project'), body.get('files'))
+                            result = staging.prepare(actor, body.get('project'), body.get('files'),
+                                                     archive=body.get('archive', False))
                         elif self.path == '/project-import/chunk':
                             result = staging.chunk(body.get('id'), actor, body.get('path'),
                                                    body.get('offset'), body.get('data'))
                         elif self.path == '/project-import/finish':
                             result = staging.finish(body.get('id'), actor, body.get('manifestHash'))
+                        elif self.path == '/project-import/plan':
+                            from oci_source_plan import source_plan
+                            result = source_plan(body.get('project'), body.get('revision'))
                         elif self.path == '/project-import/review':
                             result = native_imports.PublishedSources().review(
                                 staging, body.get('id'), actor, body.get('manifestHash'))
@@ -279,6 +349,25 @@ def backend():
                     result = manager.migrate_layout()
                 elif self.path == '/operation':
                     result = operations.submit(body, principal=actor)
+                elif self.path in ('/project/initialize', '/project/review', '/project/publish',
+                                   '/project/rollback', '/project/cancel', '/project/recover', '/project/deploy'):
+                    from project_transactions import ProjectTransactions
+                    projects = ProjectTransactions()
+                    if self.path == '/project/initialize':
+                        result = projects.initialize(body.get('flake'), body.get('lock'), principal=actor)
+                    elif self.path == '/project/review':
+                        result = projects.review(body.get('changes'), principal=actor,
+                                                 source_revisions=body.get('sourceRevisions'))
+                    elif self.path == '/project/publish':
+                        result = projects.publish(body.get('id'), body.get('planHash'))
+                    elif self.path == '/project/rollback':
+                        result = projects.rollback(body.get('id'), body.get('planHash'))
+                    elif self.path == '/project/cancel':
+                        result = projects.cancel(body.get('id'))
+                    elif self.path == '/project/deploy':
+                        result = projects.deploy(body.get('id'), body.get('planHash'), resume=body.get('resume', False))
+                    else:
+                        result = projects.recover(body.get('id'))
                 elif self.path == '/deploy-guests':
                     from deployments import Deployments
                     deploy = Deployments()
@@ -418,14 +507,81 @@ class Auth:
                     session.pop('certificateDownload', None)
 
 
+class SecuredHttpHandler(BaseHTTPRequestHandler):
+    """Shared bounded HTTP parsing for the web portal (no privileged routes)."""
+    protocol_version = 'HTTP/1.1'
+    enforce_body_deadline = True
+
+    def handle_one_request(self):
+        # BaseHTTPRequestHandler reads the request line before parse_request.
+        # Arm the budget before that read and cancel it as soon as framing is
+        # validated, so long-running root broker actions are not interrupted.
+        self._header_deadline = ReadDeadline(self.connection, MAX_HEADER_SECONDS)
+        self._header_deadline.__enter__()
+        try:
+            return super().handle_one_request()
+        finally:
+            self._header_deadline.close()
+
+    def parse_request(self):
+        try:
+            original = self.rfile
+            self.rfile = HeaderReader(original)
+            try:
+                parsed = super().parse_request()
+            finally:
+                self.rfile = original
+            if not parsed:
+                return False
+            # Initialize command/version via stdlib before sending a 414:
+            # send_error needs both fields to write an actual HTTP response.
+            if len(self.raw_requestline) > MAX_REQUEST_LINE:
+                self.close_connection = True
+                self.send_error(414)
+                return False
+            # HTTP/1.1 keep-alive must never preserve stray request-body bytes.
+            if not self.path.startswith('/') or self.path.startswith('//'):
+                self.close_connection = True
+                self.send_error(400)
+                return False
+            try:
+                checked_length(self.command, self.headers)
+            except ValueError:
+                self.close_connection = True
+                self.send_error(400)
+                return False
+            return True
+        finally:
+            self._header_deadline.close()
+
+    def handle_expect_100(self):
+        # Do not acknowledge a potentially large upload before validating its
+        # framing or authenticating the request; browser JSON doesn't need it.
+        self.close_connection = True
+        self.send_error(417)
+        return False
+
+    def send_error(self, code, message=None, explain=None):
+        # Stdlib error rendering must never echo untrusted methods or headers.
+        super().send_error(code)
+
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(20)
+
+    def log_message(self, *_):
+        pass
+
+
 class BoundedHttpsServer(ThreadingHTTPServer):
     def handle_error(self, request, client_address):
         # Do not let the stdlib print request exceptions into the journal.
         pass
 
     daemon_threads = True
+    request_queue_size = MAX_ACTIVE_CLIENTS
     def __init__(self, address, handler):
-        self.slots = threading.BoundedSemaphore(32)
+        self.slots = threading.BoundedSemaphore(MAX_ACTIVE_CLIENTS)
         super().__init__(address, handler)
     def process_request(self, request, address):
         if not self.slots.acquire(blocking=False):
@@ -476,25 +632,17 @@ def bootstrap_cookie(header):
     return values[0] if len(values) == 1 else None
 
 
+def tls_context(certfile, keyfile):
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.options |= ssl.OP_NO_COMPRESSION
+    context.load_cert_chain(certfile, keyfile)
+    return context
+
+
 def web():
     auth = Auth()
-    class Frontend(BaseHTTPRequestHandler):
-        protocol_version = 'HTTP/1.1'
-        def parse_request(self):
-            original = self.rfile
-            self.rfile = HeaderReader(original)
-            try:
-                return super().parse_request()
-            finally:
-                self.rfile = original
-        def send_error(self, code, message=None, explain=None):
-            # Stdlib errors may otherwise echo an unsupported method or request.
-            super().send_error(code)
-        def setup(self):
-            super().setup()
-            self.connection.settimeout(20)
-        def log_message(self, *_):
-            pass
+    class Frontend(SecuredHttpHandler):
         def access(self):
             settings = broker_request('GET', '/access')
             address = ipaddress.ip_address(self.client_address[0])
@@ -506,7 +654,9 @@ def web():
             host = hosts[0]
             try:
                 parsed = urlsplit('https://' + host)
-                valid = parsed.hostname in settings['hosts'] and not parsed.username and not parsed.password and parsed.path == ''
+                valid = (parsed.hostname in settings['hosts'] and not parsed.username
+                         and not parsed.password and parsed.path == '' and not parsed.query
+                         and not parsed.fragment and parsed.port in (None, self.server.server_port))
             except ValueError:
                 valid = False
             if not valid:
@@ -585,7 +735,7 @@ def web():
                 if path == '/api/browser-certificates':
                     if session['role'] != 'admin': raise access_accounts.AuthorizationError('Administrator account required')
                     return reply(self, 200, broker_request('GET', '/browser-certificates'))
-                if path in ('/api/releases', '/api/main-revision', '/api/project-imports', '/api/project-secrets'):
+                if path in ('/api/releases', '/api/main-revision', '/api/project-imports', '/api/project/status', '/api/project-secrets'):
                     if session['role'] != 'admin': raise access_accounts.AuthorizationError('Administrator account required')
                     return reply(self, 200, broker_request('GET', path[4:]))
                 if path.startswith('/api/deployment/'):
@@ -708,12 +858,16 @@ def web():
                     if active.get('id') != body.get('id'):
                         raise rt.PublicError('Confirm the current reviewed transaction only')
                     require_fresh_web_confirmation(session, active, self.client_address[0])
+                if self.path.startswith('/api/project/'):
+                    if body.get('acknowledgePrivilegedNix') is not True:
+                        raise rt.PublicError('Acknowledge that project Nix files are privileged code')
+                    if not accounts.matches(session['username'], body.pop('current', None)):
+                        raise rt.PublicError('Reauthenticate before changing declarative project source')
+                    body.pop('acknowledgePrivilegedNix', None)
                 if self.path in ('/api/recovery-export', '/api/users'):
                     if not accounts.matches(session['username'], body.pop('current', None)):
                         raise rt.PublicError('Reauthenticate before exporting recovery material or changing accounts')
-                actions = {'/api/project-secrets/enroll', '/api/project-secrets/review', '/api/project-secrets/publish', '/api/project-secrets/recover', '/api/project-secrets/reindex',
-                           '/api/project-secrets/recovery-export', '/api/project-secrets/recovery-verify', '/api/project-secrets/recovery-restore',
-                           '/api/project-import/prepare', '/api/project-import/chunk', '/api/project-import/finish', '/api/project-import/review', '/api/project-import/publish', '/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests'}
+                actions = {'/api/project-import/prepare', '/api/project-import/chunk', '/api/project-import/finish', '/api/project-import/review', '/api/project-import/publish', '/api/project-import/plan', '/api/review', '/api/apply', '/api/confirm', '/api/rollback', '/api/cancel', '/api/migrate-layout', '/api/operation', '/api/users', '/api/recovery-export', '/api/cancel-backup', '/api/deploy-guests', '/api/project/initialize', '/api/project/review', '/api/project/publish', '/api/project/rollback', '/api/project/cancel', '/api/project/recover', '/api/project/deploy', '/api/project-secrets/enroll', '/api/project-secrets/review', '/api/project-secrets/publish', '/api/project-secrets/recover', '/api/project-secrets/reindex', '/api/project-secrets/recovery-export', '/api/project-secrets/recovery-verify', '/api/project-secrets/recovery-restore'}
                 if self.path not in actions:
                     return reply(self, 404, {'error': 'Unknown action'})
                 body['_actor'] = session['username']
@@ -729,10 +883,8 @@ def web():
                 reply(self, 400, {'error': rt.public_error(exc)})
     server = BoundedHttpsServer(('0.0.0.0', int(os.environ.get('NIXLAB_PORT', '9440'))), Frontend)
     server.daemon_threads = True
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.minimum_version = ssl.TLSVersion.TLSv1_2
     credentials = Path(os.environ.get('CREDENTIALS_DIRECTORY', str(rt.STATE)))
-    context.load_cert_chain(credentials / 'tls.crt', credentials / 'tls.key')
+    context = tls_context(credentials / 'tls.crt', credentials / 'tls.key')
     server.context = context
     server.serve_forever()
 
@@ -832,6 +984,51 @@ def config_cli(argv):
             require_fresh_cli_confirmation(job)
         result = broker_request('POST', '/' + args.command, {'id': args.id})
     print(json.dumps(result, indent=2))
+
+
+def project_cli(argv):
+    """Root-only review and recovery; identical state to the browser broker."""
+    import argparse
+    from project_transactions import ProjectTransactions
+    parser = argparse.ArgumentParser(prog='sudo nixlab-admin projects')
+    parser.add_argument('command', choices=['status', 'initialize', 'review', 'publish', 'rollback', 'cancel', 'recover', 'deploy'])
+    parser.add_argument('--changes', type=Path, help='UTF-8 JSON map of relative Nix file edits')
+    parser.add_argument('--source-revisions', type=Path, help='Optional JSON map of published project to exact source revision SHA-256')
+    parser.add_argument('--flake-path', type=Path, help='Previously pinned workspace flake.nix')
+    parser.add_argument('--lock-path', type=Path, help='Previously pinned workspace flake.lock')
+    parser.add_argument('--id')
+    parser.add_argument('--plan-hash')
+    parser.add_argument('--resume', action='store_true')
+    args = parser.parse_args(argv)
+    projects = ProjectTransactions()
+    try:
+        if args.command == 'status': result = projects.status(args.id)
+        elif args.command == 'initialize':
+            if not args.flake_path or not args.lock_path or any(
+                not p.is_file() or p.is_symlink() or p.stat().st_size > size
+                for p, size in ((args.flake_path, 32768), (args.lock_path, 131072))
+            ):
+                raise ValueError('Supply regular, bounded workspace flake.nix and flake.lock')
+            result = projects.initialize(args.flake_path.read_text(), args.lock_path.read_text(),
+                                         principal='root-console')
+        elif args.command == 'review':
+            if not args.changes or args.changes.is_symlink() or args.changes.stat().st_size > 131072:
+                raise ValueError('Provide a bounded local JSON edit file')
+            refs = None
+            if args.source_revisions:
+                if args.source_revisions.is_symlink() or args.source_revisions.stat().st_size > 4096:
+                    raise ValueError('Provide a bounded local source revision map')
+                refs = json.loads(args.source_revisions.read_text())
+            result = projects.review(json.loads(args.changes.read_text()), principal='root-console',
+                                     source_revisions=refs)
+        elif args.command == 'publish': result = projects.publish(args.id, args.plan_hash)
+        elif args.command == 'rollback': result = projects.rollback(args.id, args.plan_hash)
+        elif args.command == 'cancel': result = projects.cancel(args.id)
+        elif args.command == 'deploy': result = projects.deploy(args.id, args.plan_hash, resume=args.resume)
+        else: result = projects.recover(args.id)
+        print(json.dumps(result, indent=2))
+    except (OSError, ValueError, KeyError):
+        raise SystemExit('Project transaction failed; inspect source integrity, approvals and recovery state') from None
 
 
 def deploy_cli(argv):
@@ -1004,6 +1201,13 @@ if __name__ == '__main__':
             deploy_cli(sys.argv[2:])
         except (ValueError, OSError) as exc:
             sys.exit('Command failed; check inputs and host status before retrying')
+    elif action == 'projects' and os.geteuid() == 0:
+        project_cli(sys.argv[2:])
+    elif action == 'project-deploy-job' and os.geteuid() == 0:
+        if len(sys.argv) != 3:
+            sys.exit('Expected one project deployment ID')
+        from project_transactions import ProjectTransactions
+        ProjectTransactions().run_deployment(sys.argv[2])
     elif action == 'recovery' and os.geteuid() == 0:
         import recovery
         recovery.cli(sys.argv[2:])
@@ -1063,5 +1267,5 @@ if __name__ == '__main__':
     elif action == 'reset-password' and os.geteuid() == 0:
         reset_portal_password()
     else:
-        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|legacy-apps inventory|backend|web|guard|renew|approve-enrollment|reset-password|config|deploy|guests|recovery|commissioning|install-plan|prune-jobs|disk prepare}')
+        sys.exit('Usage: nixlab-admin {doctor|identity|enroll-key|legacy-apps inventory|backend|web|guard|renew|approve-enrollment|reset-password|config|projects|deploy|guests|recovery|commissioning|install-plan|prune-jobs|disk prepare}')
 
