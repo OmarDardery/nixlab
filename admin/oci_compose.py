@@ -176,7 +176,7 @@ def validate_model(model, *, project, revision, compose_path, files):
         if svc["built"]:
             lines.extend(["  " + svc["service"] + ":",
                           "    image: " + json.dumps(svc["image"]),
-                          "    build: null"])
+                          "    build: !reset null"])
     override = "\n".join(lines) + "\n" if len(lines) > 1 else ""
     identity = hashlib.sha256(json.dumps(
         {"project": project, "revision": revision, "services": preview},
