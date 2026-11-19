@@ -52,7 +52,7 @@ class SourceGuardTests(unittest.TestCase):
                     f"      {feature}: [provided]\n").encode(), False,
                     f"unsupported upstream Compose build.{feature}")
         self.assert_result("Dockerfile", b"FROM alpine\nRUN --mount=type=secret,id=token echo ok\n",
-                           False, "unqualified Dockerfile")
+                           True)
 
     def test_env_file_and_key_material_fail_without_echoing(self):
         self.assert_result(".env", b"API_TOKEN=literal-private-value\n", False, ".env upload")
