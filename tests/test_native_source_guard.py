@@ -58,6 +58,7 @@ class SourceGuardTests(unittest.TestCase):
 
     def test_env_file_and_key_material_fail_without_echoing(self):
         self.assert_result(".env", b"API_TOKEN=literal-private-value\n", False, ".env upload")
+        self.assert_result("nested/database.env", b"API_TOKEN=literal-private-value\n", False, ".env upload")
         self.assert_result(".env.example", b"API_TOKEN=literal-private-value\n",
                            False, "plaintext credential")
         self.assert_result("Dockerfile", b"# AGE-SECRET-KEY-1example\nFROM alpine\n",
